@@ -3,20 +3,12 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-function normalizeSqliteDatabaseUrl(url: string | undefined) {
-  if (!url?.startsWith("file:")) {
-    return url;
-  }
-
-  return url.split("?")[0] || url;
-}
-
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: normalizeSqliteDatabaseUrl(process.env["DATABASE_URL"]),
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });
