@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/admin/mail-sync",
+      "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/admin/sync-tranco",
+      "schedule": "0 3 * * 1"
+    }
+  ]
+}

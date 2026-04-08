@@ -1,0 +1,461 @@
+MAXXMAIL — SHARED BUILD STATE / TODO
+=====================================
+(formerly MMWBMail — renamed to MaxiMail, marketing: maximum clarity, productivity, speed)
+
+PURPOSE
+-------
+This file is the shared progress and protection ledger for AI-assisted development.
+Both Claude and Codex may read and update this file.
+
+Use it to track:
+- what is already working and must be preserved
+- what architecture improvements have been completed or planned
+- what bug fixes are still needed
+- what implementation constraints must be respected
+
+IMPORTANT RULE
+--------------
+Upgrades must wrap, adapt, and rewire existing working systems.
+Do NOT replace working systems wholesale unless explicitly approved.
+All prompts must begin with the Credit-Efficient Safe Upgrade task header.
+
+==================================================================
+PROTECTED WORKING SYSTEMS (DO NOT BREAK)
+==================================================================
+
+[WORKING / PRESERVE]
+- SMTP sending works (lib/mail-client.ts sendMessage + appendToFolder for IMAP Sent copy)
+- Auth password storage is encrypted (AES-256-GCM) and works
+- Current compose/editor works (contenteditable + command registry)
+- Attachment handling has specific enhancements — must not break
+- Photo/inline image handling has specific enhancements — must not break
+- Print handling configured (dedicated print iframe DOM approach) — must not break
+- Draft/autosave behavior is functional (DraftService + AutosaveService) — must not break
+- Multi-account credential storage via Prisma/SQLite works
+- IndexedDB message cache works (now account-scoped: accountId:folder:uid keys)
+- Server-side preferences sync (prioritizedSenders, autoFilters, blockedSenders) works
+- Domain verification (DMARC/BIMI/Tranco) pipeline works
+- Unsubscribe detection (List-Unsubscribe header + HTML body scan) works
+- Spoof/unverified sender detection + test suite (26/26) works
+- Background sync runtime (mail-sync-runtime.ts) works
+- SSE event stream per account works
+
+==================================================================
+ARCHITECTURE / FEATURE PROGRESS
+==================================================================
+
+[COMPLETED]
+
+1. Provider layer upgrade
+   - ImapSmtpProviderAdapter wraps all IMAP/SMTP calls
+   - Gmail detected, uses same adapter for now (Gmail-specific APIs deferred)
+   - Status: COMPLETE
+
+2. Sync engine upgrade
+   - Messages synced via accountId + folder path to StoredMessage in Prisma
+   - /api/accounts/[accountId]/messages route uses listSyncedMessages
+   - Status: COMPLETE
+
+3. Composer command registry and toolbar upgrade
+   - COMPOSER_COMMANDS registry built (composer/commands/registry.ts)
+   - ComposerToolbarPreferences with order/hidden/mode
+   - Toolbar driven by command registry
+   - Status: COMPLETE (customization panel UI has a bug — see bugs section)
+
+4. Attachment and photo pipeline preservation with toolbar integration
+   - Adapter pattern in composer/attachments/
+   - Existing inline image flow preserved and routed through adapter
+   - Status: COMPLETE
+
+5. Draft model and autosave upgrade
+   - DraftService + AutosaveService wired via draftServiceRef/autosaveServiceRef
+   - Revision tracking and conflict handling
+   - Storage key migrated from mmwbmail-compose-toolbar to maximail-compose-toolbar
+   - Status: COMPLETE
+
+6. Editor UX niceties and toolbar refinement
+   - Font family, font size selects, formatting commands in registry
+   - Status: COMPLETE
+
+7. Multi-account IndexedDB cache isolation
+   - makeCachedMessageId now keyed as accountId:folder:uid
+   - getCachedMessages and cacheMessages both account-scoped
+   - getCacheTimestamp account-scoped
+   - Status: COMPLETE
+
+8. SQLite WAL mode
+   - PRAGMA journal_mode=WAL, busy_timeout, synchronous=NORMAL in lib/prisma.ts
+   - Status: COMPLETE (verify in lib/prisma.ts)
+
+9. Sent folder IMAP append
+   - resolveSentFolder (specialUse → name variants → path fallback)
+   - appendToFolder fires async after SMTP send (fire-and-forget, non-blocking)
+   - X-No-Archive header added as best-effort suppression of server auto-save
+   - Status: COMPLETE
+
+10. Sent folder row display
+    - isSentFolder detection via specialUse + name/path fallbacks
+    - Rows show recipient instead of sender when in Sent folder
+    - Filter chip shows "To ⊙" instead of "From ⊙"
+    - Status: COMPLETE
+
+11. Server-side preferences persistence
+    - /api/accounts/[accountId]/preferences GET/PUT route
+    - UserPreferences model in Prisma schema
+    - loadServerPreferences called on account connect
+    - Status: COMPLETE
+
+12. Unsubscribe detection 3-pass
+    - List-Unsubscribe header parsed at IMAP fetch
+    - HTML anchor scan + proximity match fallback
+    - Toolbar button + inline confirmation popover
+    - Context menu entry for NL-type senders
+    - Status: COMPLETE
+
+13. Spoof detection + unverified sender
+    - detectSpoof and detectUnverifiedSender exported from lib/sender-verification.ts
+    - isClearlyPhishing threshold calibration done
+    - ESP whitelist applied in detectSpoof (not just detectUnverified)
+    - Test suite: 26/26 passing (scripts/test-spoof-detection.ts)
+    - Status: COMPLETE
+
+14. 8-layer sender verification sieve
+    - Layer 1: Authentication-Results header at IMAP fetch
+    - Layer 2: DMARC DNS via Cloudflare DoH, cached 24h in DomainVerificationCache
+    - Layer 3: BIMI DNS VMC (checks for VMC URL presence, cert chain validation deferred)
+    - Layer 4: Tranco top-100k weekly sync in SQLite (sync-tranco cron route)
+    - Layer 5: ESP whitelist (ESP_DOMAINS in sender-verification.ts)
+    - Layer 6: Brand dictionary (BRAND_DOMAINS, 65 brands, 103 domains)
+    - Layer 7: HTML body proximity scan
+    - Layer 8: Google Safe Browsing lazy link scan (/api/account/check-links)
+    - Status: COMPLETE (Layer 3 VMC cert chain validation is future work)
+
+15. Print system
+    - Dedicated print iframe DOM (buildPrintDocument utility)
+    - Pre-print modal with scope (message/thread), format, header, quoted options
+    - document.title set to sender-subject-date for clean PDF filename
+    - Status: COMPLETE
+
+16. Notifications (tiered)
+    - In-app toast on new mail arrival (prevMessageUidsRef tracking)
+    - Document title badge: (N) MaxiMail
+    - Web Notification API for macOS Safari tab (permission request in Settings)
+    - Badging API for dock badge (navigator.setAppBadge)
+    - iOS Safari tab fallback: toast + title badge only (push requires home screen PWA)
+    - PWA manifest + service worker stub added (public/manifest.json, public/sw.js)
+    - Status: COMPLETE
+
+17. Settings modal — Sender Rules tab
+    - Lists autoFilter rules per sender with avatar, name, email, keepDays select, createdAt
+    - Edit threshold inline, remove rule button
+    - Status: COMPLETE
+
+18. Multi-select bulk actions
+    - selectedUids Set + selectMode state
+    - Checkbox on hover (desktop) / tap (touch) on flat and thread rows
+    - Bulk action bar: Read/Unread, Move, Block, Delete
+    - Keyboard: Escape clears selection
+    - Status: COMPLETE (verify end-to-end)
+
+19. Delete All from Sender modal redesign
+    - Sender avatar hero, large count number, warning text, toggle card for block
+    - dms-* CSS classes
+    - Status: COMPLETE
+
+20. Edit menu active element targeting
+    - getActiveEditableElement + execOnEditable + lastEditableRef
+    - All Edit menu actions target active editable element
+    - Items greyed out when nothing editable is focused
+    - Status: COMPLETE
+
+21. Mute Sender removed from context menu
+    - Stub removed. Revisit: ask Ben if use case distinct from Block before building.
+    - Status: COMPLETE
+
+22. Product rename to MaxiMail
+    - User-facing strings updated throughout mail-app.tsx
+    - Storage key: maximail-compose-toolbar
+    - Status: COMPLETE (landing page mmwbmail.html not yet updated — do when working on web page)
+
+[IN PROGRESS / PARTIAL]
+
+23. Account settings UI redesign
+   - Prompt written: Add Account button, edit glyph per row, inline form collapses
+   - accountFormMode state pattern designed
+   - Status: PROMPT READY — apply in Codex
+
+24. Compose selected-text toolbar layering bug (see Bugs section #28)
+    - Status: ACTIVE BUG
+
+25. Auto-connect all added accounts + remove legacy single connected-account sidebar logic
+   - Problem:
+     After adding multiple accounts, the sidebar still behaves as if one special "connected account" exists and other accounts are secondary. This appears to block or confuse mailbox loading for additional accounts.
+   - Required fix:
+     - every added account should automatically be treated as connected
+     - each connected account should load its own folders/mailboxes automatically
+     - remove the legacy single "Connected Account" sidebar concept
+     - remove manual switch / settings gear behavior from that sidebar area if it only supports the old model
+   - Constraints:
+     - do NOT redesign the sidebar broadly
+     - do NOT break multi-account identity/session behavior
+     - do NOT require manual account activation for mailbox loading
+     - account listing and folder listing in the sidebar should not get grey background fills
+     - fix through the smallest safe account-connection and sidebar wiring changes possible
+   - Status: active / needs implementation
+
+[PLANNED / QUEUED]
+
+25. New Mail View — optional attention-first inbox mode
+    - Client-side overlay only — no server changes, no folder moves
+    - Classic / New Mail toggle in sidebar above Mailboxes header
+    - New Mail View active only when viewing Inbox
+    - Inbox relabeled "New Mail" when NMV enabled
+    - Virtual "New Mail" folder: unread threads/messages
+    - Virtual "Read" folder: fully read threads/messages
+    - Thread Model A: thread in New Mail if ANY message unread; in Read if ALL read
+    - Viewer always shows complete thread regardless of virtual folder
+    - Search scoped to current virtual folder automatically
+    - Toggle persisted in localStorage (maximail-new-mail-view)
+    - Status: PLANNED / PROMPT READY — apply in Codex
+    - Normalize reply, reply-all, forward, edit-as-new, draft resume flows
+    - Status: QUEUED
+
+26. Thread and conversation state layer
+    - Normalize conversation rendering without provider lock-in
+    - Status: QUEUED
+
+27. Message actions architecture
+    - Normalize archive/delete/read/star actions
+    - Status: QUEUED
+
+28. Multi-account identity and From / alias selection
+    - Normalize sending identity without breaking SMTP
+    - Status: QUEUED
+
+29. Signature and compose preset system
+    - Support signatures/presets without replacing editor
+    - Status: QUEUED
+
+30. Contact chips, recipient parsing, address resolution
+    - Normalize To/Cc/Bcc, pasted recipients, dedupe, reply-all derivation
+    - Status: QUEUED
+
+31. Search and mailbox query architecture
+    - Status: QUEUED
+
+32. Folder / label / mailbox navigation abstraction
+    - Support Gmail labels vs IMAP folders without leaking provider assumptions
+    - Status: QUEUED
+
+33. Provider-specific adapter deepening (Gmail first)
+    - Status: QUEUED
+
+34. Sync conflict resolution and offline-tolerant state refinement
+    - Status: QUEUED
+
+==================================================================
+FEATURE BACKLOG (UI/UX IMPROVEMENTS)
+==================================================================
+
+35. Multi-select bulk actions — verify end-to-end works in both flat and thread views
+    - Status: COMPLETE but needs verification
+
+36. VIP / starred — message.flagged + flag API route exist, just needs UI
+    - Star icon in row and toolbar, Starred smart folder in sidebar
+    - Status: QUEUED (high value, low effort)
+
+37. Scheduled send
+    - Status: QUEUED
+
+38. Snooze
+    - Status: QUEUED
+
+39. Notifications push (Web Push + service worker)
+    - Infrastructure stub in place (public/sw.js)
+    - Needs VAPID key setup and push subscription server
+    - Status: QUEUED
+
+40. Relationship-aware hierarchy
+    - Status: QUEUED
+
+41. Time-based automation
+    - Status: QUEUED
+
+42. Read receipts (moved to end of queue)
+    - Disposition-Notification-To header in compose
+    - readReceiptRequestedBy on MailSummary
+    - Banner in detail pane
+    - /api/account/read-receipt route
+    - Status: QUEUED (lowest priority)
+
+43. Customizable email reading toolbar (detail pane)
+    - User adds/removes/reorders Reply, Archive, Delete, Spam, Unread, Move, Print, Unsubscribe
+    - Priority: medium-high
+    - Status: QUEUED
+
+44. Delete non-default IMAP folders from server
+    - Priority: low
+    - Status: QUEUED
+
+45. Crop undo (Cmd+Z restores pre-crop image data in compose editor)
+    - Status: QUEUED (after crop-in-compose is built)
+
+==================================================================
+KNOWN BUGS / ACTIVE ISSUES
+==================================================================
+
+46. Compose selected-text toolbar layering bug [HIGH PRIORITY]
+    - Toolbar renders underneath compose window, effectively unusable
+    - Must render above all compose/app layers, be clickable and visible
+    - Must NOT use orange button styling — clean gray glyph-style controls
+    - Fix: smallest safe z-index/portal/clipping fix only
+    - Do NOT replace editor or compose window
+    - Status: ACTIVE — needs Codex implementation
+
+47. Compose popovers / menus / dropdown layering sanity
+    - Other compose overlays may have same stacking context issues
+    - Fix only overlay boundaries, do not redesign compose UI
+    - Status: QUEUED (review after #46 fixed)
+
+48. Composer toolbar customize button hidden
+    - composeToolbarCustomizationEnabled = false (hardcoded off)
+    - Command registry, preferences, panel JSX all built but panel content renders empty
+    - Root cause: composerToolbarCustomizationCommands resolves empty due to
+      preferences order/key mismatch; inline panel CSS also needs scoping
+    - Needs a proper debug session — do NOT attempt CSS-only fixes
+    - Status: BLOCKED — fix before shipping
+
+49. Sent messages folder name
+    - Fixed: appendToFolder now uses resolveSentFolder (specialUse → name → path)
+    - IMAP append fires after SMTP send to write to correct Sent folder
+    - Status: COMPLETE — monitor for regressions
+
+50. Legacy /api/account/ routes still active alongside /api/accounts/[accountId]/
+    - Some operations still use old connection-payload-based routes
+    - Migration to account-ID-based routing not 100% complete
+    - Status: ACTIVE — low urgency, monitor for routing errors
+
+51. Stale messages flash on account switch
+    - setMessages([]) fires before new load — fix applied
+    - Status: COMPLETE — monitor for regressions
+
+52. No user authentication
+    - All accounts visible to all visitors
+    - Acceptable for personal/trusted use
+    - For multi-user: needs auth system (not scoped yet)
+    - Status: KNOWN — not blocking
+
+53. MAIL_ACCOUNT_SECRET env var
+    - Must be set on hosting or passwords encrypted with known default
+    - Status: KNOWN — must set before going live
+
+54. Received-message media normalization retry guardrail
+    - A Task 21 follow-up attempt destabilized startup and blanked the app, but the root cause
+      was not the lightbox UI itself.
+    - Actual failure chain:
+      1. `/api/accounts` returned 500, so the shell loaded but the mailbox UI stayed blank
+      2. Prisma was opening a literal SQLite filename like
+         `dev.db?connection_limit=1&socket_timeout=20`
+         instead of the real `dev.db`
+      3. That accidental DB file had no `MailAccount` table, so account boot failed
+    - Fix applied:
+      - `lib/prisma.ts` and `prisma.config.ts` now strip query params from `file:` SQLite URLs
+      - local root `dev.db` must be treated as the live app DB for this workspace
+    - Retry rules for future received-media / attachment / inline-image work:
+      - Do NOT change Prisma SQLite URL normalization again unless absolutely necessary
+      - Before blaming UI/runtime code, verify `GET /api/accounts` returns 200
+      - If the interface is blank, check the data boot path first, not just the browser overlay
+      - Any retry of Task 21 should start from the last-known-good lightbox path and add only one
+        boundary change at a time
+      - First validate: `./node_modules/.bin/tsc --noEmit --pretty false`
+      - Then validate: Prisma can read `MailAccount` and `/api/accounts` returns live account data
+      - Only after that should received-message media classification changes be layered back in
+    - Safest-first retry plan for Task 21:
+      1. Baseline lock:
+         - Confirm current lightbox for received-email images still works on a known-good email
+         - Confirm `GET /api/accounts` = 200 before any media patching
+      2. Foundation-only pass:
+         - Add a pure received-message media classifier helper only
+         - Keep it server-side or type-only; do not wire it into render/lightbox yet
+         - Validate compile + `/api/accounts`
+      3. Data exposure pass:
+         - Add normalized media metadata to `MailDetail` only
+         - Do not change `emailBody`, iframe `srcDoc`, or lightbox handlers yet
+         - Validate compile + `/api/accounts` + message detail fetch
+      4. Inline-image bridge pass:
+         - Add one minimal adapter at the iframe boundary only
+         - No attachment UI, no new strip, no server-side HTML rewriting
+         - Validate one known CID image email and one normal remote image email
+      5. Attachment surface pass:
+         - Only after inline images are stable, consider exposing attachment-classified items
+         - Prefer a tiny read-only attachment list first
+         - Do not combine attachment UI and inline-image rewiring in the same patch
+      6. Final validation gate:
+         - `./node_modules/.bin/tsc --noEmit --pretty false`
+         - Prisma probe for `MailAccount`
+         - `GET /api/accounts`
+         - received inline image open
+    - Current state after latest retry:
+      - received-email images are rendering in the message iframe again
+      - received-email image lightbox open is still broken
+      - latest attempted fix was at the iframe click bridge in `components/mail-app.tsx`
+      - likely remaining bug area is the iframe event/anchor activation path, not startup, Prisma,
+        or basic message HTML rendering
+         - mixed email with inline image + attachment
+         - non-image attachment still behaves normally
+      7. Abort rule:
+         - If app shell blanks or `/api/accounts` fails, stop immediately and restore last-known-good
+           before continuing
+    - Status: ACTIVE LESSON — preserve this guardrail on next retry
+
+==================================================================
+IMPLEMENTATION RULES FOR AI ASSISTANTS
+==================================================================
+
+[TASK MODE HEADER — USE AT TOP OF EVERY CODEX PROMPT]
+Task Mode: Credit-Efficient Safe Upgrade
+
+Important rules for this task:
+• Preserve all known working systems unless explicitly told otherwise.
+• Do not scan or rewrite the whole codebase.
+• Only inspect files directly necessary for this task.
+• Prefer wrappers, adapters, selectors, resolvers, and targeted wiring changes over large rewrites.
+• Implement the smallest viable architecture that solves the problem cleanly now and can extend later.
+• Do not perform opportunistic cleanup, broad refactors, naming sweeps, formatting-only edits, or unrelated improvements.
+• Keep file diffs small and localized.
+• Validate only the highest-risk paths for this feature and adjacent protected systems.
+
+[CREDIT / TOKEN EFFICIENCY RULES]
+- Do NOT scan or rewrite the whole codebase unless explicitly required
+- Only inspect files directly necessary for the task
+- Keep diffs small, localized, and surgical
+- Prefer: helper utilities, adapters, resolvers, selectors, mappers, small state extensions, narrow integration layers
+- Avoid: broad rewrites, opportunistic cleanup, unrelated style changes, naming sweeps, large file reorganizations
+
+[IMPLEMENTATION STYLE]
+- Thin UI preferred — logic outside components where possible
+- Normalize data before render
+- Keep provider-specific logic behind boundaries
+- If the app already has a working flow, plug into it — do not create a competing one
+- Preferred phases: (A) foundation types/adapters → (B) UI wiring → (C) validation
+
+[DRAFT / PERSISTENCE SAFETY]
+Any compose-related changes must be safe for:
+- new session initialization, draft save, draft restore, state refresh, account/context switching
+Do NOT introduce logic that duplicates content, corrupts draft state, loses recipient/identity state, or breaks restored compose sessions.
+
+[TESTING / VALIDATION PRIORITY]
+Validate only highest-risk paths. Always preserve:
+- existing compose, send, draft restore, attachments/photos, print
+
+==================================================================
+UPDATE RULES FOR CLAUDE / CODEX
+==================================================================
+
+When you complete, partially complete, or discover a feature/bug:
+- update this file in the same format
+- keep entries short and practical
+- do not delete important historical context unless clearly obsolete
+- mark status clearly: working / active / planned / queued / partially complete / blocked / complete
+
+END OF FILE

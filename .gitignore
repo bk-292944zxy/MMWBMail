@@ -1,0 +1,19 @@
+node_modules
+.next
+.DS_Store
+*.log
+*.pid
+*.tgz
+
+# Keep environment variables and local data out of version control
+.env
+dev.db
+dev.db-shm
+dev.db-wal
+dev.db?*
+prisma/dev.db
+prisma/dev.db-shm
+prisma/dev.db-wal
+
+/lib/generated/prisma
+tsconfig.tsbuildinfo

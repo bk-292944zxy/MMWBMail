@@ -1,0 +1,177 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model DomainVerificationCache {
+  id           Int      @id @default(autoincrement())
+  domain       String   @unique
+  dmarcPolicy  String?
+  bimiVerified Boolean  @default(false)
+  bimiLogoUrl  String?
+  spfPresent   Boolean  @default(false)
+  trancoRank   Int?
+  isEsp        Boolean  @default(false)
+  cachedAt     DateTime
+
+  @@index([domain])
+}
+
+model TrancoSync {
+  id          Int      @id @default(autoincrement())
+  syncedAt    DateTime
+  domainCount Int
+}
+
+model BrandDomain {
+  id     Int    @id @default(autoincrement())
+  brand  String
+  domain String
+  source String
+
+  @@unique([brand, domain])
+}
+
+model MailAccount {
+  id                String          @id @default(cuid())
+  label             String
+  email             String
+  imapHost          String
+  imapPort          Int
+  imapSecure        Boolean         @default(true)
+  smtpHost          String
+  smtpPort          Int
+  smtpSecure        Boolean         @default(true)
+  encryptedPassword String
+  defaultFolder     String          @default("INBOX")
+  isActive          Boolean         @default(true)
+  isDefault         Boolean         @default(false)
+  lastSyncedAt      DateTime?
+  lastError         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  folders           MailboxFolder[]
+  messages          StoredMessage[]
+  syncStates        MailSyncState[]
+  events            MailAccountEvent[]
+  preferences       UserPreferences?
+
+  @@index([email])
+  @@index([isDefault])
+}
+
+model UserPreferences {
+  id                 String      @id @default(cuid())
+  accountId          String      @unique
+  prioritizedSenders String      @default("[]")
+  autoFilters        String      @default("[]")
+  blockedSenders     String      @default("[]")
+  updatedAt          DateTime    @updatedAt
+  account            MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model MailboxFolder {
+  id           String        @id @default(cuid())
+  accountId    String
+  path         String
+  name         String
+  specialUse   String?
+  messageCount Int?
+  unreadCount  Int?
+  lastSyncedAt DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  account      MailAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages     StoredMessage[]
+  syncState    MailSyncState?
+
+  @@unique([accountId, path])
+  @@index([accountId])
+}
+
+model StoredMessage {
+  id                   String             @id @default(cuid())
+  accountId            String
+  folderId             String
+  uid                  Int
+  messageId            String
+  inReplyTo            String?
+  references           String?
+  threadId             String?
+  authResultsDmarc     String?
+  authResultsSpf       String?
+  authResultsDkim      String?
+  listUnsubscribeUrl   String?
+  listUnsubscribeEmail String?
+  fromName             String
+  fromAddress          String
+  cc                   String?
+  toJson               String
+  subject              String
+  preview              String
+  date                 DateTime
+  seen                 Boolean           @default(false)
+  flagged              Boolean           @default(false)
+  answered             Boolean           @default(false)
+  hasAttachments       Boolean           @default(false)
+  remoteDeletedAt      DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  account              MailAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  folder               MailboxFolder     @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  body                 StoredMessageBody?
+
+  @@unique([accountId, folderId, uid])
+  @@index([accountId, date])
+  @@index([folderId, date])
+  @@index([messageId])
+}
+
+model StoredMessageBody {
+  id              String        @id @default(cuid())
+  storedMessageId String        @unique
+  text            String
+  html            String
+  emailBody       String
+  fetchedAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  message         StoredMessage @relation(fields: [storedMessageId], references: [id], onDelete: Cascade)
+}
+
+model MailSyncState {
+  id             String        @id @default(cuid())
+  accountId      String
+  folderId       String        @unique
+  lastSyncedAt   DateTime?
+  lastFullSyncAt DateTime?
+  lastUid        Int?
+  lastError      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  account        MailAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  folder         MailboxFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model MailAccountEvent {
+  id         String      @id @default(cuid())
+  accountId  String
+  folderPath String?
+  messageUid Int?
+  type       String
+  payloadJson String?
+  createdAt  DateTime    @default(now())
+  account    MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([accountId, folderPath])
+}
