@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev",
-    "build": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next build --webpack",
-    "start": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next start",
-    "lint": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next lint",
-    "typecheck": "tsc --noEmit"
+    "dev": "node ./node_modules/next/dist/bin/next dev",
+    "build": "node ./node_modules/next/dist/bin/next build --webpack",
+    "start": "node app.js",
+    "lint": "node ./node_modules/next/dist/bin/next lint",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate"
+  },
+  "engines": {
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "@next/env": "^16.2.2",
