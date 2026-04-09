@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { syncMailAccount } from "@/lib/mail-sync";
-import { ensureMailSyncRuntimeStarted } from "@/lib/mail-sync-runtime";
+import { syncAccountOnDemand } from "@/lib/mail-sync-runtime";
 
 type RouteContext = {
   params: Promise<{
@@ -14,12 +13,13 @@ type SyncPayload = {
   includeBodies?: boolean;
 };
 
+export const runtime = "nodejs";
+
 export async function POST(request: Request, context: RouteContext) {
   try {
-    await ensureMailSyncRuntimeStarted();
     const payload = (await request.json().catch(() => ({}))) as SyncPayload;
     const { accountId } = await context.params;
-    const result = await syncMailAccount(accountId, {
+    const result = await syncAccountOnDemand(accountId, {
       folderPaths: Array.isArray(payload.folderPaths) ? payload.folderPaths : undefined,
       includeBodies: payload.includeBodies === true
     });

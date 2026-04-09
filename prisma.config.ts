@@ -3,12 +3,14 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+import { getDirectDatabaseUrl } from "./lib/env";
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
+    url: getDirectDatabaseUrl(),
   },
 });

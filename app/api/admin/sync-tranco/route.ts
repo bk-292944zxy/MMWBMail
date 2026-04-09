@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  acquireAdminCronLock,
+  authorizeAdminCronRequest
+} from "@/lib/admin-cron";
 import { prisma } from "@/lib/prisma";
 import { BRAND_DOMAINS, extractSLD, findBrandBySld } from "@/lib/sender-verification";
 
@@ -43,8 +47,20 @@ async function upsertBrandDomains(
   }
 }
 
-export async function GET() {
-  // Internal admin route: protect this before exposing it publicly or triggering it via cron.
+export async function GET(request: Request) {
+  const unauthorizedResponse = authorizeAdminCronRequest(request);
+  if (unauthorizedResponse) {
+    return unauthorizedResponse;
+  }
+
+  const releaseLock = acquireAdminCronLock("sync-tranco");
+  if (!releaseLock) {
+    return NextResponse.json(
+      { error: "Tranco sync is already running." },
+      { status: 409 }
+    );
+  }
+
   try {
     const response = await fetch("https://tranco-list.eu/download/ranked/full", {
       cache: "no-store",
@@ -175,5 +191,7 @@ export async function GET() {
       { error: "Unable to sync the Tranco list." },
       { status: 503 }
     );
+  } finally {
+    releaseLock();
   }
 }

@@ -5254,27 +5254,30 @@ export function MailApp() {
       return;
     }
 
-    const source = new EventSource(
-      `/api/accounts/${activeAccountId}/events?since=${encodeURIComponent(
-        new Date().toISOString()
-      )}`
-    );
+    let source: EventSource | null = null;
+    let pollInterval: number | null = null;
+    let pollCursor = new Date().toISOString();
+    let disposed = false;
 
-    source.onmessage = (event) => {
+    const queueRefresh = (payload?: {
+      events?: Array<{ folderPath?: string | null }>;
+      cursor?: string;
+    }) => {
+      if (payload?.cursor) {
+        pollCursor = payload.cursor;
+      }
+
       try {
-        const payload = JSON.parse(event.data) as {
-          events?: Array<{ folderPath?: string | null }>;
-        };
         const hasRelevantEvent =
-          payload.events?.some(
+          payload?.events?.some(
             (entry) => !entry.folderPath || entry.folderPath === currentFolderPath
           ) ?? false;
 
-        if (!hasRelevantEvent) {
+        if (payload?.events && !hasRelevantEvent) {
           return;
         }
       } catch {
-        // If an event payload is malformed, fall back to a conservative refresh.
+        // Fall back to a conservative refresh if payload inspection fails.
       }
 
       if (refreshFromEventTimerRef.current) {
@@ -5293,14 +5296,72 @@ export function MailApp() {
       }, 250);
     };
 
+    const pollEvents = async () => {
+      try {
+        const response = await getJson<{
+          events?: Array<{ folderPath?: string | null }>;
+          cursor?: string;
+        }>(
+          `/api/accounts/${activeAccountId}/events?mode=poll&since=${encodeURIComponent(pollCursor)}`
+        );
+        if (!disposed) {
+          queueRefresh(response);
+        }
+      } catch {
+        // Silent fallback; background sync and future polls will retry.
+      }
+    };
+
+    const startPolling = () => {
+      if (pollInterval != null || disposed) {
+        return;
+      }
+
+      void pollEvents();
+      pollInterval = window.setInterval(() => {
+        void pollEvents();
+      }, 15_000);
+    };
+
+    if (typeof EventSource !== "undefined") {
+      source = new EventSource(
+        `/api/accounts/${activeAccountId}/events?since=${encodeURIComponent(pollCursor)}`
+      );
+
+      source.onmessage = (event) => {
+        try {
+          queueRefresh(
+            JSON.parse(event.data) as {
+              events?: Array<{ folderPath?: string | null }>;
+              cursor?: string;
+            }
+          );
+        } catch {
+          queueRefresh();
+        }
+      };
+
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        startPolling();
+      };
+    } else {
+      startPolling();
+    }
+
     return () => {
+      disposed = true;
       if (refreshFromEventTimerRef.current) {
         window.clearTimeout(refreshFromEventTimerRef.current);
         refreshFromEventTimerRef.current = null;
       }
-      source.close();
+      if (pollInterval != null) {
+        window.clearInterval(pollInterval);
+      }
+      source?.close();
     };
-  }, [activeAccountId, currentFolderPath]);
+  }, [activeAccountId, currentFolderPath, getJson, loadMessages, refreshFolderCounts]);
 
   function persistConnection(nextConnection: MailConnectionPayload) {
     setConnection(nextConnection);

@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
+import { getMailAccountSecret } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getMailAccountProviderInfo } from "@/lib/mail-provider-metadata";
 import type { MailAccountSummary, MailConnectionPayload } from "@/lib/mail-types";
@@ -11,10 +12,7 @@ export type CreateMailAccountInput = {
 } & MailConnectionPayload;
 
 function getEncryptionKey() {
-  const seed =
-    process.env.MAIL_ACCOUNT_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "mmwbmail-local-dev-secret";
+  const seed = getMailAccountSecret();
 
   return createHash("sha256").update(seed).digest();
 }

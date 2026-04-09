@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { listSyncedFolders, syncMailAccount } from "@/lib/mail-sync";
-import { ensureMailSyncRuntimeStarted } from "@/lib/mail-sync-runtime";
 
 type RouteContext = {
   params: Promise<{
@@ -9,9 +8,10 @@ type RouteContext = {
   }>;
 };
 
+export const runtime = "nodejs";
+
 export async function GET(request: Request, context: RouteContext) {
   try {
-    await ensureMailSyncRuntimeStarted();
     const { accountId } = await context.params;
     const { searchParams } = new URL(request.url);
     const shouldSync = searchParams.get("sync") === "true";

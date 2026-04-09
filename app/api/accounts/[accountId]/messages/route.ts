@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { listSyncedMessages, syncMailAccount } from "@/lib/mail-sync";
 import { searchAccountMessagesViaProvider } from "@/lib/mail-provider";
-import { ensureMailSyncRuntimeStarted } from "@/lib/mail-sync-runtime";
 
 type RouteContext = {
   params: Promise<{
@@ -10,9 +9,10 @@ type RouteContext = {
   }>;
 };
 
+export const runtime = "nodejs";
+
 export async function GET(request: Request, context: RouteContext) {
   try {
-    await ensureMailSyncRuntimeStarted();
     const { accountId } = await context.params;
     const { searchParams } = new URL(request.url);
     const folderPath = searchParams.get("folder")?.trim();

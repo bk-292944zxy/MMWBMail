@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { createMailAccount, listMailAccounts } from "@/lib/mail-accounts";
-import { ensureMailSyncRuntimeStarted } from "@/lib/mail-sync-runtime";
 import type { MailConnectionPayload } from "@/lib/mail-types";
 
 type CreateMailAccountPayload = MailConnectionPayload & {
@@ -10,7 +9,6 @@ type CreateMailAccountPayload = MailConnectionPayload & {
 
 export async function GET() {
   try {
-    await ensureMailSyncRuntimeStarted();
     const accounts = await listMailAccounts();
     return NextResponse.json({ accounts });
   } catch (error) {
@@ -23,7 +21,6 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as CreateMailAccountPayload;
     const account = await createMailAccount(payload);
-    await ensureMailSyncRuntimeStarted();
     return NextResponse.json({ account }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create account.";

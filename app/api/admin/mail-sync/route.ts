@@ -1,16 +1,29 @@
 import { NextResponse } from "next/server";
 
 import {
-  ensureMailSyncRuntimeStarted,
-  syncAllActiveAccounts
-} from "@/lib/mail-sync-runtime";
+  acquireAdminCronLock,
+  authorizeAdminCronRequest
+} from "@/lib/admin-cron";
+import { syncAllActiveAccounts } from "@/lib/mail-sync-runtime";
 
 export const runtime = "nodejs";
 
-// Internal route: protect this before exposing publicly or rely on trusted cron invocation only.
-export async function GET() {
+// Internal route: intended for cron-triggered or explicitly requested sync execution.
+export async function GET(request: Request) {
+  const unauthorizedResponse = authorizeAdminCronRequest(request);
+  if (unauthorizedResponse) {
+    return unauthorizedResponse;
+  }
+
+  const releaseLock = acquireAdminCronLock("mail-sync");
+  if (!releaseLock) {
+    return NextResponse.json(
+      { error: "Mail sync is already running." },
+      { status: 409 }
+    );
+  }
+
   try {
-    await ensureMailSyncRuntimeStarted();
     const result = await syncAllActiveAccounts();
 
     return NextResponse.json({
@@ -22,5 +35,7 @@ export async function GET() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to sync active accounts.";
     return NextResponse.json({ error: message }, { status: 503 });
+  } finally {
+    releaseLock();
   }
 }
