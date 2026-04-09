@@ -183,7 +183,7 @@ const WORKSPACE_DIVIDER_WIDTH = 8;
 const WORKSPACE_WIDE_BREAKPOINT = 1200;
 const NEW_MAIL_AUTO_READ_DWELL_MS = 60_000;
 const NEW_MAIL_SORT_PENDING_MUTATION_TTL_MS = 90_000;
-const NEW_MAIL_EXIT_ANIMATION_MS = 140;
+const NEW_MAIL_EXIT_ANIMATION_MS = 180;
 
 type LightboxImage = {
   src: string;
@@ -2406,6 +2406,7 @@ type SwipeRowProps = {
   message: MailSummary;
   selected: boolean;
   exiting?: boolean;
+  showFocusPill?: boolean;
   dragEnabled: boolean;
   swipeEnabled: boolean;
   isSentFolder: boolean;
@@ -2426,6 +2427,7 @@ function SwipeRow({
   message,
   selected,
   exiting = false,
+  showFocusPill = true,
   dragEnabled,
   swipeEnabled,
   isSentFolder,
@@ -2635,10 +2637,10 @@ function SwipeRow({
                     </span>
                   );
                 })()}
-                {!isSentFolder ? (
-                  <button
-                    type="button"
-                    className="focus-pill"
+            {!isSentFolder && showFocusPill ? (
+              <button
+                type="button"
+                className="focus-pill"
                     onClick={(event) => {
                       event.stopPropagation();
                       onFocus();
@@ -13119,7 +13121,7 @@ export function MailApp() {
                               ) : null;
                             })()}
 
-                            {!isSentFolder ? (
+                            {!isSentFolder && !isPrioritizedSenderView ? (
                               <button
                                 type="button"
                                 className="focus-pill"
@@ -13274,6 +13276,7 @@ export function MailApp() {
                   dragEnabled={dragFirstMessageList}
                   swipeEnabled={swipeFirstMessageList}
                   isSentFolder={isSentFolder}
+                  showFocusPill={!isPrioritizedSenderView}
                   isChecked={selectedUids.has(message.uid)}
                   activeSwipeUid={activeSwipeUid}
                   setActiveSwipeUid={setActiveSwipeUid}

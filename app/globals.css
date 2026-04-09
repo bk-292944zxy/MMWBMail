@@ -440,7 +440,9 @@ textarea:focus {
   min-height: 68px !important;
   display: block !important;
   transform-origin: top left !important;
-  transition: opacity 0.14s ease, transform 0.14s ease !important;
+  transition:
+    opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
 .swipe-actions {
@@ -500,7 +502,7 @@ textarea:focus {
   z-index: 1 !important;
   display: block !important;
   min-height: 68px !important;
-  transition: transform 0.18s ease !important;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
   will-change: transform !important;
   background: var(--surface2) !important;
   border-radius: 10px !important;
@@ -895,6 +897,10 @@ textarea:focus {
 
 .messageList-prioritized-view .message-row:hover .focus-pill,
 .messageList-prioritized-view .thread-row:hover .focus-pill {
+  display: none !important;
+}
+
+.messageList-prioritized-view .focus-pill {
   display: none !important;
 }
 
@@ -2113,11 +2119,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .sender-trust-summary {
+  align-self: flex-start;
   margin-top: 4px;
   border-radius: 10px;
   overflow: hidden;
   width: fit-content;
-  max-width: min(100%, 520px);
+  max-width: min(100%, 360px);
   border: 1px solid rgba(60, 60, 67, 0.08);
   background: rgba(60, 60, 67, 0.035);
 }
@@ -5228,7 +5235,9 @@ textarea:focus {
   border-bottom: 1px solid var(--border) !important;
   position: relative !important;
   transform-origin: top left !important;
-  transition: opacity 0.14s ease, transform 0.14s ease !important;
+  transition:
+    opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
 .thread-wrap.thread-selected {
@@ -5237,9 +5246,37 @@ textarea:focus {
 
 .swipe-row.new-mail-exit,
 .thread-wrap.new-mail-exit {
-  opacity: 0 !important;
-  transform: translateY(-5px) scale(0.988) !important;
   pointer-events: none !important;
+  will-change: opacity, transform !important;
+  animation: newMailExitShell 0.18s cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+}
+
+.swipe-row.new-mail-exit .swipe-foreground,
+.thread-wrap.new-mail-exit .thread-row {
+  will-change: opacity, transform !important;
+  animation: newMailExitContent 0.18s cubic-bezier(0.22, 1, 0.36, 1) forwards !important;
+}
+
+@keyframes newMailExitShell {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-7px) scale(0.99);
+  }
+}
+
+@keyframes newMailExitContent {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0.24;
+    transform: translateY(-5px) scale(0.992);
+  }
 }
 
 .swipe-row.swipe-row-disabled .swipe-actions {
