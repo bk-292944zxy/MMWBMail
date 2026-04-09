@@ -78,6 +78,21 @@ model UserPreferences {
   account            MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
+model AiCredential {
+  id              String   @id @default(cuid())
+  ownerScope      String   @unique
+  ownerType       String
+  provider        String
+  encryptedApiKey String
+  status          String   @default("connected")
+  lastValidatedAt DateTime?
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerType, provider])
+}
+
 model MailboxFolder {
   id           String        @id @default(cuid())
   accountId    String

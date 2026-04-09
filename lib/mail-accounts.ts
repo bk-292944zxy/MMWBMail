@@ -1,10 +1,8 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-
 import { Prisma } from "@prisma/client";
 
-import { getMailAccountSecret } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getMailAccountProviderInfo } from "@/lib/mail-provider-metadata";
+import { decryptStoredSecret, encryptStoredSecret } from "@/lib/secret-crypto";
 import type { MailAccountSummary, MailConnectionPayload } from "@/lib/mail-types";
 
 type PersistedMailAccountRecord = Awaited<ReturnType<typeof prisma.mailAccount.findUnique>>;
@@ -18,32 +16,6 @@ function isMissingMailAccountUpdate(error: unknown) {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2025"
   );
-}
-
-function getEncryptionKey() {
-  const seed = getMailAccountSecret();
-
-  return createHash("sha256").update(seed).digest();
-}
-
-function encryptSecret(value: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  return Buffer.concat([iv, authTag, encrypted]).toString("base64");
-}
-
-function decryptSecret(value: string) {
-  const decoded = Buffer.from(value, "base64");
-  const iv = decoded.subarray(0, 12);
-  const authTag = decoded.subarray(12, 28);
-  const encrypted = decoded.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", getEncryptionKey(), iv);
-  decipher.setAuthTag(authTag);
-
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
 
 function toSummary(account: NonNullable<PersistedMailAccountRecord>): MailAccountSummary {
@@ -127,7 +99,7 @@ export async function createMailAccount(input: CreateMailAccountInput) {
           smtpPort: input.smtpPort,
           smtpSecure: input.smtpSecure,
           encryptedPassword: trimmedPassword
-            ? encryptSecret(trimmedPassword)
+            ? encryptStoredSecret(trimmedPassword)
             : existing.encryptedPassword,
           defaultFolder: input.folder?.trim() || existing.defaultFolder || "INBOX",
           isActive: true
@@ -150,7 +122,7 @@ export async function createMailAccount(input: CreateMailAccountInput) {
           smtpHost: normalizedSmtpHost,
           smtpPort: input.smtpPort,
           smtpSecure: input.smtpSecure,
-          encryptedPassword: encryptSecret(trimmedPassword),
+          encryptedPassword: encryptStoredSecret(trimmedPassword),
           defaultFolder: input.folder?.trim() || "INBOX",
           isActive: true,
           isDefault: accountCount === 0
@@ -293,7 +265,7 @@ export async function requireMailAccountConnection(accountId: string, folder?: s
     account,
     connection: {
       email: account.email,
-      password: decryptSecret(account.encryptedPassword),
+      password: decryptStoredSecret(account.encryptedPassword),
       imapHost: account.imapHost,
       imapPort: account.imapPort,
       imapSecure: account.imapSecure,

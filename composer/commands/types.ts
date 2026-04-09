@@ -19,6 +19,7 @@ export type ComposerCommandId =
   | "number_list"
   | "indent"
   | "clear_formatting"
+  | "rewrite_for_outcome"
   | "attach_file"
   | "insert_image"
   | "insert_signature"

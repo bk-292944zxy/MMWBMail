@@ -44,7 +44,18 @@ function escapeFallbackHtml(value: string) {
 }
 
 function buildStoredBodyFallback(subject: string, preview: string) {
-  const text = preview.trim() || subject.trim() || "No message body available.";
+  const normalizedPreview = preview.trim();
+  const normalizedSubject = subject.trim();
+  const previewMatchesSubject =
+    normalizedPreview.length > 0 &&
+    normalizedSubject.length > 0 &&
+    normalizedPreview.localeCompare(normalizedSubject, undefined, {
+      sensitivity: "accent"
+    }) === 0;
+  const text =
+    normalizedPreview && !previewMatchesSubject
+      ? normalizedPreview
+      : "Loading message body...";
   return {
     text,
     html: `<p>${escapeFallbackHtml(text)}</p>`,

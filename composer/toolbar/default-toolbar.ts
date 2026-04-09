@@ -16,6 +16,7 @@ export const COMPOSER_DEFAULT_TOOLBAR_ORDER: ComposerCommandId[] = [
   "indent",
   "clear_formatting",
   "link",
+  "rewrite_for_outcome",
   "insert_signature",
   "insert_thanks",
   "insert_follow_up",

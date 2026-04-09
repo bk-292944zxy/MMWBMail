@@ -47,4 +47,7 @@ export interface ComposerCommandContext {
     insertSignature: () => void;
     insertPresetById: (presetId: string) => void;
   };
+  ai?: {
+    openRewriteAssistant: () => void;
+  };
 }

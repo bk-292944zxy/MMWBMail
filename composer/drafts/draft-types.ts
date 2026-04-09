@@ -19,6 +19,22 @@ export type StoredDraftAttachment = AttachmentState & {
   dataUrl: string;
 };
 
+export type PendingAiTransformSession = {
+  transformId: string;
+  draftId: string;
+  composeSessionId?: string | null;
+  target: "selection" | "draft";
+  strategy: "replace" | "insert_below";
+  sourceSelectionText?: string | null;
+  originalTextBody: string;
+  originalHtmlBody: string;
+  rewrittenText: string;
+  appliedTextBody: string;
+  appliedHtmlBody: string;
+  baseRevision: number;
+  createdAt: string;
+};
+
 export type StoredComposerDraft = {
   version: 2;
   draftId: string;
@@ -38,6 +54,7 @@ export type StoredComposerDraft = {
   textBody: string;
   signature: string;
   attachments: StoredDraftAttachment[];
+  pendingAiTransform?: PendingAiTransformSession | null;
   autosaveStatus: DraftAutosaveStatus;
   lastSavedRevision: number;
   localRevision: number;
@@ -73,6 +90,7 @@ export type DraftSnapshotInput = {
   textBody: string;
   signature: string;
   attachments: StoredDraftAttachment[];
+  pendingAiTransform?: PendingAiTransformSession | null;
   localRevision: number;
   lastSavedRevision: number;
 };

@@ -127,6 +127,15 @@ import type {
   SidebarMailboxTarget
 } from "@/lib/new-mail-view";
 import {
+  AI_REWRITE_CATEGORY_ORDER,
+  AI_REWRITE_MAX_INPUT_CHARS,
+  AI_REWRITE_MODES,
+  getAiRewriteModifierDefinitionsForMode,
+  type AiRewriteModeId,
+  type AiRewriteModifierId,
+  type AiRewriteOutputType
+} from "@/lib/ai-rewrite-modes";
+import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
   pruneExpiredMailMutations,
@@ -184,6 +193,7 @@ const WORKSPACE_WIDE_BREAKPOINT = 1200;
 const NEW_MAIL_AUTO_READ_DWELL_MS = 60_000;
 const NEW_MAIL_SORT_PENDING_MUTATION_TTL_MS = 90_000;
 const NEW_MAIL_EXIT_ANIMATION_MS = 180;
+const LINK_SCAN_SOURCE_CHAR_LIMIT = 250_000;
 
 type LightboxImage = {
   src: string;
@@ -293,6 +303,28 @@ type SmartMailboxEmptyState = {
   title: string;
   message: string;
   hint?: string;
+};
+
+type AiRewriteResponse = {
+  mode: AiRewriteModeId;
+  outputType: AiRewriteOutputType;
+  target: "selection" | "draft";
+  sourceText: string;
+  modifiers: AiRewriteModifierId[];
+  options: Array<{
+    id: string;
+    label: string;
+    text: string;
+  }>;
+};
+
+type ComposeAiSelectionSnapshot = {
+  plainText: boolean;
+  hasSelection: boolean;
+  selectedText: string;
+  range: Range | null;
+  plainTextStart: number;
+  plainTextEnd: number;
 };
 
 type TrustAwareMessage = Pick<
@@ -486,8 +518,18 @@ function escapeViewerHtml(text: string) {
 }
 
 function buildFallbackMessageDetail(message: MailSummary): MailDetail {
+  const normalizedPreview = message.preview.trim();
+  const normalizedSubject = message.subject.trim();
+  const previewMatchesSubject =
+    normalizedPreview.length > 0 &&
+    normalizedSubject.length > 0 &&
+    normalizedPreview.localeCompare(normalizedSubject, undefined, {
+      sensitivity: "accent"
+    }) === 0;
   const fallbackText =
-    message.preview.trim() || message.subject.trim() || "Loading message body...";
+    normalizedPreview && !previewMatchesSubject
+      ? normalizedPreview
+      : "Loading message body...";
   const escaped = escapeViewerHtml(fallbackText).replace(/\r?\n/g, "<br>");
   const html = `<p>${escaped}</p>`;
 
@@ -517,6 +559,42 @@ function buildFallbackMessageDetail(message: MailSummary): MailDetail {
   <body>${html}</body>
 </html>`
   };
+}
+
+function buildMessageBodyFrameKey(
+  uid: number,
+  emailBody: string,
+  textHint: string
+) {
+  return `${uid}:${emailBody.length}:${textHint.slice(0, 48)}`;
+}
+
+function messageDetailLooksUnresolved(message: Pick<MailDetail, "text" | "preview" | "subject" | "html">) {
+  const normalizedText = message.text.trim();
+  const normalizedPreview = message.preview.trim();
+  const normalizedSubject = message.subject.trim();
+
+  if (!normalizedText || normalizedText === "Loading message body...") {
+    return true;
+  }
+
+  if (
+    normalizedText.length > 0 &&
+    normalizedPreview.length > 0 &&
+    normalizedText.localeCompare(normalizedPreview, undefined, {
+      sensitivity: "accent"
+    }) === 0 &&
+    normalizedPreview.localeCompare(normalizedSubject, undefined, {
+      sensitivity: "accent"
+    }) === 0
+  ) {
+    return true;
+  }
+
+  return message.html.trim() === `<p>${escapeViewerHtml(normalizedText)}</p>` &&
+    normalizedText.localeCompare("Loading message body...", undefined, {
+      sensitivity: "accent"
+    }) === 0;
 }
 
 function isLikelyImageUrl(value: string) {
@@ -1395,6 +1473,24 @@ async function patchJson<T>(url: string, body: unknown): Promise<T> {
   return data;
 }
 
+async function putJson<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const data = await parseJsonResponse<T>(response);
+
+  if (!response.ok) {
+    throw new Error(data.error || "Request failed.");
+  }
+
+  return data;
+}
+
 async function deleteJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
     method: "DELETE"
@@ -1423,6 +1519,38 @@ async function parseJsonResponse<T>(response: Response): Promise<T & { error?: s
       error: fallbackMessage
     } as T & { error?: string };
   }
+}
+
+type AiSettingsSummary = {
+  ownerLabel: string;
+  provider: "openai";
+  configured: boolean;
+  status: "not_configured" | "connected" | "invalid";
+  lastValidatedAt: string | null;
+  lastError: string | null;
+};
+
+function getAiSettingsStatusLabel(status: AiSettingsSummary["status"]) {
+  switch (status) {
+    case "connected":
+      return "Connected";
+    case "invalid":
+      return "Invalid";
+    default:
+      return "Not configured";
+  }
+}
+
+function convertRewriteTextToHtml(text: string) {
+  const escaped = escapeViewerHtml(text.trim());
+  if (!escaped) {
+    return "<p></p>";
+  }
+
+  return escaped
+    .split(/\n{2,}/)
+    .map((block) => `<p>${block.replace(/\n/g, "<br/>")}</p>`)
+    .join("");
 }
 
 function formatTimestamp(date: string) {
@@ -1570,6 +1698,7 @@ const COMPACT_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
   "italic",
   "underline",
   "link",
+  "rewrite_for_outcome",
   "attach_file",
   "insert_image"
 ];
@@ -1583,6 +1712,7 @@ const SELECTION_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
   "capitalize_selection",
   "link",
   "quote",
+  "rewrite_for_outcome",
   "clear_formatting"
 ];
 
@@ -1683,6 +1813,20 @@ function renderComposerCommandIcon(command: ComposerCommand) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M10 17H6a2 2 0 0 1-2-2v-1a5 5 0 0 1 5-5h1v8Z" />
           <path d="M20 17h-4a2 2 0 0 1-2-2v-1a5 5 0 0 1 5-5h1v8Z" />
+        </svg>
+      );
+    case "rewrite":
+      return (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v4" />
+          <path d="M12 17v4" />
+          <path d="M4.93 4.93l2.83 2.83" />
+          <path d="M16.24 16.24l2.83 2.83" />
+          <path d="M3 12h4" />
+          <path d="M17 12h4" />
+          <path d="M4.93 19.07l2.83-2.83" />
+          <path d="M16.24 7.76l2.83-2.83" />
+          <circle cx="12" cy="12" r="3.5" />
         </svg>
       );
     case "clear_formatting":
@@ -2991,6 +3135,15 @@ export function MailApp() {
   const [presetDefinitions, setPresetDefinitions] = useState<ComposePresetDefinition[]>([]);
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [composeAiOpen, setComposeAiOpen] = useState(false);
+  const [composeAiMode, setComposeAiMode] = useState<AiRewriteModeId>("deescalate");
+  const [composeAiModifiers, setComposeAiModifiers] = useState<AiRewriteModifierId[]>([]);
+  const [composeAiPreview, setComposeAiPreview] = useState<AiRewriteResponse | null>(null);
+  const [composeAiBusy, setComposeAiBusy] = useState(false);
+  const [composeAiError, setComposeAiError] = useState<string | null>(null);
+  const [composeAiSettingsSummary, setComposeAiSettingsSummary] = useState<AiSettingsSummary | null>(null);
+  const [composeAiSettingsLoading, setComposeAiSettingsLoading] = useState(false);
+  const [expandedMessageSourceUid, setExpandedMessageSourceUid] = useState<number | null>(null);
   const [senderFilter, setSenderFilter] = useState<string | null>(null);
   const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
@@ -3019,8 +3172,16 @@ export function MailApp() {
   const [hasAppliedPreset, setHasAppliedPreset] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<
-    "ui" | "account" | "sorting" | "blocked" | "rules"
+    "ui" | "account" | "ai" | "sorting" | "blocked" | "rules"
   >("ui");
+  const [aiSettings, setAiSettings] = useState<AiSettingsSummary | null>(null);
+  const [aiSettingsLoading, setAiSettingsLoading] = useState(false);
+  const [aiSettingsSaving, setAiSettingsSaving] = useState(false);
+  const [aiSettingsTesting, setAiSettingsTesting] = useState(false);
+  const [aiSettingsRemoving, setAiSettingsRemoving] = useState(false);
+  const [aiApiKeyInput, setAiApiKeyInput] = useState("");
+  const [aiSettingsError, setAiSettingsError] = useState<string | null>(null);
+  const [aiSettingsSuccess, setAiSettingsSuccess] = useState<string | null>(null);
   const [accountFormMode, setAccountFormMode] = useState<"add" | "edit" | null>(null);
   const [accountFormTarget, setAccountFormTarget] = useState<string | null>(null);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
@@ -3041,6 +3202,17 @@ export function MailApp() {
     createDraftService(createLocalStorageDraftAdapter())
   );
   const autosaveServiceRef = useRef<AutosaveService | null>(null);
+  const composeDraftSnapshotTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(
+    null
+  );
+  const composeEditorSyncTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const composeAiSelectionSnapshotRef = useRef<ComposeAiSelectionSnapshot | null>(null);
+  const composeAiRequestSeqRef = useRef(0);
+  const composeAiInFlightRef = useRef(false);
+  const composeAiLastRequestRef = useRef<{
+    signature: string;
+    requestedAt: number;
+  } | null>(null);
   const composeLocalRevisionRef = useRef(0);
   const composeLastSavedRevisionRef = useRef(0);
   const [sidebarSize, setSidebarSize] = useState<"small" | "medium" | "large">(
@@ -4123,6 +4295,7 @@ export function MailApp() {
       const htmlBody = composePlainText
         ? composeBody.replace(/\n/g, "<br/>")
         : editor?.innerHTML ?? composeBody;
+      const textBody = composePlainText ? composeBody : editor?.innerText ?? composeBody;
       const attachmentState = getComposeAttachmentState(composeDraftId);
       const attachments = await Promise.all(
         composeAttachments.map(async (file, index) => ({
@@ -4167,7 +4340,7 @@ export function MailApp() {
         bcc: composeRecipients.bcc,
         replyTo: composeReplyTo,
         htmlBody,
-        textBody: composeBody,
+        textBody,
         signature,
         attachments,
         localRevision,
@@ -4320,6 +4493,16 @@ export function MailApp() {
     setBlockedSelectionAnchor(null);
     closeAccountForm();
   }, [accountFormMode, accounts.length, settingsOpen, settingsTab]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsTab !== "ai") {
+      return;
+    }
+
+    setAiSettingsError(null);
+    setAiSettingsSuccess(null);
+    void loadAiSettings();
+  }, [settingsOpen, settingsTab]);
 
   useEffect(() => {
     if (
@@ -4872,6 +5055,14 @@ export function MailApp() {
     });
 
     return () => {
+      if (composeEditorSyncTimerRef.current !== null) {
+        globalThis.clearTimeout(composeEditorSyncTimerRef.current);
+        composeEditorSyncTimerRef.current = null;
+      }
+      if (composeDraftSnapshotTimerRef.current !== null) {
+        globalThis.clearTimeout(composeDraftSnapshotTimerRef.current);
+        composeDraftSnapshotTimerRef.current = null;
+      }
       autosaveServiceRef.current?.cancel();
       autosaveServiceRef.current = null;
     };
@@ -4893,16 +5084,31 @@ export function MailApp() {
       return;
     }
 
-    void buildComposeDraftSnapshot(composeLocalRevisionRef.current).then((snapshot) => {
-      if (!snapshot) {
-        return;
-      }
+    if (composeDraftSnapshotTimerRef.current !== null) {
+      globalThis.clearTimeout(composeDraftSnapshotTimerRef.current);
+    }
 
-      autosave.schedule({
-        storageKey: DRAFT_STORAGE_KEY,
-        draft: snapshot
+    composeDraftSnapshotTimerRef.current = globalThis.setTimeout(() => {
+      composeDraftSnapshotTimerRef.current = null;
+
+      void buildComposeDraftSnapshot(composeLocalRevisionRef.current).then((snapshot) => {
+        if (!snapshot) {
+          return;
+        }
+
+        autosave.schedule({
+          storageKey: DRAFT_STORAGE_KEY,
+          draft: snapshot
+        });
       });
-    });
+    }, 260);
+
+    return () => {
+      if (composeDraftSnapshotTimerRef.current !== null) {
+        globalThis.clearTimeout(composeDraftSnapshotTimerRef.current);
+        composeDraftSnapshotTimerRef.current = null;
+      }
+    };
   }, [
     buildComposeDraftSnapshot,
     composeBccList,
@@ -4965,6 +5171,9 @@ export function MailApp() {
       setComposeToolbarMenuOpen(false);
       setComposeToolbarOverflowOpen(false);
       setComposeQuickInsertOpen(false);
+      setComposeAiOpen(false);
+      setComposeAiPreview(null);
+      setComposeAiError(null);
       setComposeSelectionToolbarPos(null);
       setComposeFormatSelection({
         fontFamily: "",
@@ -5094,6 +5303,16 @@ export function MailApp() {
       window.removeEventListener("scroll", syncSelectionState, true);
     };
   }, [composeOpen, composePlainText]);
+
+  useEffect(() => {
+    const allowedIds = new Set(
+      getAiRewriteModifierDefinitionsForMode(composeAiMode).map((item) => item.id)
+    );
+    setComposeAiModifiers((current) => {
+      const next = current.filter((modifierId) => allowedIds.has(modifierId));
+      return next.length === current.length ? current : next;
+    });
+  }, [composeAiMode]);
 
   useEffect(() => {
     if (!composeToolbarMenuOpen && !composeToolbarOverflowOpen && !composeQuickInsertOpen) {
@@ -5253,59 +5472,81 @@ export function MailApp() {
       return;
     }
 
-    if (!selectedMessage.html && !selectedMessage.text) {
-      return;
-    }
-
-    const urls = Array.from(
-      new Set(
-        Array.from(
-          selectedMessage.html.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi),
-          (match) => match[1]
-        )
-      )
-    ).slice(0, 50);
-
-    if (urls.length === 0) {
+    if (!selectedMessage.html) {
       return;
     }
 
     let cancelled = false;
+    const htmlSource = selectedMessage.html.slice(0, LINK_SCAN_SOURCE_CHAR_LIMIT);
+    const schedule = (
+      callback: () => void
+    ): number | ReturnType<typeof globalThis.setTimeout> =>
+      typeof window !== "undefined" && "requestIdleCallback" in window
+        ? window.requestIdleCallback(() => callback())
+        : globalThis.setTimeout(callback, 24);
+    const cancelScheduled = (id: number | ReturnType<typeof globalThis.setTimeout>) => {
+      if (typeof id === "number" && typeof window !== "undefined" && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(id);
+        return;
+      }
 
-    void postJson<{
-      matches?: Array<{
-        threat?: {
-          url?: string;
-        };
-      }>;
-      skipped?: boolean;
-    }>("/api/account/check-links", {
-      urls
-    })
-      .then((result) => {
-        if (cancelled || result.skipped) {
-          return;
-        }
+      globalThis.clearTimeout(id);
+    };
 
-        const flaggedUrls = Array.from(
-          new Set(
-            (result.matches ?? [])
-              .map((match) => match.threat?.url)
-              .filter((url): url is string => Boolean(url))
+    const scheduledId = schedule(() => {
+      if (cancelled) {
+        return;
+      }
+
+      const urls = Array.from(
+        new Set(
+          Array.from(
+            htmlSource.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi),
+            (match) => match[1]
           )
-        );
-        setSuspiciousLinks(flaggedUrls);
+        )
+      ).slice(0, 50);
+
+      if (urls.length === 0) {
+        return;
+      }
+
+      void postJson<{
+        matches?: Array<{
+          threat?: {
+            url?: string;
+          };
+        }>;
+        skipped?: boolean;
+      }>("/api/account/check-links", {
+        urls
       })
-      .catch(() => {
-        if (!cancelled) {
-          setSuspiciousLinks([]);
-        }
-      });
+        .then((result) => {
+          if (cancelled || result.skipped) {
+            return;
+          }
+
+          const flaggedUrls = Array.from(
+            new Set(
+              (result.matches ?? [])
+                .map((match) => match.threat?.url)
+                .filter((url): url is string => Boolean(url))
+            )
+          );
+          setSuspiciousLinks(flaggedUrls);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuspiciousLinks([]);
+          }
+        });
+    });
 
     return () => {
       cancelled = true;
+      cancelScheduled(scheduledId);
     };
-  }, [selectedMessage?.uid, selectedMessage?.html, selectedMessage?.text]);
+  }, [selectedMessage?.uid, selectedMessage?.html]);
 
   useEffect(() => {
     if (!selectedImg) {
@@ -6160,6 +6401,41 @@ export function MailApp() {
       setSelectedMessage(nextSelectedMessage);
       setStatus(`Viewing "${resolvedMessage.subject}".`);
 
+      if (messageDetailLooksUnresolved(nextSelectedMessage)) {
+        globalThis.setTimeout(() => {
+          void (async () => {
+            try {
+              const retryResponse = await getJson<{ message: MailDetail }>(
+                `/api/accounts/${resolvedAccountId}/messages/${message.uid}?folder=${encodeURIComponent(
+                  resolvedFolderPath
+                )}`
+              );
+
+              if (openMessageSeqRef.current !== requestSeq) {
+                return;
+              }
+
+              const retriedMessage = stampMessageAccount(
+                retryResponse.message,
+                resolvedAccountId
+              );
+
+              if (!messageDetailLooksUnresolved(retriedMessage)) {
+                setSelectedMessage((current) =>
+                  current && current.uid === retriedMessage.uid
+                    ? shouldMarkSeen && !retriedMessage.seen
+                      ? { ...retriedMessage, seen: true }
+                      : retriedMessage
+                    : current
+                );
+              }
+            } catch {
+              // Keep the current fallback visible if the silent retry fails.
+            }
+          })();
+        }, 1400);
+      }
+
       if (shouldMarkSeen) {
         setMessages((current) =>
           current.map((entry) =>
@@ -6683,16 +6959,19 @@ export function MailApp() {
         ...composeCcList,
         ...composeBccList
       ]);
+      const textBody = composePlainText
+        ? composeBody
+        : composeEditorRef.current?.innerText ?? composeBody;
       const htmlBody = composePlainText
-        ? composeBody.replace(/\n/g, "<br/>").replace(/  /g, "&nbsp;")
-        : composeEditorRef.current?.innerHTML || composeBody.replace(/\n/g, "<br/>");
+        ? textBody.replace(/\n/g, "<br/>").replace(/  /g, "&nbsp;")
+        : composeEditorRef.current?.innerHTML || textBody.replace(/\n/g, "<br/>");
       const formData = new FormData();
       formData.append("folder", composeAccount?.defaultFolder || "INBOX");
       formData.append("fromAddress", resolvedSendIdentity.fromAddress);
       formData.append("fromName", resolvedSendIdentity.fromName);
       formData.append("to", composeTo);
       formData.append("subject", composeSubject);
-      formData.append("body", composeBody);
+      formData.append("body", textBody);
       formData.append("htmlBody", htmlBody);
       formData.append("cc", composeCc);
       formData.append("bcc", composeBcc);
@@ -6924,8 +7203,35 @@ export function MailApp() {
 
   function updateComposeCounts(text: string) {
     const words = text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
-    setComposeWordCount({ words, chars: text.length });
+    setComposeWordCount((current) =>
+      current.words === words && current.chars === text.length
+        ? current
+        : { words, chars: text.length }
+    );
   }
+
+  const flushComposeEditorTextSync = useCallback((text: string) => {
+    if (composeEditorSyncTimerRef.current !== null) {
+      globalThis.clearTimeout(composeEditorSyncTimerRef.current);
+      composeEditorSyncTimerRef.current = null;
+    }
+
+    startTransition(() => {
+      setComposeBody((current) => (current === text ? current : text));
+      updateComposeCounts(text);
+    });
+  }, []);
+
+  const scheduleComposeEditorTextSync = useCallback((text: string) => {
+    if (composeEditorSyncTimerRef.current !== null) {
+      globalThis.clearTimeout(composeEditorSyncTimerRef.current);
+    }
+
+    composeEditorSyncTimerRef.current = globalThis.setTimeout(() => {
+      composeEditorSyncTimerRef.current = null;
+      flushComposeEditorTextSync(text);
+    }, 90);
+  }, [flushComposeEditorTextSync]);
 
   async function persistComposeDraftNow(showFeedback = false) {
     const snapshot = await buildComposeDraftSnapshot();
@@ -7782,6 +8088,269 @@ export function MailApp() {
     }
 
     updateComposeRichTextSnapshot();
+  }
+
+  function captureComposeAiSelectionSnapshot(): ComposeAiSelectionSnapshot {
+    if (composePlainText) {
+      const textarea = composePlainTextRef.current;
+      const start = textarea?.selectionStart ?? 0;
+      const end = textarea?.selectionEnd ?? start;
+      const selectedText = textarea?.value.slice(start, end) ?? "";
+
+      return {
+        plainText: true,
+        hasSelection: end > start,
+        selectedText,
+        range: null,
+        plainTextStart: start,
+        plainTextEnd: end
+      };
+    }
+
+    const selection = typeof window !== "undefined" ? window.getSelection() : null;
+    const activeRange =
+      selection && selection.rangeCount > 0
+        ? selection.getRangeAt(0).cloneRange()
+        : savedRangeRef.current?.cloneRange() ?? null;
+    const selectedText =
+      selection && selection.rangeCount > 0
+        ? selection.toString()
+        : composeSelectionState.text;
+
+    return {
+      plainText: false,
+      hasSelection: Boolean(activeRange && !activeRange.collapsed && selectedText.trim().length > 0),
+      selectedText: selectedText.trim(),
+      range: activeRange,
+      plainTextStart: 0,
+      plainTextEnd: 0
+    };
+  }
+
+  async function loadComposeAiSettingsSummary() {
+    setComposeAiSettingsLoading(true);
+
+    try {
+      const settings = await getJson<AiSettingsSummary>("/api/ai/settings");
+      setComposeAiSettingsSummary(settings);
+    } catch (error) {
+      setComposeAiError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load AI Writing Assistant status."
+      );
+    } finally {
+      setComposeAiSettingsLoading(false);
+    }
+  }
+
+  function openComposeAiPanel() {
+    setComposeAiOpen(true);
+    setComposeAiError(null);
+    setComposeAiPreview(null);
+    composeAiSelectionSnapshotRef.current = captureComposeAiSelectionSnapshot();
+    void loadComposeAiSettingsSummary();
+  }
+
+  function closeComposeAiPanel() {
+    composeAiRequestSeqRef.current += 1;
+    composeAiInFlightRef.current = false;
+    setComposeAiOpen(false);
+    setComposeAiBusy(false);
+    setComposeAiError(null);
+    setComposeAiPreview(null);
+    composeAiSelectionSnapshotRef.current = null;
+  }
+
+  function toggleComposeAiModifier(modifierId: AiRewriteModifierId) {
+    setComposeAiModifiers((current) => {
+      if (current.includes(modifierId)) {
+        return current.filter((item) => item !== modifierId);
+      }
+
+      if (current.length >= 3) {
+        return current;
+      }
+
+      return [...current, modifierId];
+    });
+  }
+
+  async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
+    const snapshot = captureComposeAiSelectionSnapshot();
+    composeAiSelectionSnapshotRef.current = snapshot;
+    const fullDraftText = composePlainText
+      ? composeBody
+      : composeEditorRef.current?.innerText ?? composeBody;
+    const sourceText = snapshot.hasSelection ? snapshot.selectedText : fullDraftText.trim();
+
+    if (!sourceText) {
+      setComposeAiError("Add some draft text or select text to rewrite.");
+      return;
+    }
+
+    if (sourceText.length > AI_REWRITE_MAX_INPUT_CHARS) {
+      setComposeAiError(
+        "That draft section is too long for one rewrite. Shorten it and try again."
+      );
+      return;
+    }
+
+    const requestSignature = JSON.stringify({
+      target: snapshot.hasSelection ? "selection" : "draft",
+      sourceText,
+      mode: composeAiMode,
+      modifiers: composeAiModifiers,
+      outputType
+    });
+
+    if (composeAiInFlightRef.current) {
+      setComposeAiError(
+        "A rewrite is already in progress. Give it a moment before trying again."
+      );
+      return;
+    }
+
+    const recentRequest = composeAiLastRequestRef.current;
+    if (
+      recentRequest &&
+      recentRequest.signature === requestSignature &&
+      Date.now() - recentRequest.requestedAt < 1500
+    ) {
+      setComposeAiError(
+        "That exact rewrite was just sent. Give it a moment before trying it again."
+      );
+      return;
+    }
+
+    const requestSeq = composeAiRequestSeqRef.current + 1;
+    composeAiRequestSeqRef.current = requestSeq;
+    composeAiInFlightRef.current = true;
+    composeAiLastRequestRef.current = {
+      signature: requestSignature,
+      requestedAt: Date.now()
+    };
+
+    setComposeAiBusy(true);
+    setComposeAiError(null);
+    setComposeAiPreview(null);
+
+    try {
+      const result = await postJson<AiRewriteResponse>("/api/ai/rewrite", {
+        selectedText: snapshot.hasSelection ? snapshot.selectedText : undefined,
+        fullDraftText: snapshot.hasSelection ? undefined : fullDraftText,
+        mode: composeAiMode,
+        modifiers: composeAiModifiers,
+        outputType
+      });
+      if (composeAiRequestSeqRef.current === requestSeq) {
+        setComposeAiPreview(result);
+      }
+    } catch (error) {
+      if (composeAiRequestSeqRef.current === requestSeq) {
+        setComposeAiError(
+          error instanceof Error ? error.message : "Unable to rewrite this draft."
+        );
+      }
+    } finally {
+      if (composeAiRequestSeqRef.current === requestSeq) {
+        composeAiInFlightRef.current = false;
+        setComposeAiBusy(false);
+      }
+    }
+  }
+
+  function finishComposeAiApply() {
+    composeAiInFlightRef.current = false;
+    composeAiSelectionSnapshotRef.current = null;
+    setComposeSelectionState({
+      hasSelection: false,
+      text: "",
+      isCollapsed: true
+    });
+    setComposeAiPreview(null);
+    setComposeAiOpen(false);
+    setComposeAiError(null);
+  }
+
+  function applyComposeAiPreview(optionText: string, strategy: "replace" | "insert_below") {
+    const snapshot = composeAiSelectionSnapshotRef.current ?? captureComposeAiSelectionSnapshot();
+
+    if (snapshot.plainText) {
+      const textarea = composePlainTextRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      const currentValue = textarea.value;
+      let nextValue = currentValue;
+
+      if (strategy === "replace") {
+        if (snapshot.hasSelection) {
+          nextValue =
+            currentValue.slice(0, snapshot.plainTextStart) +
+            optionText +
+            currentValue.slice(snapshot.plainTextEnd);
+        } else {
+          nextValue = optionText;
+        }
+      } else {
+        const insertionPoint = snapshot.hasSelection ? snapshot.plainTextEnd : currentValue.length;
+        const prefix =
+          insertionPoint > 0 && !currentValue.slice(0, insertionPoint).endsWith("\n\n")
+            ? "\n\n"
+            : "";
+        nextValue =
+          currentValue.slice(0, insertionPoint) +
+          `${prefix}${optionText}` +
+          currentValue.slice(insertionPoint);
+      }
+
+      textarea.value = nextValue;
+      setComposeBody(nextValue);
+      updateComposeCounts(nextValue);
+      textarea.focus();
+      const caretPosition =
+        strategy === "replace"
+          ? snapshot.hasSelection
+            ? snapshot.plainTextStart + optionText.length
+            : nextValue.length
+          : (snapshot.hasSelection ? snapshot.plainTextEnd : currentValue.length) +
+            (nextValue.length - currentValue.length);
+      textarea.selectionStart = caretPosition;
+      textarea.selectionEnd = caretPosition;
+      finishComposeAiApply();
+      return;
+    }
+
+    const editor = composeEditorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const html = convertRewriteTextToHtml(optionText);
+
+    if (strategy === "replace") {
+      if (snapshot.hasSelection && snapshot.range) {
+        savedRangeRef.current = snapshot.range.cloneRange();
+        insertHtmlIntoCompose(html);
+      } else {
+        editor.innerHTML = html;
+        updateComposeRichTextSnapshot();
+      }
+    } else {
+      if (snapshot.range) {
+        const insertionRange = snapshot.range.cloneRange();
+        insertionRange.collapse(false);
+        savedRangeRef.current = insertionRange;
+        insertHtmlIntoCompose(`<p><br/></p>${html}`);
+      } else {
+        editor.insertAdjacentHTML("beforeend", `<p><br/></p>${html}`);
+        updateComposeRichTextSnapshot();
+      }
+    }
+
+    finishComposeAiApply();
   }
 
   async function waitForPrintDocumentAssets(printDocument: Document) {
@@ -8702,6 +9271,110 @@ export function MailApp() {
     setAccountFormTarget(null);
   }
 
+  async function loadAiSettings() {
+    setAiSettingsLoading(true);
+
+    try {
+      const settings = await getJson<AiSettingsSummary>("/api/ai/settings");
+      setAiSettings(settings);
+    } catch (error) {
+      setAiSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load AI Writing Assistant settings."
+      );
+    } finally {
+      setAiSettingsLoading(false);
+    }
+  }
+
+  async function saveAiSettingsKey() {
+    if (!aiApiKeyInput.trim()) {
+      setAiSettingsError("Paste an OpenAI API key to save it.");
+      setAiSettingsSuccess(null);
+      return;
+    }
+
+    setAiSettingsSaving(true);
+    setAiSettingsError(null);
+    setAiSettingsSuccess(null);
+
+    try {
+      const settings = await putJson<AiSettingsSummary>("/api/ai/settings", {
+        apiKey: aiApiKeyInput,
+        validate: true
+      });
+      setAiSettings(settings);
+      setAiApiKeyInput("");
+      setAiSettingsSuccess(
+        settings.status === "connected"
+          ? "Saved."
+          : "Saved. Connection still needs attention."
+      );
+    } catch (error) {
+      setAiSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the OpenAI API key."
+      );
+    } finally {
+      setAiSettingsSaving(false);
+    }
+  }
+
+  async function testAiSettingsKey() {
+    setAiSettingsTesting(true);
+    setAiSettingsError(null);
+    setAiSettingsSuccess(null);
+
+    try {
+      const settings = await postJson<AiSettingsSummary>("/api/ai/settings/test", {
+        apiKey: aiApiKeyInput.trim() || undefined
+      });
+      if (!aiApiKeyInput.trim()) {
+        setAiSettings(settings);
+      }
+      if (settings.status === "connected") {
+        setAiSettingsSuccess("Connected.");
+      } else {
+        setAiSettingsError(settings.lastError?.trim() || "Connection failed.");
+      }
+    } catch (error) {
+      setAiSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to validate the saved OpenAI API key."
+      );
+    } finally {
+      setAiSettingsTesting(false);
+    }
+  }
+
+  async function removeAiSettingsKey() {
+    if (!window.confirm("Remove the saved OpenAI API key? Composer rewrites will be disabled until you add a new one.")) {
+      return;
+    }
+
+    setAiSettingsRemoving(true);
+    setAiSettingsError(null);
+    setAiSettingsSuccess(null);
+
+    try {
+      const settings = await deleteJson<AiSettingsSummary>("/api/ai/settings");
+      setAiSettings(settings);
+      setAiApiKeyInput("");
+      setAiSettingsSuccess("Removed.");
+    } catch (error) {
+      setAiSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove the OpenAI API key."
+      );
+    } finally {
+      setAiSettingsRemoving(false);
+    }
+  }
+
   async function deleteConfiguredAccount(account: MailAccountSummary) {
     if (!window.confirm(`Delete ${account.email}? This removes the saved account from Maximail.`)) {
       return;
@@ -8993,6 +9666,9 @@ export function MailApp() {
           presets: quickInsertPresets,
           insertSignature: insertSignatureIntoCompose,
           insertPresetById: insertComposePresetById
+        },
+        ai: {
+          openRewriteAssistant: openComposeAiPanel
         }
       }),
     [
@@ -9004,6 +9680,7 @@ export function MailApp() {
       composeSessionAccountId,
       composeSelectionState,
       composeState,
+      openComposeAiPanel,
       insertSignatureIntoCompose,
       insertComposePresetById,
       quickInsertPresets,
@@ -9014,6 +9691,25 @@ export function MailApp() {
     () => new Map(COMPOSER_COMMANDS.map((command) => [command.id, command])),
     []
   );
+  const composeAiModeGroups = useMemo(
+    () =>
+      AI_REWRITE_CATEGORY_ORDER.map((category) => ({
+        category,
+        modes: AI_REWRITE_MODES.filter((mode) => mode.category === category)
+      })),
+    []
+  );
+  const composeAiAvailableModifiers = useMemo(
+    () => getAiRewriteModifierDefinitionsForMode(composeAiMode),
+    [composeAiMode]
+  );
+  const composeAiSelectedMode = useMemo(
+    () => AI_REWRITE_MODES.find((mode) => mode.id === composeAiMode) ?? null,
+    [composeAiMode]
+  );
+  const composeAiSelectionLabel = composeSelectionState.hasSelection
+    ? "Using selected text"
+    : "Using full draft";
   const hiddenToolbarCommandIds = useMemo(
     () => new Set(composeToolbarPreferences.hidden),
     [composeToolbarPreferences.hidden]
@@ -9024,8 +9720,10 @@ export function MailApp() {
         .map((id) => composerCommandMap.get(id))
         .filter((command): command is ComposerCommand => Boolean(command))
         .filter((command) => !hiddenToolbarCommandIds.has(command.id))
+        .filter((command) => !(composeAiOpen && command.id === "rewrite_for_outcome"))
         .filter((command) => (command.isVisible ? command.isVisible(composeCommandContext) : true)),
     [
+      composeAiOpen,
       composeCommandContext,
       composeToolbarPreferences.order,
       composerCommandMap,
@@ -9080,10 +9778,14 @@ export function MailApp() {
             return false;
           }
 
+          if (composeAiOpen && command.id === "rewrite_for_outcome") {
+            return false;
+          }
+
           return command.isVisible ? command.isVisible(composeCommandContext) : true;
         }
       ),
-    [composeCommandContext, composerCommandMap]
+    [composeAiOpen, composeCommandContext, composerCommandMap]
   );
   const runComposerCommand = useCallback(
     async (command: ComposerCommand) => {
@@ -9107,6 +9809,7 @@ export function MailApp() {
     const previousCommand = index > 0 ? commands[index - 1] : null;
     const shouldShowSeparator =
       previousCommand && previousCommand.group !== command.group;
+    const isRewriteCommand = command.id === "rewrite_for_outcome";
     const isEnabled = command.isEnabled
       ? command.isEnabled(composeCommandContext)
       : true;
@@ -9158,7 +9861,9 @@ export function MailApp() {
               command.id === "attach_file" || command.id === "insert_image"
                 ? "fmt-attach"
                 : ""
-            } ${command.icon === "italic" ? "fmt-italic" : ""} ${
+            } ${isRewriteCommand ? "fmt-btn-label fmt-btn-rewrite" : ""} ${
+              command.icon === "italic" ? "fmt-italic" : ""
+            } ${
               command.icon === "underline" ? "fmt-underline" : ""
             } ${command.icon === "strikethrough" ? "fmt-strike" : ""}`}
             title={command.shortcut
@@ -9171,6 +9876,7 @@ export function MailApp() {
             }}
           >
             {renderComposerCommandIcon(command)}
+            {isRewriteCommand ? <span className="fmt-btn-text">Rewrite</span> : null}
           </button>
         )}
       </Fragment>
@@ -10395,6 +11101,7 @@ export function MailApp() {
     const trust = resolveSenderTrustPresentation(message, domainVerification);
     const expanded = senderTrustExpandedUid === message.uid;
     const showCollapsedSummary = trust.tier === "red" || trust.tier === "amber";
+    const showTrustIcon = trust.tier !== "blue";
 
     return (
       <div
@@ -10415,9 +11122,11 @@ export function MailApp() {
           }
           aria-expanded={expanded}
         >
-          <span className="sender-trust-icon" aria-hidden="true">
-            {trust.icon}
-          </span>
+          {showTrustIcon ? (
+            <span className="sender-trust-icon" aria-hidden="true">
+              {trust.icon}
+            </span>
+          ) : null}
           <span className="sender-trust-label">{trust.label}</span>
           {showCollapsedSummary ? (
             <span className="sender-trust-summary-copy">{trust.summary}</span>
@@ -10436,6 +11145,37 @@ export function MailApp() {
                 ))}
               </div>
             ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderMessageSourceDisclosure(messageUid: number) {
+    const expanded = expandedMessageSourceUid === messageUid;
+
+    return (
+      <div className={`message-source-chip-wrap ${expanded ? "open" : ""}`}>
+        <button
+          type="button"
+          className={`message-source-chip ${expanded ? "open" : ""}`}
+          onClick={() =>
+            setExpandedMessageSourceUid((current) =>
+              current === messageUid ? null : messageUid
+            )
+          }
+          aria-expanded={expanded}
+          title={expanded ? "Hide message source details" : "Show message source details"}
+        >
+          <span className="message-source-chip-label">{currentMailboxLabel}</span>
+          <span className={`message-source-chip-chevron ${expanded ? "open" : ""}`}>›</span>
+        </button>
+        {expanded ? (
+          <div className="message-source-chip-detail">
+            <div className="message-source-chip-detail-folder">{currentMailboxLabel}</div>
+            <div className="message-source-chip-detail-account">
+              {currentAccountEmail || "Mail"}
+            </div>
           </div>
         ) : null}
       </div>
@@ -13478,9 +14218,6 @@ export function MailApp() {
                             <span className="email-sender-name">
                               {displaySender(message.from)}
                             </span>
-                            <span className="email-inbox-label">
-                              📁 {currentMailboxLabel} · {currentAccountEmail || "Mail"}
-                            </span>
                             {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
                           </div>
                           <div className="email-sender-address">
@@ -13495,6 +14232,7 @@ export function MailApp() {
                           </div>
                         </div>
                         <div className="email-date-block">
+                          {renderMessageSourceDisclosure(message.uid)}
                           <div className="email-date-str">
                             {message.date
                               ? new Date(message.date).toLocaleString(undefined, {
@@ -13789,6 +14527,11 @@ export function MailApp() {
                       {isExpanded ? detail ? (
                         <div className="thread-view-body">
                           <iframe
+                            key={buildMessageBodyFrameKey(
+                              detail.uid,
+                              detail.emailBody,
+                              detail.text || detail.preview || detail.subject
+                            )}
                             title={`Email body for ${message.subject}`}
                             className="messageBodyFrame thread-view-frame"
                             srcDoc={detail.emailBody}
@@ -13820,9 +14563,6 @@ export function MailApp() {
                     <span className="email-sender-name">
                       {displaySender(selectedMessage.from)}
                     </span>
-                    <span className="email-inbox-label">
-                      📁 {currentMailboxLabel} · {currentAccountEmail || "Mail"}
-                    </span>
                     {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
                   </div>
                   <div className="email-sender-address">
@@ -13837,6 +14577,7 @@ export function MailApp() {
                   </div>
                 </div>
                 <div className="email-date-block">
+                  {renderMessageSourceDisclosure(selectedMessage.uid)}
                   <div className="email-date-str">
                     {selectedMessage.date
                       ? new Date(selectedMessage.date).toLocaleString(undefined, {
@@ -14162,6 +14903,11 @@ export function MailApp() {
 
               <div className="messageBody">
                 <iframe
+                  key={buildMessageBodyFrameKey(
+                    selectedMessage.uid,
+                    selectedMessage.emailBody,
+                    selectedMessage.text || selectedMessage.preview || selectedMessage.subject
+                  )}
                   title={`Email body for ${selectedMessage.subject}`}
                   className="messageBodyFrame"
                   srcDoc={selectedMessage.emailBody}
@@ -14550,6 +15296,17 @@ export function MailApp() {
                                           </span>
                                         </div>
                                         <iframe
+                                          key={
+                                            previewDetail
+                                              ? buildMessageBodyFrameKey(
+                                                  previewDetail.uid,
+                                                  previewDetail.emailBody,
+                                                  previewDetail.text ||
+                                                    previewDetail.preview ||
+                                                    previewDetail.subject
+                                                )
+                                              : `cleanup-preview:${message.uid}`
+                                          }
                                           className="cleanup-msg-iframe"
                                           srcDoc={
                                             previewDetail?.emailBody ??
@@ -15798,7 +16555,13 @@ export function MailApp() {
                 className={`settings-tab ${settingsTab === "account" ? "active" : ""}`}
                 onClick={() => setSettingsTab("account")}
               >
-                Email Account
+                Account
+              </button>
+              <button
+                className={`settings-tab ${settingsTab === "ai" ? "active" : ""}`}
+                onClick={() => setSettingsTab("ai")}
+              >
+                AI
               </button>
               <button
                 className={`settings-tab ${settingsTab === "sorting" ? "active" : ""}`}
@@ -15816,7 +16579,7 @@ export function MailApp() {
                 className={`settings-tab ${settingsTab === "rules" ? "active" : ""}`}
                 onClick={() => setSettingsTab("rules")}
               >
-                Sender Rules
+                Keep Recent
               </button>
             </div>
 
@@ -16288,6 +17051,132 @@ export function MailApp() {
                   </div>
                 ) : null}
               </div>
+            ) : settingsTab === "ai" ? (
+              <div className="settings-body">
+                {(() => {
+                  const hasStoredAiKey = Boolean(aiSettings?.configured);
+                  const hasPendingAiKey = aiApiKeyInput.trim().length > 0;
+                  const showSaveAiAction = !hasStoredAiKey || hasPendingAiKey;
+                  const showRemoveAiAction = hasStoredAiKey && !hasPendingAiKey;
+                  const canTestAiSettings =
+                    !aiSettingsSaving &&
+                    !aiSettingsTesting &&
+                    !aiSettingsRemoving &&
+                    (hasStoredAiKey || hasPendingAiKey);
+
+                  return (
+                <div className="settings-section">
+                  <div className="settings-section-header">
+                    <div className="settings-section-label">AI Writing Assistant</div>
+                    <span
+                      className={`settings-ai-status-pill ${
+                        aiSettings?.status === "connected"
+                          ? "connected"
+                          : aiSettings?.status === "invalid"
+                            ? "invalid"
+                            : ""
+                      }`}
+                    >
+                      {getAiSettingsStatusLabel(aiSettings?.status ?? "not_configured")}
+                    </span>
+                  </div>
+                  <div className="settings-section-subtle settings-ai-section-subtle">
+                    Bring your own OpenAI API key. This is not a ChatGPT login, and the
+                    saved key is used only for this owner&apos;s composer rewrite requests.
+                  </div>
+
+                  <div className="settings-field-group settings-ai-field-group">
+                    <div className="settings-row settings-ai-summary-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">
+                          {aiSettings?.ownerLabel ?? "Current owner"}
+                        </div>
+                        <div className="settings-row-sub">
+                          {aiSettings?.status === "connected"
+                            ? aiSettings.lastValidatedAt
+                              ? `Connected and last validated ${new Date(
+                                  aiSettings.lastValidatedAt
+                                ).toLocaleString()}.`
+                              : "Connected."
+                            : aiSettings?.status === "invalid"
+                              ? aiSettings.lastError ||
+                                "The saved key needs attention before rewrite requests can use it."
+                              : "No OpenAI API key is saved yet."}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="settings-field">
+                      <label>
+                        {aiSettings?.configured ? "Replace OpenAI API key" : "OpenAI API key"}
+                      </label>
+                      <input
+                        type="password"
+                        value={aiApiKeyInput}
+                        onChange={(event) => {
+                          setAiApiKeyInput(event.target.value);
+                          setAiSettingsError(null);
+                          setAiSettingsSuccess(null);
+                        }}
+                        placeholder="sk-..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <div className="settings-field-hint">
+                        {aiSettings?.configured
+                          ? "A key is already stored securely. Enter a new one only when you want to replace it."
+                          : "Paste an OpenAI API key here to enable the AI Writing Assistant."}
+                      </div>
+                    </div>
+
+                    <div className="settings-ai-actions">
+                      {showSaveAiAction ? (
+                        <button
+                          className="ghostButton"
+                          type="button"
+                          disabled={aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving}
+                          onClick={() => {
+                            void saveAiSettingsKey();
+                          }}
+                        >
+                          {aiSettingsSaving ? "Saving…" : "Save Key"}
+                        </button>
+                      ) : null}
+                      <button
+                        className="ghostButton"
+                        type="button"
+                        disabled={!canTestAiSettings}
+                        onClick={() => {
+                          void testAiSettingsKey();
+                        }}
+                      >
+                        {aiSettingsTesting ? "Testing…" : "Test Connection"}
+                      </button>
+                      {showRemoveAiAction ? (
+                        <button
+                          className="settings-ai-remove-btn"
+                          type="button"
+                          disabled={aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving}
+                          onClick={() => {
+                            void removeAiSettingsKey();
+                          }}
+                        >
+                          {aiSettingsRemoving ? "Removing…" : "Remove Key"}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {aiSettingsError ? (
+                      <div className="settings-ai-action-status error">{aiSettingsError}</div>
+                    ) : null}
+                    {aiSettingsSuccess ? (
+                      <div className="settings-ai-action-status success">{aiSettingsSuccess}</div>
+                    ) : null}
+                  </div>
+                </div>
+                  );
+                })()}
+              </div>
             ) : settingsTab === "sorting" ? (
               <div className="settings-body">
                 <div className="settings-section">
@@ -16707,24 +17596,38 @@ export function MailApp() {
           const isMobile = typeof window !== "undefined" && window.innerWidth <= 600;
           const composeWindowWidth = composeMinimized ? 260 : composeWidth;
           const composeWindowHeight = composeMinimized ? 44 : composeHeight;
+          const aiAssistedComposeLayout =
+            composeAiOpen && !composeMinimized && !isMobile && typeof window !== "undefined";
+          const composeRenderWidth = aiAssistedComposeLayout
+            ? Math.min(Math.max(composeWindowWidth, 760), Math.max(560, window.innerWidth - 32))
+            : composeWindowWidth;
+          const composeRenderHeight = aiAssistedComposeLayout
+            ? Math.min(Math.max(composeWindowHeight, 760), Math.max(360, window.innerHeight - 32))
+            : composeWindowHeight;
           const pos = composePos ?? getDefaultComposePos(composeWindowHeight, composeWindowWidth);
+          const anchoredPos = aiAssistedComposeLayout
+            ? {
+                x: pos.x - Math.round((composeRenderWidth - composeWindowWidth) / 2),
+                y: pos.y - (composeRenderHeight - composeWindowHeight)
+              }
+            : pos;
           const clampedX =
             typeof window === "undefined"
-              ? pos.x
+              ? anchoredPos.x
               : isMobile
                 ? 0
                 : Math.max(
                     0,
-                    Math.min(pos.x, window.innerWidth - composeWindowWidth)
+                    Math.min(anchoredPos.x, window.innerWidth - composeRenderWidth)
                   );
           const clampedY =
             typeof window === "undefined"
-              ? pos.y
+              ? anchoredPos.y
               : isMobile
-                ? Math.max(80, window.innerHeight - composeWindowHeight)
+                ? Math.max(80, window.innerHeight - composeRenderHeight)
                 : Math.max(
                     80,
-                    Math.min(pos.y, window.innerHeight - composeWindowHeight)
+                    Math.min(anchoredPos.y, window.innerHeight - composeRenderHeight)
                   );
           const composeDockThreshold = 4;
           const composeCanResize =
@@ -16734,8 +17637,8 @@ export function MailApp() {
             typeof window !== "undefined" &&
             clampedX > composeDockThreshold &&
             clampedY > 80 + composeDockThreshold &&
-            clampedX + composeWindowWidth < window.innerWidth - composeDockThreshold &&
-            clampedY + composeWindowHeight < window.innerHeight - composeDockThreshold;
+            clampedX + composeRenderWidth < window.innerWidth - composeDockThreshold &&
+            clampedY + composeRenderHeight < window.innerHeight - composeDockThreshold;
           const startComposeResize = (
             event: React.MouseEvent<HTMLDivElement>,
             edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw"
@@ -16752,8 +17655,8 @@ export function MailApp() {
               startY: event.clientY,
               originX: clampedX,
               originY: clampedY,
-              startW: composeWindowWidth,
-              startH: composeWindowHeight
+              startW: composeRenderWidth,
+              startH: composeRenderHeight
             };
 
             const onMove = (moveEvent: MouseEvent) => {
@@ -16833,14 +17736,14 @@ export function MailApp() {
         <div
           className={`compose-window ${composeMinimized ? "compose-minimized" : ""} ${
             composePos ? "compose-floating" : ""
-          }`}
+          } ${aiAssistedComposeLayout ? "compose-ai-layout" : ""}`}
           style={{
-            "--compose-window-width": `${composeWindowWidth}px`,
+            "--compose-window-width": `${composeRenderWidth}px`,
             position: "fixed",
             left: clampedX,
             top: clampedY,
-            width: composeWindowWidth,
-            height: composeMinimized ? "auto" : composeWindowHeight,
+            width: composeRenderWidth,
+            height: composeMinimized ? "auto" : composeRenderHeight,
             bottom: "auto",
             right: "auto"
           } as React.CSSProperties}
@@ -16855,8 +17758,10 @@ export function MailApp() {
               ))
             : null}
           <div
-            className={`modal compose-modal ${composeMinimized ? "minimized" : ""}`}
-            style={{ height: composeMinimized ? "auto" : composeWindowHeight }}
+            className={`modal compose-modal ${composeMinimized ? "minimized" : ""} ${
+              aiAssistedComposeLayout ? "compose-ai-layout" : ""
+            }`}
+            style={{ height: composeMinimized ? "auto" : composeRenderHeight }}
             onClick={(event) => event.stopPropagation()}
           >
             <div
@@ -17434,6 +18339,243 @@ export function MailApp() {
               }}
             />
 
+            {composeAiOpen ? (
+              <div className="compose-ai-region">
+                <div className="compose-ai-panel">
+                  <div className="compose-ai-panel-header">
+                    <div className="compose-ai-panel-header-copy">
+                      <div className="compose-ai-panel-title">Rewrite for Outcome</div>
+                      <div className="compose-ai-panel-subtitle">
+                        Choose how you want this message to land.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="compose-ai-close"
+                      onClick={closeComposeAiPanel}
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {composeAiSettingsLoading ? (
+                    <div className="compose-ai-empty-state">
+                      <div className="compose-ai-empty-copy">Loading AI Writing Assistant…</div>
+                    </div>
+                  ) : composeAiSettingsSummary && !composeAiSettingsSummary.configured ? (
+                    <div className="compose-ai-empty-state">
+                      <div className="compose-ai-empty-title">
+                        AI Writing Assistant isn&apos;t configured yet
+                      </div>
+                      <div className="compose-ai-empty-copy">
+                        Add your OpenAI API key in Settings to use rewrite modes.
+                      </div>
+                      <button
+                        type="button"
+                        className="ghostButton"
+                        onClick={() => {
+                          setSettingsTab("ai");
+                          setSettingsOpen(true);
+                        }}
+                      >
+                        Open Settings
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="compose-ai-status-row">
+                        <div className="compose-ai-target">{composeAiSelectionLabel}</div>
+                        {composeAiBusy ? (
+                          <div className="compose-ai-status-note">Working on your rewrite…</div>
+                        ) : null}
+                      </div>
+
+                      {composeAiError ? (
+                        <div className="settings-account-feedback error">{composeAiError}</div>
+                      ) : null}
+
+                      <div className="compose-ai-section">
+                        <div className="compose-ai-section-header">
+                          <div className="compose-ai-section-title">Choose a mode</div>
+                          <div className="compose-ai-section-copy">
+                            Start with the outcome you want, then refine it if needed.
+                          </div>
+                        </div>
+                        <div className="compose-ai-mode-groups">
+                          {composeAiModeGroups.map(({ category, modes }) => (
+                            <div key={category} className="compose-ai-mode-group">
+                              <div className="compose-ai-mode-group-header">
+                                <div className="compose-ai-mode-group-label">{category}</div>
+                                <div className="compose-ai-mode-group-count">
+                                  {modes.length} mode{modes.length === 1 ? "" : "s"}
+                                </div>
+                              </div>
+                              <div className="compose-ai-mode-list">
+                                {modes.map((mode) => (
+                                  <button
+                                    key={mode.id}
+                                    type="button"
+                                    className={`compose-ai-mode-chip ${
+                                      composeAiMode === mode.id ? "active" : ""
+                                    }`}
+                                    onClick={() => setComposeAiMode(mode.id)}
+                                    title={mode.description}
+                                  >
+                                    <span className="compose-ai-mode-chip-label">{mode.label}</span>
+                                    <span className="compose-ai-mode-chip-desc">{mode.description}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {composeAiSelectedMode ? (
+                        <div className="compose-ai-selected-mode">
+                          <div className="compose-ai-selected-mode-eyebrow">Selected mode</div>
+                          <div className="compose-ai-selected-mode-title">
+                            {composeAiSelectedMode.label}
+                          </div>
+                          <div className="compose-ai-selected-mode-copy">
+                            {composeAiSelectedMode.description}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="compose-ai-section">
+                        <div className="compose-ai-refine-header">
+                          <div className="compose-ai-refine-label">Refine this</div>
+                          {composeAiSelectedMode ? (
+                            <div className="compose-ai-refine-meta">
+                              {composeAiModifiers.length}/3 selected
+                            </div>
+                          ) : null}
+                        </div>
+                        {composeAiSelectedMode ? (
+                          <>
+                            <div className="compose-ai-modifier-list">
+                              {composeAiAvailableModifiers.map((modifier) => (
+                                <button
+                                  key={modifier.id}
+                                  type="button"
+                                  className={`compose-ai-modifier-chip ${
+                                    composeAiModifiers.includes(modifier.id) ? "active" : ""
+                                  }`}
+                                  onClick={() => toggleComposeAiModifier(modifier.id)}
+                                  disabled={
+                                    !composeAiModifiers.includes(modifier.id) &&
+                                    composeAiModifiers.length >= 3
+                                  }
+                                >
+                                  {modifier.label}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="compose-ai-modifier-hint">
+                              {composeAiModifiers.length >= 3
+                                ? "Remove one chip to choose a different refinement."
+                                : "Optional. Pick up to three refinements."}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="compose-ai-awaiting-mode">
+                            Pick a mode first to unlock the refinements that fit it.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="compose-ai-request-actions">
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-primary"
+                          disabled={composeAiBusy || !composeAiMode}
+                          onClick={() => {
+                            void requestComposeAiRewrite("rewrite");
+                          }}
+                        >
+                          {composeAiBusy ? "Rewriting…" : "Rewrite"}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-secondary"
+                          disabled={composeAiBusy || !composeAiMode}
+                          onClick={() => {
+                            void requestComposeAiRewrite("two_options");
+                          }}
+                        >
+                          {composeAiBusy ? "Working…" : "Show 2 options"}
+                        </button>
+                        <button
+                          type="button"
+                          className="compose-ai-close compose-ai-action-close"
+                          onClick={closeComposeAiPanel}
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      {composeAiPreview ? (
+                        <div className="compose-ai-preview compose-ai-section">
+                          <div className="compose-ai-preview-header">
+                            <div>
+                              <div className="compose-ai-preview-title">
+                                Preview before inserting
+                              </div>
+                              <div className="compose-ai-preview-subtitle">
+                                {composeAiPreview.target === "selection"
+                                  ? "Your draft stays unchanged until you replace the selected text."
+                                  : "Your draft stays unchanged until you replace it or insert the rewrite below."}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="compose-ai-preview-cancel"
+                              onClick={() => setComposeAiPreview(null)}
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div
+                            className={`compose-ai-preview-options ${
+                              composeAiPreview.options.length > 1
+                                ? "compose-ai-preview-options-multi"
+                                : ""
+                            }`}
+                          >
+                            {composeAiPreview.options.map((option) => (
+                              <div key={option.id} className="compose-ai-preview-option">
+                                <div className="compose-ai-preview-option-label">{option.label}</div>
+                                <pre className="compose-ai-preview-text">{option.text}</pre>
+                                <div className="compose-ai-preview-actions">
+                                  <button
+                                    type="button"
+                                    className="ghostButton compose-ai-action-primary"
+                                    onClick={() => applyComposeAiPreview(option.text, "replace")}
+                                  >
+                                    {composeAiPreview.target === "selection"
+                                      ? "Replace selection"
+                                      : "Replace draft"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="ghostButton compose-ai-action-secondary"
+                                    onClick={() => applyComposeAiPreview(option.text, "insert_below")}
+                                  >
+                                    Insert below
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
             {fileAttachments.length > 0 ? (
               <div className="compose-attachments">
                 {composeAttachments.map((file, index) =>
@@ -17590,8 +18732,7 @@ export function MailApp() {
                 }}
                 onInput={(event) => {
                   const text = (event.target as HTMLDivElement).innerText ?? "";
-                  setComposeBody(text);
-                  updateComposeCounts(text);
+                  scheduleComposeEditorTextSync(text);
                 }}
                 onClick={(event) => {
                   const target = event.target as HTMLElement;
@@ -17648,6 +18789,17 @@ export function MailApp() {
                 ) : null}
               </div>
               <div className="compose-footer-actions">
+                {!composeAiOpen ? (
+                  <button
+                    className="ghostButton compose-ai-open-btn"
+                    type="button"
+                    onClick={() => {
+                      openComposeAiPanel();
+                    }}
+                  >
+                    Rewrite
+                  </button>
+                ) : null}
                 <button
                   className="modal-btn-cancel"
                   onClick={() => closeComposeDraft()}
@@ -17679,6 +18831,7 @@ export function MailApp() {
                         const isActive = command.isActive
                           ? command.isActive(composeCommandContext)
                           : false;
+                        const isRewriteCommand = command.id === "rewrite_for_outcome";
 
                         return (
                           <button
@@ -17686,7 +18839,7 @@ export function MailApp() {
                             type="button"
                             className={`compose-selection-toolbar-btn ${
                               isActive ? "active" : ""
-                            }`}
+                            } ${isRewriteCommand ? "compose-selection-toolbar-btn-label" : ""}`}
                             disabled={!isEnabled}
                             title={command.label}
                             onMouseDown={(event) => {
@@ -17695,6 +18848,9 @@ export function MailApp() {
                             }}
                           >
                             {renderComposerCommandIcon(command)}
+                            {isRewriteCommand ? (
+                              <span className="compose-selection-toolbar-text">Rewrite</span>
+                            ) : null}
                           </button>
                         );
                       })}

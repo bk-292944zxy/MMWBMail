@@ -230,6 +230,16 @@ export const COMPOSER_COMMANDS: ComposerCommand[] = [
       ctx.editor.clearFormatting();
     }
   },
+  {
+    id: "rewrite_for_outcome",
+    label: "Rewrite for Outcome",
+    icon: "rewrite",
+    group: "review",
+    isEnabled: (ctx) => ctx.editor.hasEditableTarget(),
+    run: (ctx) => {
+      ctx.ai?.openRewriteAssistant();
+    }
+  },
   ...createAttachmentCommands(),
   {
     id: "insert_signature",
