@@ -2982,6 +2982,14 @@ function getComposeRecipientChipLabel(recipient: string) {
   return trimmed;
 }
 
+const AI_REWRITE_CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  "Ease tension": "Lower the temperature without losing your point",
+  "Strengthen your position": "Be clearer, more confident, and harder to push back on",
+  "Make it easier to act on":
+    "Turn this into something people can quickly understand and respond to",
+  "Translate how it lands": "Make sure your intent is interpreted the way you mean it"
+};
+
 function RecipientField({
   label,
   recipients,
@@ -3304,6 +3312,13 @@ export function MailApp() {
   const [composeAiError, setComposeAiError] = useState<string | null>(null);
   const [composeAiSettingsSummary, setComposeAiSettingsSummary] = useState<AiSettingsSummary | null>(null);
   const [composeAiSettingsLoading, setComposeAiSettingsLoading] = useState(false);
+  const [composeAiWantTwoOptions, setComposeAiWantTwoOptions] = useState(false);
+  const [composeAiPreviewOptionId, setComposeAiPreviewOptionId] = useState<string | null>(null);
+  const [composeAiCategoryTooltip, setComposeAiCategoryTooltip] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
   const [expandedMessageSourceUid, setExpandedMessageSourceUid] = useState<number | null>(null);
   const [senderFilter, setSenderFilter] = useState<string | null>(null);
   const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
@@ -4818,18 +4833,6 @@ export function MailApp() {
   }, [settingsOpen, settingsTab]);
 
   useEffect(() => {
-    if (!composeAiOpen || !composeAiSettingsSummary?.configured) {
-      return;
-    }
-
-    if (isAiAvailabilityFresh(aiAvailabilitySummary) || aiAvailabilityLoading) {
-      return;
-    }
-
-    void loadAiAvailability();
-  }, [aiAvailabilityLoading, aiAvailabilitySummary, composeAiOpen, composeAiSettingsSummary]);
-
-  useEffect(() => {
     if (
       accountFormMode === "edit" &&
       accountFormTarget &&
@@ -5574,6 +5577,16 @@ export function MailApp() {
     }
 
     const syncSelectionState = () => {
+      if (composeAiOpen) {
+        setComposeSelectionToolbarPos(null);
+        setComposeSelectionState({
+          hasSelection: false,
+          text: "",
+          isCollapsed: true
+        });
+        return;
+      }
+
       const selectionToolbarWidth = 212;
       const selectionToolbarHeight = 38;
       const viewportPadding = 8;
@@ -5688,7 +5701,7 @@ export function MailApp() {
       window.removeEventListener("resize", syncSelectionState);
       window.removeEventListener("scroll", syncSelectionState, true);
     };
-  }, [composeOpen, composePlainText]);
+  }, [composeAiOpen, composeOpen, composePlainText]);
 
   useEffect(() => {
     if (!composeAiMode) {
@@ -8685,15 +8698,14 @@ export function MailApp() {
     setComposeAiCategory(null);
     setComposeAiMode(null);
     setComposeAiModifiers([]);
+    setComposeAiWantTwoOptions(false);
     setComposeSelectionToolbarPos(null);
     setComposeAiError(null);
     setComposeAiPreview(null);
+    setComposeAiPreviewOptionId(null);
     if (seededSettings) {
       setComposeAiSettingsSummary(seededSettings);
       setComposeAiSettingsLoading(false);
-      if (seededSettings.configured && !isAiAvailabilityFresh(aiAvailabilitySummary)) {
-        setAiAvailabilityLoading(true);
-      }
     }
     composeAiSelectionSnapshotRef.current = captureComposeAiSelectionSnapshot();
     void loadComposeAiSettingsSummary();
@@ -8706,9 +8718,11 @@ export function MailApp() {
     setComposeAiCategory(null);
     setComposeAiMode(null);
     setComposeAiModifiers([]);
+    setComposeAiWantTwoOptions(false);
     setComposeAiBusy(false);
     setComposeAiError(null);
     setComposeAiPreview(null);
+    setComposeAiPreviewOptionId(null);
     composeAiSelectionSnapshotRef.current = null;
   }
 
@@ -8757,6 +8771,10 @@ export function MailApp() {
 
     return () => globalThis.clearTimeout(timeoutId);
   }, [composeAiOpen, composeAiSettingsLoading]);
+
+  useEffect(() => {
+    setComposeAiPreviewOptionId(composeAiPreview?.options[0]?.id ?? null);
+  }, [composeAiPreview]);
 
   async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
     if (!composeAiMode) {
@@ -10351,9 +10369,28 @@ export function MailApp() {
     () => composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [],
     [composeAiCategory, composeAiModeGroups]
   );
+  const showComposeAiCategoryTooltip = (
+    target: EventTarget & HTMLButtonElement,
+    text: string
+  ) => {
+    const rect = target.getBoundingClientRect();
+    setComposeAiCategoryTooltip({
+      text,
+      top: rect.top - 10,
+      left: rect.left + rect.width / 2
+    });
+  };
+  const hideComposeAiCategoryTooltip = () => {
+    setComposeAiCategoryTooltip(null);
+  };
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
     : "Using full draft";
+  const composeAiPreviewActive = Boolean(composeAiPreview);
+  const composeAiActivePreviewOption =
+    composeAiPreview?.options.find((option) => option.id === composeAiPreviewOptionId) ??
+    composeAiPreview?.options[0] ??
+    null;
   const hiddenToolbarCommandIds = useMemo(
     () => new Set(composeToolbarPreferences.hidden),
     [composeToolbarPreferences.hidden]
@@ -19182,21 +19219,27 @@ export function MailApp() {
             {composeAiOpen ? (
               <div className="compose-ai-region">
                 <div className="compose-ai-panel">
-                  <div className="compose-ai-panel-header">
-                    <div className="compose-ai-panel-header-copy">
-                      <div className="compose-ai-panel-title">Rewrite for Outcome</div>
-                      <div className="compose-ai-panel-subtitle">
-                        Choose how you want this message to land.
+                  {!composeAiCategory ? (
+                    <div className="compose-ai-panel-header">
+                      <div className="compose-ai-panel-header-copy">
+                        <div className="compose-ai-panel-title">Not coming out right?</div>
+                        <div className="compose-ai-panel-subtitle">
+                          Got it. What do you most want to change?
+                        </div>
+                        <div className="compose-ai-target">{composeAiSelectionLabel}</div>
+                      </div>
+                      <div className="compose-ai-panel-header-meta">
+                        <button
+                          type="button"
+                          className="compose-ai-close"
+                          aria-label="Close rewrite assistant"
+                          onClick={closeComposeAiPanel}
+                        >
+                          <span aria-hidden="true">×</span>
+                        </button>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className="compose-ai-close"
-                      onClick={closeComposeAiPanel}
-                    >
-                      Close
-                    </button>
-                  </div>
+                  ) : null}
 
                   {composeAiSettingsLoading ? (
                     <div className="compose-ai-empty-state">
@@ -19204,12 +19247,7 @@ export function MailApp() {
                     </div>
                   ) : composeAiSettingsSummary && !composeAiSettingsSummary.configured ? (
                     <div className="compose-ai-empty-state">
-                      <div className="compose-ai-empty-title">
-                        AI Writing Assistant isn&apos;t configured yet
-                      </div>
-                      <div className="compose-ai-empty-copy">
-                        Add your OpenAI API key in Settings to use rewrite modes.
-                      </div>
+                      <div className="compose-ai-empty-copy">Please add API key</div>
                       <button
                         type="button"
                         className="ghostButton"
@@ -19250,61 +19288,19 @@ export function MailApp() {
                         </button>
                       </div>
                     </div>
-                  ) : composeAiSettingsSummary?.configured &&
-                    (aiAvailabilityLoading && !isAiAvailabilityFresh(aiAvailabilitySummary)) ? (
-                    <div className="compose-ai-empty-state">
-                      <div className="compose-ai-empty-title">
-                        Checking AI rewrite availability
-                      </div>
-                      <div className="compose-ai-empty-copy">
-                        Confirming that your saved OpenAI API key can run rewrites right now.
-                      </div>
-                    </div>
-                  ) : composeAiSettingsSummary?.configured &&
-                    isAiAvailabilityUnavailable(aiAvailabilitySummary) ? (
-                    <div className="compose-ai-empty-state">
-                      <div className="compose-ai-empty-title">
-                        AI rewrites aren&apos;t available right now
-                      </div>
-                      <div className="compose-ai-empty-copy">
-                        {getAiAvailabilityMessage(aiAvailabilitySummary)}
-                      </div>
-                      <div className="compose-ai-request-actions">
-                        <button
-                          type="button"
-                          className="ghostButton compose-ai-action-primary"
-                          onClick={() => {
-                            void loadAiAvailability(true);
-                          }}
-                        >
-                          Retry check
-                        </button>
-                        <button
-                          type="button"
-                          className="ghostButton compose-ai-action-secondary"
-                          onClick={() => {
-                            setSettingsTab("ai");
-                            setSettingsOpen(true);
-                          }}
-                        >
-                          Open Settings
-                        </button>
-                      </div>
-                    </div>
                   ) : (
                     <>
-                      <div className="compose-ai-status-row">
-                        <div className="compose-ai-target">{composeAiSelectionLabel}</div>
-                        {composeAiBusy ? (
+                      {composeAiBusy ? (
+                        <div className="compose-ai-status-row">
                           <div className="compose-ai-status-note">Working on your rewrite…</div>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
 
                       {composeAiError ? (
                         <div className="settings-account-feedback error">{composeAiError}</div>
                       ) : null}
 
-                      {!composeAiCategory ? (
+                      {!composeAiPreviewActive && !composeAiCategory ? (
                         <div className="compose-ai-section">
                           <div className="compose-ai-section-header">
                             <div className="compose-ai-section-title">Choose a main category</div>
@@ -19313,12 +19309,28 @@ export function MailApp() {
                             </div>
                           </div>
                           <div className="compose-ai-category-grid">
-                            {composeAiModeGroups.map(({ category, modes }) => (
+                            {composeAiModeGroups.map(({ category }) => (
                               <button
                                 key={category}
                                 type="button"
                                 className="compose-ai-category-card"
+                                aria-label={`${category}. ${AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""}`}
+                                onMouseEnter={(event) =>
+                                  showComposeAiCategoryTooltip(
+                                    event.currentTarget,
+                                    AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""
+                                  )
+                                }
+                                onMouseLeave={hideComposeAiCategoryTooltip}
+                                onFocus={(event) =>
+                                  showComposeAiCategoryTooltip(
+                                    event.currentTarget,
+                                    AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""
+                                  )
+                                }
+                                onBlur={hideComposeAiCategoryTooltip}
                                 onClick={() => {
+                                  hideComposeAiCategoryTooltip();
                                   setComposeAiCategory(category);
                                   setComposeAiMode(null);
                                   setComposeAiPreview(null);
@@ -19326,14 +19338,14 @@ export function MailApp() {
                                 }}
                               >
                                 <span className="compose-ai-category-card-label">{category}</span>
-                                <span className="compose-ai-category-card-meta">
-                                  {modes.length} mode{modes.length === 1 ? "" : "s"}
+                                <span className="compose-ai-category-card-chevron" aria-hidden="true">
+                                  ›
                                 </span>
                               </button>
                             ))}
                           </div>
                         </div>
-                      ) : (
+                      ) : !composeAiPreviewActive && composeAiCategory ? (
                         <div className="compose-ai-section">
                           <div className="compose-ai-step-header">
                             <button
@@ -19355,13 +19367,23 @@ export function MailApp() {
                               <span>Back</span>
                             </button>
                             <div className="compose-ai-step-copy">
-                              <div className="compose-ai-section-title">{composeAiCategory}</div>
-                              <div className="compose-ai-section-copy">
-                                {composeAiSelectedMode
-                                  ? "You're in the clarification stage for this rewrite."
-                                  : "Choose the specific rewrite path inside this category."}
+                              <div className="compose-ai-section-title">
+                                {composeAiSelectedMode?.label ?? composeAiCategory}
                               </div>
+                              {!composeAiSelectedMode ? (
+                                <div className="compose-ai-section-copy">
+                                  Choose the specific rewrite path inside this category to unlock refinements and rewrite actions.
+                                </div>
+                              ) : null}
                             </div>
+                            <button
+                              type="button"
+                              className="compose-ai-close"
+                              aria-label="Close rewrite assistant"
+                              onClick={closeComposeAiPanel}
+                            >
+                              <span aria-hidden="true">×</span>
+                            </button>
                           </div>
                           {!composeAiSelectedMode ? (
                             <div className="compose-ai-mode-stage">
@@ -19386,11 +19408,10 @@ export function MailApp() {
                             </div>
                           ) : null}
                         </div>
-                      )}
+                      ) : null}
 
-                      {composeAiSelectedMode ? (
-                        <div className="compose-ai-selected-mode">
-                          <div className="compose-ai-selected-mode-eyebrow">Selected mode</div>
+                      {!composeAiPreviewActive && composeAiSelectedMode ? (
+                        <div className="compose-ai-selected-mode compose-ai-selected-mode-compact">
                           <div className="compose-ai-selected-mode-title">
                             {composeAiSelectedMode.label}
                           </div>
@@ -19400,7 +19421,7 @@ export function MailApp() {
                         </div>
                       ) : null}
 
-                      {composeAiSelectedMode ? (
+                      {!composeAiPreviewActive && composeAiSelectedMode ? (
                         <>
                           <div
                             key={composeAiSelectedMode.id}
@@ -19438,38 +19459,60 @@ export function MailApp() {
                               </div>
                             </div>
 
-                            <div className="compose-ai-request-actions">
+                            <div className="compose-ai-request-actions compose-ai-request-actions-deep">
+                              <label className="compose-ai-options-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={composeAiWantTwoOptions}
+                                  onChange={(event) =>
+                                    setComposeAiWantTwoOptions(event.target.checked)
+                                  }
+                                />
+                                <span>Two options</span>
+                              </label>
                               <button
                                 type="button"
                                 className="ghostButton compose-ai-action-primary"
                                 disabled={composeAiBusy || !composeAiMode}
                                 onClick={() => {
-                                  void requestComposeAiRewrite("rewrite");
+                                  void requestComposeAiRewrite(
+                                    composeAiWantTwoOptions ? "two_options" : "rewrite"
+                                  );
                                 }}
                               >
                                 {composeAiBusy ? "Rewriting…" : "Rewrite"}
                               </button>
-                              <button
-                                type="button"
-                                className="ghostButton compose-ai-action-secondary"
-                                disabled={composeAiBusy || !composeAiMode}
-                                onClick={() => {
-                                  void requestComposeAiRewrite("two_options");
-                                }}
-                              >
-                                {composeAiBusy ? "Working…" : "Show 2 options"}
-                              </button>
                             </div>
                           </div>
                         </>
-                      ) : composeAiCategory ? (
-                        <div className="compose-ai-awaiting-mode compose-ai-step-hint">
-                          Pick a sub-mode to unlock refinements and rewrite actions.
-                        </div>
                       ) : null}
 
                       {composeAiPreview ? (
-                        <div className="compose-ai-preview compose-ai-section">
+                        <div className="compose-ai-preview-step compose-ai-section">
+                          <div className="compose-ai-step-header compose-ai-preview-step-header">
+                            <button
+                              type="button"
+                              className="compose-ai-step-back"
+                              onClick={() => setComposeAiPreview(null)}
+                            >
+                              <span aria-hidden="true">‹</span>
+                              <span>Back</span>
+                            </button>
+                            <div className="compose-ai-step-copy">
+                              <div className="compose-ai-section-title">
+                                {composeAiSelectedMode?.label ?? composeAiCategory}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="compose-ai-close"
+                              aria-label="Close rewrite assistant"
+                              onClick={closeComposeAiPanel}
+                            >
+                              <span aria-hidden="true">×</span>
+                            </button>
+                          </div>
+                          <div className="compose-ai-preview compose-ai-section">
                           <div className="compose-ai-preview-header">
                             <div>
                               <div className="compose-ai-preview-title">
@@ -19481,13 +19524,6 @@ export function MailApp() {
                                   : "Your draft stays unchanged until you replace it or insert the rewrite below."}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              className="compose-ai-preview-cancel"
-                              onClick={() => setComposeAiPreview(null)}
-                            >
-                              Close
-                            </button>
                           </div>
                           <div
                             className={`compose-ai-preview-options ${
@@ -19496,15 +19532,39 @@ export function MailApp() {
                                 : ""
                             }`}
                           >
-                            {composeAiPreview.options.map((option) => (
-                              <div key={option.id} className="compose-ai-preview-option">
-                                <div className="compose-ai-preview-option-label">{option.label}</div>
-                                <pre className="compose-ai-preview-text">{option.text}</pre>
+                            {composeAiPreview.options.length > 1 ? (
+                              <div className="compose-ai-preview-switcher" role="tablist">
+                                {composeAiPreview.options.map((option, optionIndex) => (
+                                  <button
+                                    key={option.id}
+                                    type="button"
+                                    className={`compose-ai-preview-switch ${
+                                      composeAiActivePreviewOption?.id === option.id ? "active" : ""
+                                    }`}
+                                    onClick={() => setComposeAiPreviewOptionId(option.id)}
+                                    role="tab"
+                                    aria-selected={composeAiActivePreviewOption?.id === option.id}
+                                  >
+                                    Option {optionIndex + 1}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                            {composeAiActivePreviewOption ? (
+                              <div key={composeAiActivePreviewOption.id} className="compose-ai-preview-option">
+                                <pre className="compose-ai-preview-text">
+                                  {composeAiActivePreviewOption.text}
+                                </pre>
                                 <div className="compose-ai-preview-actions">
                                   <button
                                     type="button"
                                     className="ghostButton compose-ai-action-primary"
-                                    onClick={() => applyComposeAiPreview(option.text, "replace")}
+                                    onClick={() =>
+                                      applyComposeAiPreview(
+                                        composeAiActivePreviewOption.text,
+                                        "replace"
+                                      )
+                                    }
                                   >
                                     {composeAiPreview.target === "selection"
                                       ? "Replace selection"
@@ -19513,14 +19573,20 @@ export function MailApp() {
                                   <button
                                     type="button"
                                     className="ghostButton compose-ai-action-secondary"
-                                    onClick={() => applyComposeAiPreview(option.text, "insert_below")}
+                                    onClick={() =>
+                                      applyComposeAiPreview(
+                                        composeAiActivePreviewOption.text,
+                                        "insert_below"
+                                      )
+                                    }
                                   >
                                     Insert below
                                   </button>
                                 </div>
                               </div>
-                            ))}
+                            ) : null}
                           </div>
+                        </div>
                         </div>
                       ) : null}
                     </>
@@ -19766,6 +19832,7 @@ export function MailApp() {
             </div>
             {composeOpen &&
             !composePlainText &&
+            !composeAiOpen &&
             composeSelectionToolbarPos &&
             selectionToolbarCommands.length > 0
               ? createPortal(
@@ -19808,6 +19875,24 @@ export function MailApp() {
                         );
                       })}
                     </div>
+                  </div>,
+                  document.body
+                )
+              : null}
+            {composeOpen &&
+            composeAiOpen &&
+            composeAiCategoryTooltip &&
+            typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    className="compose-ai-tooltip"
+                    style={{
+                      top: composeAiCategoryTooltip.top,
+                      left: composeAiCategoryTooltip.left
+                    }}
+                    role="tooltip"
+                  >
+                    {composeAiCategoryTooltip.text}
                   </div>,
                   document.body
                 )
