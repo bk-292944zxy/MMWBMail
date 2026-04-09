@@ -1586,9 +1586,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-panel button.compose-ai-action-primary {
-  background: var(--accent) !important;
+  background: rgba(15, 23, 42, 0.94) !important;
   color: #fff !important;
-  border-color: var(--accent) !important;
+  border-color: rgba(15, 23, 42, 0.94) !important;
 }
 
 .compose-ai-panel button.compose-ai-action-secondary {
@@ -6609,8 +6609,8 @@ textarea:focus {
 
 .primaryButton,
 .compose-btn,
-button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip),
-button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip) {
+button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]),
+button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]) {
   background: var(--accent) !important;
   color: #fff !important;
   border: none !important;

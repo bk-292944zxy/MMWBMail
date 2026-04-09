@@ -4024,6 +4024,7 @@ export function MailApp() {
         setMessages([]);
         setSelectedMessage(null);
         setSelectedUid(null);
+        activeAccountIdRef.current = nextActiveAccount.id;
         setActiveAccountId(nextActiveAccount.id);
         applyAccountToConnection(nextActiveAccount, restoredFolderRef.current);
       }
@@ -4050,6 +4051,7 @@ export function MailApp() {
       setMessages([]);
       setSelectedMessage(null);
       setSelectedUid(null);
+      activeAccountIdRef.current = account.id;
       setActiveAccountId(account.id);
       applyAccountToConnection(account, folder);
       await loadFoldersForAccount(account.id, options?.sync ?? false);
@@ -4581,9 +4583,16 @@ export function MailApp() {
     restoredAccountIdRef.current = window.sessionStorage.getItem("mmwbmail-active-account-id");
     restoredFolderRef.current = window.sessionStorage.getItem("mmwbmail-active-folder");
     explicitActiveAccountIdRef.current = restoredAccountIdRef.current;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
-    void loadPersistedAccounts(restoredAccountIdRef.current)
-      .then(async (account) => {
+    const bootstrapAccounts = async (attempt = 0) => {
+      try {
+        const account = await loadPersistedAccounts(restoredAccountIdRef.current);
+        if (cancelled) {
+          return;
+        }
+
         if (!account) {
           setStatus("Connect a live mailbox to begin.");
           return;
@@ -4598,11 +4607,34 @@ export function MailApp() {
           // Leave the account selected even if the first folder read fails.
         }
 
-        setStatus(`Account ready for ${account.email}.`);
-      })
-      .catch(() => {
+        if (!cancelled) {
+          setStatus(`Account ready for ${account.email}.`);
+        }
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        if (attempt < 3) {
+          setStatus("Reconnecting saved mailboxes…");
+          retryTimer = globalThis.setTimeout(() => {
+            void bootstrapAccounts(attempt + 1);
+          }, 900 * (attempt + 1));
+          return;
+        }
+
         setStatus("Connect a live mailbox to begin.");
-      });
+      }
+    };
+
+    void bootstrapAccounts();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        globalThis.clearTimeout(retryTimer);
+      }
+    };
   }, [activateAccount, loadPersistedAccounts]);
 
   useEffect(() => {
@@ -9471,6 +9503,7 @@ export function MailApp() {
             });
           } catch (error) {
             explicitActiveAccountIdRef.current = nextAccount.id;
+            activeAccountIdRef.current = nextAccount.id;
             setActiveAccountId(nextAccount.id);
             applyAccountToConnection(nextAccount, nextAccount.defaultFolder || "INBOX");
             setAccountFormSuccess(
