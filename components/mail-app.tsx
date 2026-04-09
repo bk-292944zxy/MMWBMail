@@ -110,7 +110,8 @@ import {
   getMailboxEmptyMessage,
   getMailboxResultState,
   normalizeMailboxSearchText,
-  shouldResetSelectionForMailboxQueryChange
+  shouldResetSelectionForMailboxQueryChange,
+  type MailboxQueryState
 } from "@/lib/mailbox-query";
 import {
   buildInboxAttentionCounts,
@@ -276,8 +277,203 @@ type DomainVerificationState = {
   isEsp: boolean;
 };
 
+type SenderTrustTier = "red" | "amber" | "blue" | "verified";
+
+type SenderTrustPresentation = {
+  tier: SenderTrustTier;
+  label: string;
+  icon: string;
+  summary: string;
+  detail: string;
+  signals: string[];
+};
+
+type SmartMailboxEmptyState = {
+  eyebrow?: string;
+  title: string;
+  message: string;
+  hint?: string;
+};
+
+type TrustAwareMessage = Pick<
+  MailSummary,
+  "from" | "fromAddress" | "authResultsDmarc" | "authResultsSpf"
+>;
+
 function makeCachedMessageId(uid: number, folder: string, accountId: string) {
   return `${accountId}:${folder}:${uid}`;
+}
+
+function resolveSenderTrustPresentation(
+  message: TrustAwareMessage,
+  domainVerification?: Pick<
+    DomainVerificationState,
+    "bimiVerified" | "domain" | "dmarcPolicy" | "isEsp" | "trancoRank"
+  > | null
+): SenderTrustPresentation {
+  const spoof = detectSpoof(message);
+  if (spoof.isSpoofed) {
+    return {
+      tier: "red",
+      label: "High Risk",
+      icon: "⚠",
+      summary: "This sender looks unsafe.",
+      detail: spoof.reason,
+      signals: []
+    };
+  }
+
+  const unverified = detectUnverifiedSender(message, domainVerification);
+  if (unverified.isUnverified) {
+    return {
+      tier: "amber",
+      label: "Caution",
+      icon: "!",
+      summary: "The sender identity could not be confirmed.",
+      detail: unverified.reason,
+      signals: unverified.signals
+    };
+  }
+
+  if (domainVerification?.bimiVerified) {
+    return {
+      tier: "verified",
+      label: "Verified",
+      icon: "✓",
+      summary: "This sender passed our strongest trust checks.",
+      detail:
+        "This sender passed domain verification checks and looks consistent with the organization it claims to be from.",
+      signals: []
+    };
+  }
+
+  return {
+    tier: "blue",
+    label: "Known Sender",
+    icon: "•",
+    summary: "No strong warning signals were detected.",
+    detail:
+      "We did not find a strong sender warning for this message, but the sender has not been fully verified.",
+    signals: []
+  };
+}
+
+function getSpecializedMailboxEmptyState(input: {
+  mode: MailboxQueryState["mode"];
+  attentionView: InboxAttentionView | null;
+  sortPreset: SortFolderPreset | null;
+  prioritizedSenderName: string | null;
+}): SmartMailboxEmptyState | null {
+  if (input.prioritizedSenderName) {
+    return input.mode === "search"
+      ? {
+          eyebrow: "Prioritized Sender",
+          title: `No messages from ${displaySender(input.prioritizedSenderName)}`,
+          message: "This focused sender view only shows mail from people you chose to keep close at hand.",
+          hint: "Empty can be normal here. New messages from this sender will appear as they arrive."
+        }
+      : {
+          eyebrow: "Prioritized Sender",
+          title: `Nothing from ${displaySender(input.prioritizedSenderName)} right now`,
+          message: "This space keeps one important sender in focus without the rest of the inbox crowding in.",
+          hint: "Quiet is good here. It fills when this sender writes you."
+        };
+  }
+
+  if (input.attentionView === "new-mail") {
+    return input.mode === "search"
+      ? {
+          eyebrow: "New Mail",
+          title: "No New Mail matches",
+          message: "New Mail is your active attention space for unread inbox messages that still need a look.",
+          hint: "If it’s empty, you may already be caught up."
+        }
+      : {
+          eyebrow: "New Mail",
+          title: "You’re caught up",
+          message: "New Mail holds unread inbox messages that still need your attention.",
+          hint: "An empty New Mail view is a good sign."
+        };
+  }
+
+  if (input.attentionView === "read") {
+    return input.mode === "search"
+      ? {
+          eyebrow: "Read Mail",
+          title: "No Read Mail matches",
+          message: "Read Mail keeps already-seen inbox messages nearby without mixing them back into active attention.",
+          hint: "Try a broader search if you expected something here."
+        }
+      : {
+          eyebrow: "Read Mail",
+          title: "No Read Mail yet",
+          message: "Read Mail is where inbox messages go once you’ve already looked at them.",
+          hint: "This space will fill naturally as you work through New Mail."
+        };
+  }
+
+  if (input.sortPreset) {
+    switch (input.sortPreset.key) {
+      case "receipts":
+        return input.mode === "search"
+          ? {
+              eyebrow: "Sort Folder",
+              title: "No receipt matches",
+              message: "Receipts keeps proof of purchase, invoices, and confirmations easy to retrieve later.",
+              hint: "Sort messages here when you want a clean paper trail."
+            }
+          : {
+              eyebrow: "Sort Folder",
+              title: "No Receipts yet",
+              message: "Receipts is for proof of purchase, invoices, charges, and confirmation mail worth keeping.",
+              hint: "Sort mail here when you want it easy to find later."
+            };
+      case "travel":
+        return input.mode === "search"
+          ? {
+              eyebrow: "Sort Folder",
+              title: "No travel matches",
+              message: "Travel keeps itineraries, bookings, and trip details together in one retrieval space.",
+              hint: "Sort confirmations here so trips stay easy to reconstruct."
+            }
+          : {
+              eyebrow: "Sort Folder",
+              title: "No Travel yet",
+              message: "Travel is for itineraries, booking confirmations, flights, hotels, and trip details.",
+              hint: "It stays quiet until you start filing travel mail into it."
+            };
+      case "follow_up":
+        return input.mode === "search"
+          ? {
+              eyebrow: "Sort Folder",
+              title: "No follow-up matches",
+              message: "Follow-Up is for messages you want to revisit intentionally, without leaving them loose in the inbox.",
+              hint: "Sort mail here when it needs later action or another look."
+            }
+          : {
+              eyebrow: "Sort Folder",
+              title: "Nothing waiting in Follow-Up",
+              message: "Follow-Up holds messages that still need attention, but not right this second.",
+              hint: "Empty can mean you’ve cleared your pending loose ends."
+            };
+      case "reference":
+        return input.mode === "search"
+          ? {
+              eyebrow: "Sort Folder",
+              title: "No reference matches",
+              message: "Reference is for useful information worth keeping, without treating it like active work.",
+              hint: "Sort mail here when it should stay accessible but quiet."
+            }
+          : {
+              eyebrow: "Sort Folder",
+              title: "No Reference yet",
+              message: "Reference keeps useful information nearby without asking for attention.",
+              hint: "It fills with the mail you want to keep, not the mail you need to act on."
+            };
+    }
+  }
+
+  return null;
 }
 
 function escapeViewerHtml(text: string) {
@@ -2261,7 +2457,6 @@ function SwipeRow({
     swipeEnabled
   );
   const spoofed = detectSpoof(message).isSpoofed;
-  const unverified = !spoofed && detectUnverifiedSender(message).isUnverified;
   const sentRecipientLabel = formatSentRowRecipient(message.to);
   const rowIdentity = isSentFolder ? sentRecipientLabel : message.from;
   const rowAvatarSeed = isSentFolder ? (message.to?.[0] ?? "") : message.fromAddress;
@@ -2422,9 +2617,10 @@ function SwipeRow({
             <div className="row-top">
               <div className="row-sender-group">
                 <span className="row-sender">{rowIdentity}</span>
-                {!isSentFolder && spoofed ? <span className="spoof-badge">⚠ spoofed?</span> : null}
-                {!isSentFolder && !spoofed && unverified ? (
-                  <span className="type-chip type-chip-unverified">?</span>
+                {!isSentFolder && spoofed ? (
+                  <span className="sender-trust-row-warning" title="High Risk sender">
+                    ⚠
+                  </span>
                 ) : null}
                 {(() => {
                   const type = getSenderType(message.from, message.fromAddress ?? "");
@@ -2797,8 +2993,7 @@ export function MailApp() {
   const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
   const [subjectPattern, setSubjectPattern] = useState<string | null>(null);
-  const [spoofExpanded, setSpoofExpanded] = useState(false);
-  const [unverifiedExpanded, setUnverifiedExpanded] = useState(false);
+  const [senderTrustExpandedUid, setSenderTrustExpandedUid] = useState<number | null>(null);
   const [unsubscribeConfirm, setUnsubscribeConfirm] = useState(false);
   const [unsubConfirmOpen, setUnsubConfirmOpen] = useState(false);
   const [domainVerification, setDomainVerification] = useState<DomainVerificationState | null>(
@@ -5005,8 +5200,7 @@ export function MailApp() {
   }, [composeQuickInsertOpen]);
 
   useEffect(() => {
-    setSpoofExpanded(false);
-    setUnverifiedExpanded(false);
+    setSenderTrustExpandedUid(null);
     setUnsubscribeConfirm(false);
     setBimiAvatarFailed(false);
   }, [selectedMessage?.uid]);
@@ -8231,6 +8425,12 @@ export function MailApp() {
     }
   }
 
+  function getScopedSenderMessages(filterValue: string) {
+    return messages.filter(
+      (message) => getSenderFilterValue(message) === filterValue
+    );
+  }
+
   const sortActionTitle =
     "Quick sort into Receipts, Travel, Follow-Up, or Reference";
   const moveActionTitle = "Move to any folder";
@@ -9245,6 +9445,7 @@ export function MailApp() {
   const effectiveEmptyAttentionView = prioritizedSenderUsesCombinedInboxView
     ? null
     : activeInboxAttentionView;
+  const isPrioritizedSenderView = prioritizedSenderMatchesActiveFilter;
   const sortedUnreadCount = sortedMessages.filter((message) => !message.seen).length;
   function clearNewMailExitAnimationTargets(input: {
     messageUids?: number[];
@@ -9465,13 +9666,20 @@ export function MailApp() {
       return next;
     });
   }, []);
+  const selectableVisibleMessageUids = useMemo(
+    () =>
+      threadingEnabled
+        ? renderedConversationSummaries.map((summary) => summary.latestMessage.uid)
+        : sortedMessages.map((message) => message.uid),
+    [renderedConversationSummaries, sortedMessages, threadingEnabled]
+  );
   const selectAll = useCallback(() => {
-    setSelectedUids(new Set(sortedMessages.map((message) => message.uid)));
-    setSelectMode(true);
-  }, [sortedMessages]);
+    setSelectedUids(new Set(selectableVisibleMessageUids));
+  }, [selectableVisibleMessageUids]);
   const clearSelection = useCallback(() => {
     setSelectedUids(new Set());
     setSelectMode(false);
+    setBulkSelectionMenu(null);
     setBulkMoveActive(false);
     setMoveConversationTargetId(null);
   }, []);
@@ -9514,8 +9722,8 @@ export function MailApp() {
     [selectedUids, sortedMessages]
   );
   const allVisibleSelected =
-    sortedMessages.length > 0 &&
-    sortedMessages.every((message) => selectedUids.has(message.uid));
+    selectableVisibleMessageUids.length > 0 &&
+    selectableVisibleMessageUids.every((uid) => selectedUids.has(uid));
   const dragFirstMessageList = responsiveInteractionMode === "desktop-workspace";
   const swipeFirstMessageList = responsiveInteractionMode === "mobile-stacked";
   const showSidebarPane = !isMobileStackedMode || mobileStackedScreen === "mailboxes";
@@ -9928,6 +10136,9 @@ export function MailApp() {
     currentFolderLabel,
     currentFolderPath
   );
+  const prioritizedSenderEmptyStateName = prioritizedSenderMatchesActiveFilter
+    ? senderFilter
+    : null;
   const mobileMailboxContextHint = isMobileStackedMode
     ? activeInboxAttentionView === "new-mail"
       ? "Unread inbox attention stays here until you work through it."
@@ -9940,48 +10151,16 @@ export function MailApp() {
   const searchPlaceholder = activeSortFolderPresentation
     ? `Search in ${activeSortFolderPresentation.label}`
     : "Search sender, subject, or preview";
-  const scopedMailboxEmptyState = (() => {
-    if (effectiveEmptyAttentionView === "new-mail") {
-      return mailboxQuery.mode === "search"
-        ? {
-            title: "No New Mail matches",
-            message: "Unread inbox mail that needs attention appears here."
-          }
-        : {
-            title: "You're caught up",
-            message: "Unread inbox mail that needs attention appears here."
-          };
-    }
-
-    if (effectiveEmptyAttentionView === "read") {
-      return mailboxQuery.mode === "search"
-        ? {
-            title: "No Read Mail matches",
-            message: "Read inbox mail you've already worked through appears here."
-          }
-        : {
-            title: "No Read Mail yet",
-            message: "Read inbox mail you've already worked through appears here."
-          };
-    }
-
-    if (activeSortFolderPresentation) {
-      return mailboxQuery.mode === "search"
-        ? {
-            title: `No ${activeSortFolderPresentation.label} matches`,
-            message: activeSortFolderPresentation.description
-          }
-        : {
-            title: `No ${activeSortFolderPresentation.label} yet`,
-            message: activeSortFolderPresentation.description
-          };
-    }
-
-    return {
+  const scopedMailboxEmptyState =
+    getSpecializedMailboxEmptyState({
+      mode: mailboxQuery.mode,
+      attentionView: effectiveEmptyAttentionView,
+      sortPreset: activeSortFolderPresentation,
+      prioritizedSenderName: prioritizedSenderEmptyStateName
+    }) ?? {
       title: mailboxQuery.mode === "search" ? "No messages match" : "Nothing here yet",
       message: getMailboxEmptyMessage(mailboxQuery)
     };
-  })();
   const activeConversation = useMemo(() => {
     if (!threadingEnabled) {
       return null;
@@ -10028,9 +10207,6 @@ export function MailApp() {
   const printThreadAvailable = showConversationView && activeConversationMessages.length > 1;
   const effectivePrintTargetUid = printTargetUid ?? selectedMessage?.uid ?? null;
   const selectedSpoof = selectedMessage ? detectSpoof(selectedMessage) : null;
-  const selectedUnverified = selectedMessage
-    ? detectUnverifiedSender(selectedMessage, domainVerification)
-    : null;
   const selectedSenderIsVerified = Boolean(
     selectedMessage && !selectedSpoof?.isSpoofed && domainVerification?.bimiVerified
   );
@@ -10201,6 +10377,64 @@ export function MailApp() {
         )}
         {selectedSenderIsVerified && selectedMessage?.uid === message.uid ? (
           <span className="bimi-avatar-badge">✓</span>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderSenderTrustSummary(
+    message: TrustAwareMessage & Pick<MailSummary, "uid">,
+    options?: { className?: string; hidden?: boolean }
+  ) {
+    if (options?.hidden) {
+      return null;
+    }
+
+    const trust = resolveSenderTrustPresentation(message, domainVerification);
+    const expanded = senderTrustExpandedUid === message.uid;
+    const showCollapsedSummary = trust.tier === "red" || trust.tier === "amber";
+
+    return (
+      <div
+        className={[
+          "sender-trust-summary",
+          `sender-trust-summary-${trust.tier}`,
+          showCollapsedSummary ? "" : "sender-trust-summary-compact",
+          options?.className ?? ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <button
+          type="button"
+          className="sender-trust-toggle"
+          onClick={() =>
+            setSenderTrustExpandedUid((current) => (current === message.uid ? null : message.uid))
+          }
+          aria-expanded={expanded}
+        >
+          <span className="sender-trust-icon" aria-hidden="true">
+            {trust.icon}
+          </span>
+          <span className="sender-trust-label">{trust.label}</span>
+          {showCollapsedSummary ? (
+            <span className="sender-trust-summary-copy">{trust.summary}</span>
+          ) : null}
+          <span className={`sender-trust-chevron ${expanded ? "open" : ""}`}>›</span>
+        </button>
+        {expanded ? (
+          <div className="sender-trust-detail">
+            <p className="sender-trust-detail-copy">{trust.detail}</p>
+            {trust.signals.length > 0 ? (
+              <div className="sender-trust-signals">
+                {trust.signals.map((signal) => (
+                  <span key={signal} className="sender-trust-signal">
+                    {signal}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
     );
@@ -11660,10 +11894,10 @@ export function MailApp() {
           ) : null}
 
           <div className="panel sidebar-shell">
-            {prioritizedSenders.length > 0 ? (
-              <div className="sidebar-section">
-                <div className="sidebar-label">Prioritized</div>
-                {prioritizedSenders.map((sender) => {
+            <div className="sidebar-section">
+              <div className="sidebar-label">Prioritized</div>
+              {prioritizedSenders.length > 0 ? (
+                prioritizedSenders.map((sender) => {
                   const count = messages.filter((message) => message.from === sender.name).length;
                   const unread = messages.filter(
                     (message) => message.from === sender.name && !message.seen
@@ -11746,9 +11980,16 @@ export function MailApp() {
                       </button>
                     </div>
                   );
-                })}
-              </div>
-            ) : null}
+                })
+              ) : (
+                <div className="sidebar-smart-empty">
+                  <div className="sidebar-smart-empty-title">No Prioritized Senders yet</div>
+                  <div className="sidebar-smart-empty-sub">
+                    Keep important people here when you want a quieter, more focused relationship view.
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="sidebar-cleanup-btn-wrap">
               <button className="sidebar-cleanup-btn" onClick={() => setCleanupMode(true)}>
@@ -12419,25 +12660,27 @@ export function MailApp() {
           </div>
 
           <div className="col-header-bar">
-            <div
-              role="button"
-              tabIndex={0}
-              className={`col-chip ${senderFilter ? "col-chip-active" : ""}`}
-              onClick={() => {
-                if (senderFilter) {
-                  clearSenderFocus();
-                } else if (pivotMessage) {
-                  applySenderPivot(pivotMessage, isSentFolder);
-                }
-              }}
-            >
-              {isSentFolder ? "To" : "From"} <span className="col-chip-icon">⊙</span>
-            </div>
+            {!isPrioritizedSenderView ? (
+              <div
+                role="button"
+                tabIndex={0}
+                className={`col-chip ${senderFilter ? "col-chip-active" : ""}`}
+                onClick={() => {
+                  if (senderFilter) {
+                    clearSenderFocus();
+                  } else if (pivotMessage) {
+                    applySenderPivot(pivotMessage, isSentFolder);
+                  }
+                }}
+              >
+                {isSentFolder ? "To" : "From"} <span className="col-chip-icon">⊙</span>
+              </div>
+            ) : null}
             <div
               role="button"
               tabIndex={0}
               className={`col-chip ${subjectFilter ? "col-chip-active" : ""}`}
-              style={{ flex: 1.4 }}
+              style={{ flex: isPrioritizedSenderView ? 1 : 1.4 }}
               onClick={() => {
                 if (subjectFilter) {
                   setSubjectFilter(null);
@@ -12454,40 +12697,42 @@ export function MailApp() {
             </div>
           </div>
 
-          <div className="filter-strip">
-            <span className="filter-label">Filter:</span>
-            {senderFilter ? (
-              <span className="filter-pill">
-                {displaySender(senderFilter)}
-              </span>
-            ) : null}
-            {subjectFilter ? (
-              <span className="filter-pill">
-                {subjectPattern ? `${subjectPattern} *` : subjectFilter}
-                {subjectPattern ? (
-                  <span className="filter-pattern-badge">wildcard</span>
-                ) : null}
-              </span>
-            ) : null}
-            {!senderFilter && !subjectFilter ? (
-              <span className="filter-empty">
-                no active filters — select a message then click {isSentFolder ? "To" : "From"} or Subject to pivot
-              </span>
-            ) : null}
-            {senderFilter || subjectFilter ? (
-              <button
-                className="filter-clear-all"
-                title="Clear all filters"
-                onClick={() => {
-                  clearSenderFocus();
-                  setSubjectFilter(null);
-                  setSubjectPattern(null);
-                }}
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
+          {!isPrioritizedSenderView ? (
+            <div className="filter-strip">
+              <span className="filter-label">Filter:</span>
+              {senderFilter ? (
+                <span className="filter-pill">
+                  {displaySender(senderFilter)}
+                </span>
+              ) : null}
+              {subjectFilter ? (
+                <span className="filter-pill">
+                  {subjectPattern ? `${subjectPattern} *` : subjectFilter}
+                  {subjectPattern ? (
+                    <span className="filter-pattern-badge">wildcard</span>
+                  ) : null}
+                </span>
+              ) : null}
+              {!senderFilter && !subjectFilter ? (
+                <span className="filter-empty">
+                  no active filters — select a message then click {isSentFolder ? "To" : "From"} or Subject to pivot
+                </span>
+              ) : null}
+              {senderFilter || subjectFilter ? (
+                <button
+                  className="filter-clear-all"
+                  title="Clear all filters"
+                  onClick={() => {
+                    clearSenderFocus();
+                    setSubjectFilter(null);
+                    setSubjectPattern(null);
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {senderFilter && senderStats && !subjectFilter ? (
             <div className="senderStatBar">
@@ -12647,12 +12892,27 @@ export function MailApp() {
                     </div>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  className="bulk-action-btn bulk-action-btn-exit"
+                  onClick={clearSelection}
+                  title="Leave multi-select"
+                >
+                  <span>Done</span>
+                </button>
               </div>
             </div>
           ) : null}
 
           <div
-            className={`messageList ${selectMode ? "select-mode" : ""}`}
+            className={`messageList ${selectMode ? "select-mode" : ""} ${
+              isPrioritizedSenderView ? "messageList-prioritized-view" : ""
+            }`}
+            onClick={(event) => {
+              if (event.target === event.currentTarget && selectedUids.size > 0) {
+                clearSelection();
+              }
+            }}
             onContextMenu={(event) => {
               if (event.target !== event.currentTarget) {
                 return;
@@ -12674,8 +12934,14 @@ export function MailApp() {
             ) : null}
             {mailboxResultState === "empty" ? (
               <div className="empty empty-state">
+                {scopedMailboxEmptyState.eyebrow ? (
+                  <div className="empty-state-eyebrow">{scopedMailboxEmptyState.eyebrow}</div>
+                ) : null}
                 <div className="empty-state-title">{scopedMailboxEmptyState.title}</div>
                 <div className="empty-state-sub">{scopedMailboxEmptyState.message}</div>
+                {scopedMailboxEmptyState.hint ? (
+                  <div className="empty-state-hint">{scopedMailboxEmptyState.hint}</div>
+                ) : null}
               </div>
             ) : threadingEnabled ? (
               renderedConversationSummaries.map((conversation) => {
@@ -12690,8 +12956,6 @@ export function MailApp() {
                     message.uid === conversationSelection.selectedMessageUid
                 );
                 const latestSpoof = detectSpoof(latestMessage).isSpoofed;
-                const latestUnverified =
-                  !latestSpoof && detectUnverifiedSender(latestMessage).isUnverified;
                 const recipientLabel = isSentFolder
                   ? (() => {
                       const allTo = conversationMessages.flatMap(
@@ -12838,11 +13102,9 @@ export function MailApp() {
                             ) : null}
 
                             {!isSentFolder && latestSpoof ? (
-                              <span className="spoof-badge">⚠ spoofed?</span>
-                            ) : null}
-
-                            {!isSentFolder && !latestSpoof && latestUnverified ? (
-                              <span className="type-chip type-chip-unverified">?</span>
+                              <span className="sender-trust-row-warning" title="High Risk sender">
+                                ⚠
+                              </span>
                             ) : null}
 
                               {(() => {
@@ -13194,15 +13456,6 @@ export function MailApp() {
                   const isExpanded = conversationViewState.expandedMessageUids.has(
                     message.uid
                   );
-                  const messageSpoof = detectSpoof(message);
-                  const messageUnverified = detectUnverifiedSender(
-                    message,
-                    domainVerification
-                  );
-                  const messageSenderIsVerified = Boolean(
-                    !messageSpoof.isSpoofed && messageUnverified.isUnverified === false && domainVerification?.bimiVerified
-                  );
-
                   return (
                     <section
                       key={`thread-view-${message.uid}`}
@@ -13230,9 +13483,7 @@ export function MailApp() {
                           <div className="email-sender-address">
                             {message.fromAddress || message.from}
                           </div>
-                          {messageSenderIsVerified ? (
-                            <div className="bimi-verified-pill">✓ Verified sender</div>
-                          ) : null}
+                          {renderSenderTrustSummary(message, { hidden: isSentFolder })}
                           <div className="email-to-row">
                             <span className="email-meta-key">To:</span>
                             <span className="email-meta-val">
@@ -13574,9 +13825,7 @@ export function MailApp() {
                   <div className="email-sender-address">
                     {selectedMessage.fromAddress || selectedMessage.from}
                   </div>
-                  {selectedSenderIsVerified ? (
-                    <div className="bimi-verified-pill">✓ Verified sender</div>
-                  ) : null}
+                  {renderSenderTrustSummary(selectedMessage, { hidden: isSentFolder })}
                   <div className="email-to-row">
                     <span className="email-meta-key">To:</span>
                     <span className="email-meta-val">
@@ -13896,90 +14145,6 @@ export function MailApp() {
                 })()}
               </div>
               ) : null}
-
-              {(() => {
-                const spoof = selectedSpoof ?? detectSpoof(selectedMessage);
-
-                if (!spoof.isSpoofed) {
-                  return null;
-                }
-
-                return (
-                  <div className="spoof-banner">
-                    <div
-                      className="spoof-banner-summary"
-                      onClick={() => setSpoofExpanded((current) => !current)}
-                    >
-                      <span className="spoof-banner-icon">⚠</span>
-                      <span className="spoof-banner-text">
-                        Sender name doesn't match the email address
-                      </span>
-                      <span className={`spoof-chevron ${spoofExpanded ? "open" : ""}`}>
-                        ›
-                      </span>
-                    </div>
-                    {spoofExpanded ? (
-                      <div className="spoof-banner-detail">{spoof.reason}</div>
-                    ) : null}
-                  </div>
-                );
-              })()}
-
-              {(() => {
-                const unverified =
-                  selectedUnverified ?? detectUnverifiedSender(selectedMessage, domainVerification);
-
-                if (!unverified.isUnverified) {
-                  return null;
-                }
-
-                return (
-                  <div className="unverified-banner">
-                    <div
-                      className="unverified-banner-summary"
-                      onClick={() => setUnverifiedExpanded((current) => !current)}
-                    >
-                      <span className="unverified-banner-icon">⚑</span>
-                      <span className="unverified-banner-title">
-                        Sender identity not verified
-                      </span>
-                      <span
-                        className={`unverified-chevron ${
-                          unverifiedExpanded ? "open" : ""
-                        }`}
-                      >
-                        ›
-                      </span>
-                    </div>
-                    {unverifiedExpanded ? (
-                      <div className="unverified-banner-detail">
-                        <p className="unverified-banner-reason">{unverified.reason}</p>
-                        <div className="unverified-banner-tags">
-                          {unverified.signals.map((signal) => (
-                            <span key={signal} className="unverified-tag">
-                              {signal}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="unverified-banner-actions">
-                          <button
-                            className="unverified-btn-trust"
-                            onClick={() => setUnverifiedExpanded(false)}
-                          >
-                            ✓ Looks legitimate
-                          </button>
-                          <button
-                            className="unverified-btn-dismiss"
-                            onClick={() => setUnverifiedExpanded(false)}
-                          >
-                            Not now
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })()}
 
               {suspiciousLinks.length > 0 ? (
                 <div className="suspicious-links-banner">
@@ -14483,116 +14648,144 @@ export function MailApp() {
       </section>
 
       {contextMenu ? (
-        <div
-          className="ctx-menu"
-          style={{ top: clampedY, left: clampedX }}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <div className="ctx-header">
-            <div className="ctx-sender-name">{contextMenu.msg.from}</div>
-            <div className="ctx-sender-email">{contextMenu.msg.fromAddress}</div>
-          </div>
-          <div
-            className="ctx-item"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              selectAll();
-              setContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">✓</span> Select All in View
-            <span className="ctx-badge">{sortedMessages.length}</span>
-          </div>
-          <div className="ctx-sep" />
-          <div
-            className="ctx-item"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              const already = prioritizedSenders.find(
-                (sender) => sender.name === contextMenu.msg.from
-              );
+        (() => {
+          const senderFilterValue = getSenderFilterValue(contextMenu.msg);
+          const senderMessages = getScopedSenderMessages(senderFilterValue);
 
-              if (!already) {
-                const nextSender = {
-                  name: contextMenu.msg.from,
-                  email: contextMenu.msg.fromAddress ?? "",
-                  color: getAvatarColor(contextMenu.msg.from)
-                };
-                const updatedList = [...prioritizedSenders, nextSender];
-                setPrioritizedSenders(updatedList);
-                if (activeAccountId) {
-                  syncServerPreferences(activeAccountId, {
-                    prioritizedSenders: updatedList
+          return (
+            <div
+              className="ctx-menu"
+              style={{ top: clampedY, left: clampedX }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="ctx-header">
+                <div className="ctx-sender-name">{contextMenu.msg.from}</div>
+                <div className="ctx-sender-email">{contextMenu.msg.fromAddress}</div>
+              </div>
+              <div
+                className="ctx-item"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  selectAll();
+                  setContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">✓</span> Select All in View
+                <span className="ctx-badge">{selectableVisibleMessageUids.length}</span>
+              </div>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const already = prioritizedSenders.find(
+                    (sender) => sender.name === contextMenu.msg.from
+                  );
+
+                  if (!already) {
+                    const nextSender = {
+                      name: contextMenu.msg.from,
+                      email: contextMenu.msg.fromAddress ?? "",
+                      color: getAvatarColor(contextMenu.msg.from)
+                    };
+                    const updatedList = [...prioritizedSenders, nextSender];
+                    setPrioritizedSenders(updatedList);
+                    if (activeAccountId) {
+                      syncServerPreferences(activeAccountId, {
+                        prioritizedSenders: updatedList
+                      });
+                    }
+                  }
+
+                  setContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">★</span>
+                {prioritizedSenders.find((sender) => sender.name === contextMenu.msg.from)
+                  ? "Already Prioritized"
+                  : "Prioritize Sender"}
+              </div>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item"
+                onClick={() => {
+                  applySenderPivot(contextMenu.msg, isSentFolder);
+                  setContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">⊙</span>{" "}
+                {isSentFolder ? "Focus on This Recipient" : "Focus on This Sender"}
+              </div>
+              <div className="ctx-item" onClick={() => setContextMenu(null)}>
+                <span className="ctx-icon">🔕</span> Mute Sender
+              </div>
+              <div className="ctx-sep" />
+              <div className="ctx-submenu-wrap">
+                <div
+                  className="ctx-item ctx-item-submenu"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                >
+                  <span className="ctx-icon">↗</span> Quick Sort
+                  <span className="ctx-submenu-arrow">›</span>
+                </div>
+                <div className="ctx-menu ctx-submenu">
+                  <div className="ctx-header">
+                    <div className="ctx-sender-name">Quick Sort</div>
+                    <div className="ctx-sender-email">
+                      Fast-file this sender into built-in folders.
+                    </div>
+                  </div>
+                  {SORT_FOLDER_PRESETS.map((preset) => (
+                    <div
+                      key={`ctx-sort-${contextMenu.msg.uid}-${preset.key}`}
+                      className="ctx-item"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void handleCleanupSortToFolder(contextMenu.msg.from, senderMessages, preset);
+                        setContextMenu(null);
+                      }}
+                    >
+                      <span className="ctx-icon">{renderSortFolderGlyph(preset)}</span>
+                      Sort to {preset.label}
+                      <span className="ctx-badge">{senderMessages.length}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item"
+                onClick={() => {
+                  setMoveConversationTargetId(null);
+                  setMoveTarget(contextMenu.msg);
+                  setMoveFolderOpen(true);
+                  setContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">📁</span> Move All to Folder…
+                <span className="ctx-badge">{senderMessages.length}</span>
+              </div>
+              <div
+                className="ctx-item"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openAutoFilterEditor({
+                    name: contextMenu.msg.from,
+                    email: contextMenu.msg.fromAddress ?? ""
                   });
-                }
-              }
-
-              setContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">★</span>
-            {prioritizedSenders.find((sender) => sender.name === contextMenu.msg.from)
-              ? "Already Prioritized"
-              : "Prioritize Sender"}
-          </div>
-          <div className="ctx-sep" />
-          <div
-            className="ctx-item"
-            onClick={() => {
-              applySenderPivot(contextMenu.msg, isSentFolder);
-              setContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">⊙</span>{" "}
-            {isSentFolder ? "Focus on This Recipient" : "Focus on This Sender"}
-          </div>
-          <div className="ctx-item" onClick={() => setContextMenu(null)}>
-            <span className="ctx-icon">🔕</span> Mute Sender
-          </div>
-          <div className="ctx-sep" />
-          <div
-            className="ctx-item"
-            onClick={() => {
-              setMoveConversationTargetId(null);
-              setMoveTarget(contextMenu.msg);
-              setMoveFolderOpen(true);
-              setContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">📁</span> Move All to Folder…
-            <span className="ctx-badge">
-              {
-                messages.filter(
-                  (message) =>
-                    getSenderFilterValue(message) === getSenderFilterValue(contextMenu.msg)
-                ).length
-              }
-            </span>
-          </div>
-          <div
-            className="ctx-item"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openAutoFilterEditor({
-                name: contextMenu.msg.from,
-                email: contextMenu.msg.fromAddress ?? ""
-              });
-              setContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">🕐</span> Keep Only Recent…
-            <span className="ctx-badge">
-              {
-                messages.filter(
-                  (message) =>
-                    getSenderFilterValue(message) === getSenderFilterValue(contextMenu.msg)
-                ).length
-              }
-            </span>
-          </div>
+                  setContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">🕐</span> Keep Only Recent…
+                <span className="ctx-badge">{senderMessages.length}</span>
+              </div>
           <div className="ctx-sep" />
           <div
             className="ctx-item"
@@ -14646,7 +14839,9 @@ export function MailApp() {
               }
             </span>
           </div>
-        </div>
+            </div>
+          );
+        })()
       ) : null}
 
       {listAreaContextMenu ? (
@@ -14666,7 +14861,7 @@ export function MailApp() {
         >
           <div className="ctx-header">
             <div className="ctx-sender-name">Message list</div>
-            <div className="ctx-sender-email">{sortedMessages.length} in current view</div>
+            <div className="ctx-sender-email">{selectableVisibleMessageUids.length} in current view</div>
           </div>
           <div
             className="ctx-item"
@@ -14678,7 +14873,7 @@ export function MailApp() {
             }}
           >
             <span className="ctx-icon">✓</span> Select All
-            <span className="ctx-badge">{sortedMessages.length}</span>
+            <span className="ctx-badge">{selectableVisibleMessageUids.length}</span>
           </div>
         </div>
       ) : null}
@@ -14721,24 +14916,30 @@ export function MailApp() {
       ) : null}
 
       {sidebarCtx ? (
-        <div
-          className="ctx-menu"
-          style={{
-            top:
-              typeof window === "undefined"
-                ? sidebarCtx.y
-                : Math.min(sidebarCtx.y, window.innerHeight - 220),
-            left:
-              typeof window === "undefined"
-                ? sidebarCtx.x
-                : Math.min(sidebarCtx.x, window.innerWidth - 230)
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <div className="ctx-header">
-            <div className="ctx-sender-name">{displaySender(sidebarCtx.sender.name)}</div>
-            <div className="ctx-sender-email">{sidebarCtx.sender.email}</div>
-          </div>
+        (() => {
+          const senderMessages = messages.filter(
+            (message) => message.from === sidebarCtx.sender.name
+          );
+
+          return (
+            <div
+              className="ctx-menu"
+              style={{
+                top:
+                  typeof window === "undefined"
+                    ? sidebarCtx.y
+                    : Math.min(sidebarCtx.y, window.innerHeight - 220),
+                left:
+                  typeof window === "undefined"
+                    ? sidebarCtx.x
+                    : Math.min(sidebarCtx.x, window.innerWidth - 230)
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="ctx-header">
+                <div className="ctx-sender-name">{displaySender(sidebarCtx.sender.name)}</div>
+                <div className="ctx-sender-email">{sidebarCtx.sender.email}</div>
+              </div>
           <div
             className="ctx-item"
             onMouseDown={(event) => {
@@ -14808,6 +15009,43 @@ export function MailApp() {
             </div>
           ) : null}
           <div className="ctx-sep" />
+          <div className="ctx-submenu-wrap">
+            <div
+              className="ctx-item ctx-item-submenu"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              <span className="ctx-icon">↗</span> Quick Sort
+              <span className="ctx-submenu-arrow">›</span>
+            </div>
+            <div className="ctx-menu ctx-submenu">
+              <div className="ctx-header">
+                <div className="ctx-sender-name">Quick Sort</div>
+                <div className="ctx-sender-email">
+                  Fast-file this sender into built-in folders.
+                </div>
+              </div>
+              {SORT_FOLDER_PRESETS.map((preset) => (
+                <div
+                  key={`sidebar-sort-${sidebarCtx.sender.name}-${preset.key}`}
+                  className="ctx-item"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleCleanupSortToFolder(sidebarCtx.sender.name, senderMessages, preset);
+                    setSidebarCtx(null);
+                  }}
+                >
+                  <span className="ctx-icon">{renderSortFolderGlyph(preset)}</span>
+                  Sort to {preset.label}
+                  <span className="ctx-badge">{senderMessages.length}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="ctx-sep" />
           <div
             className="ctx-item ctx-item-danger"
             onMouseDown={(event) => {
@@ -14845,7 +15083,9 @@ export function MailApp() {
           >
             <span className="ctx-icon">★</span> Remove from Prioritized
           </div>
-        </div>
+            </div>
+          );
+        })()
       ) : null}
 
       {moveFolderOpen && (moveTarget || bulkMoveActive || moveConversationTargetId) ? (
