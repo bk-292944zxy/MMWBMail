@@ -3136,7 +3136,8 @@ export function MailApp() {
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
-  const [composeAiMode, setComposeAiMode] = useState<AiRewriteModeId>("deescalate");
+  const [composeAiCategory, setComposeAiCategory] = useState<string | null>(null);
+  const [composeAiMode, setComposeAiMode] = useState<AiRewriteModeId | null>(null);
   const [composeAiModifiers, setComposeAiModifiers] = useState<AiRewriteModifierId[]>([]);
   const [composeAiPreview, setComposeAiPreview] = useState<AiRewriteResponse | null>(null);
   const [composeAiBusy, setComposeAiBusy] = useState(false);
@@ -5305,6 +5306,11 @@ export function MailApp() {
   }, [composeOpen, composePlainText]);
 
   useEffect(() => {
+    if (!composeAiMode) {
+      setComposeAiModifiers((current) => (current.length === 0 ? current : []));
+      return;
+    }
+
     const allowedIds = new Set(
       getAiRewriteModifierDefinitionsForMode(composeAiMode).map((item) => item.id)
     );
@@ -5313,6 +5319,24 @@ export function MailApp() {
       return next.length === current.length ? current : next;
     });
   }, [composeAiMode]);
+
+  useEffect(() => {
+    if (!composeAiCategory) {
+      if (composeAiMode !== null) {
+        setComposeAiMode(null);
+      }
+      return;
+    }
+
+    if (
+      composeAiMode &&
+      !AI_REWRITE_MODES.some(
+        (mode) => mode.id === composeAiMode && mode.category === composeAiCategory
+      )
+    ) {
+      setComposeAiMode(null);
+    }
+  }, [composeAiCategory, composeAiMode]);
 
   useEffect(() => {
     if (!composeToolbarMenuOpen && !composeToolbarOverflowOpen && !composeQuickInsertOpen) {
@@ -8146,6 +8170,10 @@ export function MailApp() {
 
   function openComposeAiPanel() {
     setComposeAiOpen(true);
+    setComposeAiCategory(null);
+    setComposeAiMode(null);
+    setComposeAiModifiers([]);
+    setComposeSelectionToolbarPos(null);
     setComposeAiError(null);
     setComposeAiPreview(null);
     composeAiSelectionSnapshotRef.current = captureComposeAiSelectionSnapshot();
@@ -8156,6 +8184,9 @@ export function MailApp() {
     composeAiRequestSeqRef.current += 1;
     composeAiInFlightRef.current = false;
     setComposeAiOpen(false);
+    setComposeAiCategory(null);
+    setComposeAiMode(null);
+    setComposeAiModifiers([]);
     setComposeAiBusy(false);
     setComposeAiError(null);
     setComposeAiPreview(null);
@@ -8177,6 +8208,11 @@ export function MailApp() {
   }
 
   async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
+    if (!composeAiMode) {
+      setComposeAiError("Choose a rewrite mode first.");
+      return;
+    }
+
     const snapshot = captureComposeAiSelectionSnapshot();
     composeAiSelectionSnapshotRef.current = snapshot;
     const fullDraftText = composePlainText
@@ -9700,12 +9736,16 @@ export function MailApp() {
     []
   );
   const composeAiAvailableModifiers = useMemo(
-    () => getAiRewriteModifierDefinitionsForMode(composeAiMode),
+    () => (composeAiMode ? getAiRewriteModifierDefinitionsForMode(composeAiMode) : []),
     [composeAiMode]
   );
   const composeAiSelectedMode = useMemo(
-    () => AI_REWRITE_MODES.find((mode) => mode.id === composeAiMode) ?? null,
+    () => (composeAiMode ? AI_REWRITE_MODES.find((mode) => mode.id === composeAiMode) ?? null : null),
     [composeAiMode]
+  );
+  const composeAiSelectedCategoryModes = useMemo(
+    () => composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [],
+    [composeAiCategory, composeAiModeGroups]
   );
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
@@ -12694,8 +12734,22 @@ export function MailApp() {
                         <span
                           className="priority-autofilter-badge"
                           title={`Auto-filter: keep ${autoFilter.keepDays} days`}
+                          aria-label={`Keep recent: ${autoFilter.keepDays} days`}
                         >
-                          🕐
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="12" r="8.25" />
+                            <path d="M12 7.6v4.9l3.2 1.9" />
+                          </svg>
                         </span>
                       ) : null}
                       <div className="priority-count">{count}</div>
@@ -18394,42 +18448,89 @@ export function MailApp() {
                         <div className="settings-account-feedback error">{composeAiError}</div>
                       ) : null}
 
-                      <div className="compose-ai-section">
-                        <div className="compose-ai-section-header">
-                          <div className="compose-ai-section-title">Choose a mode</div>
-                          <div className="compose-ai-section-copy">
-                            Start with the outcome you want, then refine it if needed.
+                      {!composeAiCategory ? (
+                        <div className="compose-ai-section">
+                          <div className="compose-ai-section-header">
+                            <div className="compose-ai-section-title">Choose a main category</div>
+                            <div className="compose-ai-section-copy">
+                              Start with the kind of outcome you want, then pick the specific rewrite.
+                            </div>
+                          </div>
+                          <div className="compose-ai-category-grid">
+                            {composeAiModeGroups.map(({ category, modes }) => (
+                              <button
+                                key={category}
+                                type="button"
+                                className="compose-ai-category-card"
+                                onClick={() => {
+                                  setComposeAiCategory(category);
+                                  setComposeAiMode(null);
+                                  setComposeAiPreview(null);
+                                  setComposeAiError(null);
+                                }}
+                              >
+                                <span className="compose-ai-category-card-label">{category}</span>
+                                <span className="compose-ai-category-card-meta">
+                                  {modes.length} mode{modes.length === 1 ? "" : "s"}
+                                </span>
+                              </button>
+                            ))}
                           </div>
                         </div>
-                        <div className="compose-ai-mode-groups">
-                          {composeAiModeGroups.map(({ category, modes }) => (
-                            <div key={category} className="compose-ai-mode-group">
-                              <div className="compose-ai-mode-group-header">
-                                <div className="compose-ai-mode-group-label">{category}</div>
-                                <div className="compose-ai-mode-group-count">
-                                  {modes.length} mode{modes.length === 1 ? "" : "s"}
-                                </div>
-                              </div>
-                              <div className="compose-ai-mode-list">
-                                {modes.map((mode) => (
-                                  <button
-                                    key={mode.id}
-                                    type="button"
-                                    className={`compose-ai-mode-chip ${
-                                      composeAiMode === mode.id ? "active" : ""
-                                    }`}
-                                    onClick={() => setComposeAiMode(mode.id)}
-                                    title={mode.description}
-                                  >
-                                    <span className="compose-ai-mode-chip-label">{mode.label}</span>
-                                    <span className="compose-ai-mode-chip-desc">{mode.description}</span>
-                                  </button>
-                                ))}
+                      ) : (
+                        <div className="compose-ai-section">
+                          <div className="compose-ai-step-header">
+                            <button
+                              type="button"
+                              className="compose-ai-step-back"
+                              onClick={() => {
+                                if (composeAiSelectedMode) {
+                                  setComposeAiMode(null);
+                                  setComposeAiModifiers([]);
+                                } else {
+                                  setComposeAiCategory(null);
+                                  setComposeAiMode(null);
+                                }
+                                setComposeAiPreview(null);
+                                setComposeAiError(null);
+                              }}
+                            >
+                              <span aria-hidden="true">‹</span>
+                              <span>Back</span>
+                            </button>
+                            <div className="compose-ai-step-copy">
+                              <div className="compose-ai-section-title">{composeAiCategory}</div>
+                              <div className="compose-ai-section-copy">
+                                {composeAiSelectedMode
+                                  ? "You're in the clarification stage for this rewrite."
+                                  : "Choose the specific rewrite path inside this category."}
                               </div>
                             </div>
-                          ))}
+                          </div>
+                          {!composeAiSelectedMode ? (
+                            <div className="compose-ai-mode-stage">
+                              {composeAiSelectedCategoryModes.map((mode) => (
+                                <button
+                                  key={mode.id}
+                                  type="button"
+                                  className={`compose-ai-mode-chip ${
+                                    composeAiMode === mode.id ? "active" : ""
+                                  }`}
+                                  onClick={() => {
+                                    setComposeAiMode(mode.id);
+                                    setComposeAiPreview(null);
+                                    setComposeAiError(null);
+                                  }}
+                                  title={mode.description}
+                                >
+                                  <span className="compose-ai-mode-chip-label">{mode.label}</span>
+                                  <span className="compose-ai-mode-chip-desc">{mode.description}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
+                      )}
 
                       {composeAiSelectedMode ? (
                         <div className="compose-ai-selected-mode">
@@ -18443,77 +18544,73 @@ export function MailApp() {
                         </div>
                       ) : null}
 
-                      <div className="compose-ai-section">
-                        <div className="compose-ai-refine-header">
-                          <div className="compose-ai-refine-label">Refine this</div>
-                          {composeAiSelectedMode ? (
-                            <div className="compose-ai-refine-meta">
-                              {composeAiModifiers.length}/3 selected
+                      {composeAiSelectedMode ? (
+                        <>
+                          <div
+                            key={composeAiSelectedMode.id}
+                            className="compose-ai-clarification-stage"
+                          >
+                            <div className="compose-ai-section compose-ai-refine-stage">
+                              <div className="compose-ai-refine-header">
+                                <div className="compose-ai-refine-label">Refine this</div>
+                                <div className="compose-ai-refine-meta">
+                                  {composeAiModifiers.length}/3 selected
+                                </div>
+                              </div>
+                              <div className="compose-ai-modifier-list">
+                                {composeAiAvailableModifiers.map((modifier) => (
+                                  <button
+                                    key={modifier.id}
+                                    type="button"
+                                    className={`compose-ai-modifier-chip ${
+                                      composeAiModifiers.includes(modifier.id) ? "active" : ""
+                                    }`}
+                                    onClick={() => toggleComposeAiModifier(modifier.id)}
+                                    disabled={
+                                      !composeAiModifiers.includes(modifier.id) &&
+                                      composeAiModifiers.length >= 3
+                                    }
+                                  >
+                                    {modifier.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="compose-ai-modifier-hint">
+                                {composeAiModifiers.length >= 3
+                                  ? "Remove one chip to choose a different refinement."
+                                  : "Optional. Pick up to three refinements."}
+                              </div>
                             </div>
-                          ) : null}
-                        </div>
-                        {composeAiSelectedMode ? (
-                          <>
-                            <div className="compose-ai-modifier-list">
-                              {composeAiAvailableModifiers.map((modifier) => (
-                                <button
-                                  key={modifier.id}
-                                  type="button"
-                                  className={`compose-ai-modifier-chip ${
-                                    composeAiModifiers.includes(modifier.id) ? "active" : ""
-                                  }`}
-                                  onClick={() => toggleComposeAiModifier(modifier.id)}
-                                  disabled={
-                                    !composeAiModifiers.includes(modifier.id) &&
-                                    composeAiModifiers.length >= 3
-                                  }
-                                >
-                                  {modifier.label}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="compose-ai-modifier-hint">
-                              {composeAiModifiers.length >= 3
-                                ? "Remove one chip to choose a different refinement."
-                                : "Optional. Pick up to three refinements."}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="compose-ai-awaiting-mode">
-                            Pick a mode first to unlock the refinements that fit it.
-                          </div>
-                        )}
-                      </div>
 
-                      <div className="compose-ai-request-actions">
-                        <button
-                          type="button"
-                          className="ghostButton compose-ai-action-primary"
-                          disabled={composeAiBusy || !composeAiMode}
-                          onClick={() => {
-                            void requestComposeAiRewrite("rewrite");
-                          }}
-                        >
-                          {composeAiBusy ? "Rewriting…" : "Rewrite"}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghostButton compose-ai-action-secondary"
-                          disabled={composeAiBusy || !composeAiMode}
-                          onClick={() => {
-                            void requestComposeAiRewrite("two_options");
-                          }}
-                        >
-                          {composeAiBusy ? "Working…" : "Show 2 options"}
-                        </button>
-                        <button
-                          type="button"
-                          className="compose-ai-close compose-ai-action-close"
-                          onClick={closeComposeAiPanel}
-                        >
-                          Close
-                        </button>
-                      </div>
+                            <div className="compose-ai-request-actions">
+                              <button
+                                type="button"
+                                className="ghostButton compose-ai-action-primary"
+                                disabled={composeAiBusy || !composeAiMode}
+                                onClick={() => {
+                                  void requestComposeAiRewrite("rewrite");
+                                }}
+                              >
+                                {composeAiBusy ? "Rewriting…" : "Rewrite"}
+                              </button>
+                              <button
+                                type="button"
+                                className="ghostButton compose-ai-action-secondary"
+                                disabled={composeAiBusy || !composeAiMode}
+                                onClick={() => {
+                                  void requestComposeAiRewrite("two_options");
+                                }}
+                              >
+                                {composeAiBusy ? "Working…" : "Show 2 options"}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : composeAiCategory ? (
+                        <div className="compose-ai-awaiting-mode compose-ai-step-hint">
+                          Pick a sub-mode to unlock refinements and rewrite actions.
+                        </div>
+                      ) : null}
 
                       {composeAiPreview ? (
                         <div className="compose-ai-preview compose-ai-section">

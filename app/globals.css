@@ -1535,6 +1535,67 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: #e64400 !important;
 }
 
+/* AI assistant controls must not inherit the broad compose CTA treatment. */
+.compose-ai-panel button.compose-ai-close,
+.compose-ai-panel button.compose-ai-step-back,
+.compose-ai-panel button.compose-ai-category-card,
+.compose-ai-panel button.compose-ai-mode-chip,
+.compose-ai-panel button.compose-ai-modifier-chip,
+.compose-ai-panel button.compose-ai-action-secondary,
+.compose-ai-panel button.compose-ai-preview-cancel {
+  background: transparent !important;
+  color: var(--text1) !important;
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+  box-shadow: none !important;
+}
+
+.compose-ai-panel button.compose-ai-close,
+.compose-ai-panel button.compose-ai-preview-cancel {
+  border: none !important;
+  color: var(--text3) !important;
+}
+
+.compose-ai-panel button.compose-ai-step-back {
+  border: none !important;
+  padding: 2px 0 !important;
+  color: var(--text2) !important;
+}
+
+.compose-ai-panel button.compose-ai-category-card {
+  background: rgba(255,255,255,0.92) !important;
+}
+
+.compose-ai-panel button.compose-ai-mode-chip {
+  background: rgba(255,255,255,0.96) !important;
+}
+
+.compose-ai-panel button.compose-ai-mode-chip.active,
+.compose-ai-panel button.compose-ai-modifier-chip.active {
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  border-color: rgba(15, 23, 42, 0.94) !important;
+}
+
+.compose-ai-panel button.compose-ai-mode-chip.active .compose-ai-mode-chip-label,
+.compose-ai-panel button.compose-ai-mode-chip.active .compose-ai-mode-chip-desc {
+  color: #fff !important;
+}
+
+.compose-ai-panel button.compose-ai-modifier-chip {
+  background: #fff !important;
+}
+
+.compose-ai-panel button.compose-ai-action-primary {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
+}
+
+.compose-ai-panel button.compose-ai-action-secondary {
+  background: rgba(15, 23, 42, 0.03) !important;
+  color: var(--text2) !important;
+}
+
 .img-action-popover {
   position: fixed !important;
   z-index: 9999 !important;
@@ -4926,6 +4987,86 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   color: var(--text1) !important;
 }
 
+.compose-ai-category-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.compose-ai-category-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 6px !important;
+  min-height: 72px !important;
+  padding: 12px 13px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(17, 24, 39, 0.08) !important;
+  background: rgba(255,255,255,0.92) !important;
+  color: var(--text1) !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  transition: border-color 140ms ease, background-color 140ms ease,
+    transform 140ms ease, box-shadow 140ms ease !important;
+}
+
+.compose-ai-category-card:hover {
+  border-color: rgba(17, 24, 39, 0.14) !important;
+  background: #fff !important;
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-category-card-label {
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: var(--text1) !important;
+}
+
+.compose-ai-category-card-meta {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: var(--text3) !important;
+}
+
+.compose-ai-step-header {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 12px !important;
+}
+
+.compose-ai-step-copy {
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+
+.compose-ai-step-back {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  min-height: 0 !important;
+  padding: 2px 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text2) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.compose-ai-step-back:hover {
+  color: var(--text1) !important;
+}
+
+.compose-ai-mode-stage {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 10px !important;
+}
+
 .compose-ai-mode-groups {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
@@ -4984,8 +5125,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-radius: 13px !important;
   border: 1px solid rgba(17, 24, 39, 0.08) !important;
   background: rgba(255,255,255,0.94) !important;
+  color: var(--text1) !important;
   text-align: left !important;
   cursor: pointer !important;
+  appearance: none !important;
   width: 100% !important;
   min-width: min(100%, 208px) !important;
   max-width: 100% !important;
@@ -4999,10 +5142,16 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-mode-chip.active {
-  border-color: rgba(10,132,255,0.34) !important;
-  background: linear-gradient(180deg, rgba(10,132,255,0.08), rgba(10,132,255,0.03)) !important;
-  box-shadow: 0 0 0 1px rgba(10,132,255,0.06) inset !important;
+  border-color: rgba(15, 23, 42, 0.94) !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12) !important;
   transform: translateY(-1px) !important;
+}
+
+.compose-ai-mode-chip.active .compose-ai-mode-chip-label,
+.compose-ai-mode-chip.active .compose-ai-mode-chip-desc {
+  color: #fff !important;
 }
 
 .compose-ai-mode-chip-label {
@@ -5023,10 +5172,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-radius: 999px !important;
   border: 1px solid rgba(17, 24, 39, 0.08) !important;
   background: #fff !important;
-  color: var(--text2) !important;
+  color: var(--text1) !important;
   font-size: 11.5px !important;
   font-weight: 600 !important;
   cursor: pointer !important;
+  appearance: none !important;
   transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease,
     transform 140ms ease !important;
 }
@@ -5037,9 +5187,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-modifier-chip.active {
-  border-color: rgba(10,132,255,0.28) !important;
-  background: rgba(10,132,255,0.08) !important;
-  color: var(--accent) !important;
+  border-color: rgba(15, 23, 42, 0.94) !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.10) !important;
 }
 
 .compose-ai-modifier-chip:disabled {
@@ -5060,6 +5211,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   justify-content: flex-start !important;
 }
 
+.compose-ai-clarification-stage {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  animation: composeAiClarificationReveal 180ms cubic-bezier(0.22, 1, 0.36, 1) both !important;
+  transform-origin: top center !important;
+}
+
+.compose-ai-refine-stage {
+  position: relative !important;
+}
+
 .compose-ai-action-primary {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
@@ -5078,6 +5241,22 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-action-close {
   margin-left: auto !important;
+}
+
+.compose-ai-step-hint {
+  padding-top: 2px !important;
+}
+
+@keyframes composeAiClarificationReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .compose-ai-empty-state,
@@ -5145,6 +5324,61 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 10px !important;
+}
+
+.compose-ai-panel .compose-ai-step-back {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text2) !important;
+  padding: 2px 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.compose-ai-panel .compose-ai-step-back:hover {
+  background: transparent !important;
+  color: var(--text1) !important;
+}
+
+.compose-ai-panel .compose-ai-category-card,
+.compose-ai-panel .compose-ai-mode-chip,
+.compose-ai-panel .compose-ai-modifier-chip {
+  border-style: solid !important;
+}
+
+.compose-ai-panel .compose-ai-category-card {
+  background: rgba(255,255,255,0.92) !important;
+  color: var(--text1) !important;
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip {
+  background: rgba(255,255,255,0.96) !important;
+  color: var(--text1) !important;
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active {
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  border: 1px solid rgba(15, 23, 42, 0.94) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-label,
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-desc {
+  color: #fff !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip {
+  background: #fff !important;
+  color: var(--text1) !important;
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip.active {
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  border: 1px solid rgba(15, 23, 42, 0.94) !important;
 }
 
 .compose-ai-preview-options {
@@ -7078,7 +7312,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   align-items: center !important;
   gap: 6px !important;
-  padding: 6px 10px !important;
+  min-height: 34px !important;
+  padding: 7px 10px !important;
   background: transparent !important;
   cursor: pointer !important;
   border-radius: 6px !important;
@@ -7118,6 +7353,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .priority-info {
   flex: 1 !important;
   min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
 }
 
 .priority-name {
@@ -7134,6 +7372,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 10px !important;
   color: var(--accent) !important;
   font-weight: 500 !important;
+  line-height: 1.25 !important;
 }
 
 .sidebar[data-size="small"] .folder-row {
@@ -7257,9 +7496,20 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .priority-autofilter-badge {
-  font-size: 10px !important;
-  opacity: 0.6 !important;
+  width: 18px !important;
+  height: 18px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: rgba(60, 60, 67, 0.52) !important;
+  opacity: 1 !important;
   flex-shrink: 0 !important;
+}
+
+.priority-autofilter-badge svg {
+  width: 12px !important;
+  height: 12px !important;
+  display: block !important;
 }
 
 .keep-threshold-row {
