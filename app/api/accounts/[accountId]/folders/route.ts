@@ -15,9 +15,13 @@ export async function GET(request: Request, context: RouteContext) {
     const { accountId } = await context.params;
     const { searchParams } = new URL(request.url);
     const shouldSync = searchParams.get("sync") === "true";
+    const folderPaths = searchParams
+      .getAll("folder")
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     if (shouldSync) {
-      await syncMailAccount(accountId);
+      await syncMailAccount(accountId, folderPaths.length > 0 ? { folderPaths } : undefined);
     }
 
     const folders = await listSyncedFolders(accountId);

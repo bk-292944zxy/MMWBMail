@@ -51,7 +51,8 @@ export async function executeMailActionRequest(
         request.kind === "mark_read"
           ? "Message marked read."
           : "Message marked unread.",
-      refreshFolderCounts: true
+      refreshFolderCounts: true,
+      folderPathsToSync: [request.folderPath]
     };
   }
 
@@ -83,7 +84,8 @@ export async function executeMailActionRequest(
     return {
       statusMessage: "Message deleted.",
       toastMessage: `${uids.length} message${uids.length === 1 ? "" : "s"} deleted`,
-      refreshFolderCounts: true
+      refreshFolderCounts: true,
+      folderPathsToSync: [request.folderPath]
     };
   }
 
@@ -112,6 +114,7 @@ export async function executeMailActionRequest(
   );
 
   return {
+    folderPathsToSync: Array.from(new Set([request.folderPath, destinationFolder])),
     statusMessage:
       request.kind === "archive"
         ? "Message moved to Archive."

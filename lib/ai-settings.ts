@@ -4,8 +4,17 @@ import { decryptStoredSecret, encryptStoredSecret } from "@/lib/secret-crypto";
 
 const OPENAI_PROVIDER = "openai";
 const OPENAI_API_KEY_MAX_LENGTH = 512;
+export const AI_AVAILABILITY_FRESH_MS = 5 * 60 * 1000;
+const OPENAI_SETTINGS_TIMEOUT_MS = 5000;
 
 export type AiCredentialStatus = "not_configured" | "connected" | "invalid";
+export type AiAvailabilityStatus =
+  | "unknown"
+  | "available"
+  | "unavailable_invalid_key"
+  | "unavailable_quota_or_billing"
+  | "unavailable_rate_limited"
+  | "unavailable_temporary_error";
 
 export type AiSettingsSummary = {
   ownerLabel: string;
@@ -16,11 +25,34 @@ export type AiSettingsSummary = {
   lastError: string | null;
 };
 
+export type AiAvailabilitySummary = {
+  ownerLabel: string;
+  provider: "openai";
+  configured: boolean;
+  status: AiAvailabilityStatus;
+  checkedAt: string | null;
+  message: string | null;
+};
+
 type ValidationResult = {
   status: Exclude<AiCredentialStatus, "not_configured">;
   lastError: string | null;
   lastValidatedAt: Date | null;
 };
+
+type AvailabilityResult = {
+  status: Exclude<AiAvailabilityStatus, "unknown">;
+  checkedAt: Date;
+  message: string | null;
+};
+
+const availabilityCache = new Map<
+  string,
+  {
+    checkedAt: number;
+    result: AiAvailabilitySummary;
+  }
+>();
 
 function mapStatus(value: string | null | undefined): AiCredentialStatus {
   if (value === "connected" || value === "invalid") {
@@ -63,6 +95,141 @@ function normalizeApiKey(input: string) {
   }
 
   return value;
+}
+
+function toAvailabilitySummary(input: {
+  ownerLabel: string;
+  configured: boolean;
+  status: AiAvailabilityStatus;
+  checkedAt: Date | null;
+  message: string | null;
+}): AiAvailabilitySummary {
+  return {
+    ownerLabel: input.ownerLabel,
+    provider: "openai",
+    configured: input.configured,
+    status: input.status,
+    checkedAt: input.checkedAt?.toISOString() ?? null,
+    message: input.message
+  };
+}
+
+function buildAvailabilityMessage(status: Exclude<AiAvailabilityStatus, "unknown">) {
+  switch (status) {
+    case "available":
+      return null;
+    case "unavailable_invalid_key":
+      return "Your API key may be invalid or revoked.";
+    case "unavailable_quota_or_billing":
+      return "Your OpenAI API account may be out of credit or over its usage limit.";
+    case "unavailable_rate_limited":
+      return "The AI service appears rate-limited right now. Try again shortly.";
+    case "unavailable_temporary_error":
+      return "Your API key is saved, but AI rewrites aren’t available right now. Update billing, limits, or retry later.";
+  }
+}
+
+function classifyAvailabilityFailure(input: {
+  status: number;
+  errorCode?: string | null;
+  errorType?: string | null;
+  message?: string | null;
+}): Exclude<AiAvailabilityStatus, "unknown" | "available"> {
+  const haystack = `${input.errorCode ?? ""} ${input.errorType ?? ""} ${input.message ?? ""}`
+    .toLowerCase()
+    .trim();
+
+  if (
+    input.status === 401 ||
+    haystack.includes("invalid_api_key") ||
+    haystack.includes("incorrect api key") ||
+    haystack.includes("invalid authentication")
+  ) {
+    return "unavailable_invalid_key";
+  }
+
+  if (
+    haystack.includes("insufficient_quota") ||
+    haystack.includes("billing") ||
+    haystack.includes("credit") ||
+    haystack.includes("quota") ||
+    haystack.includes("hard limit")
+  ) {
+    return "unavailable_quota_or_billing";
+  }
+
+  if (input.status === 429 || haystack.includes("rate limit")) {
+    return "unavailable_rate_limited";
+  }
+
+  return "unavailable_temporary_error";
+}
+
+async function callOpenAiAvailability(apiKey: string): Promise<AvailabilityResult> {
+  const checkedAt = new Date();
+
+  try {
+    const response = await fetchOpenAiModels(apiKey);
+
+    if (response.ok) {
+      return {
+        status: "available",
+        checkedAt,
+        message: null
+      };
+    }
+
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: {
+            code?: string;
+            type?: string;
+            message?: string;
+          };
+        }
+      | null;
+
+    const status = classifyAvailabilityFailure({
+      status: response.status,
+      errorCode: payload?.error?.code ?? null,
+      errorType: payload?.error?.type ?? null,
+      message: payload?.error?.message ?? null
+    });
+
+    return {
+      status,
+      checkedAt,
+      message: buildAvailabilityMessage(status)
+    };
+  } catch {
+    return {
+      status: "unavailable_temporary_error",
+      checkedAt,
+      message: buildAvailabilityMessage("unavailable_temporary_error")
+    };
+  }
+}
+
+function clearAiAvailabilityCache(ownerScope: string) {
+  availabilityCache.delete(ownerScope);
+}
+
+async function fetchOpenAiModels(apiKey: string) {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), OPENAI_SETTINGS_TIMEOUT_MS);
+
+  try {
+    return await fetch("https://api.openai.com/v1/models", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      cache: "no-store",
+      signal: controller.signal
+    });
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
 }
 
 export async function getAiSettingsSummary() {
@@ -113,18 +280,14 @@ export async function removeAiCredential() {
     }
   });
 
+  clearAiAvailabilityCache(owner.scope);
+
   return getAiSettingsSummary();
 }
 
 async function callOpenAiValidation(apiKey: string): Promise<ValidationResult> {
   try {
-    const response = await fetch("https://api.openai.com/v1/models", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`
-      },
-      cache: "no-store"
-    });
+    const response = await fetchOpenAiModels(apiKey);
 
     if (response.ok) {
       return {
@@ -149,11 +312,13 @@ async function callOpenAiValidation(apiKey: string): Promise<ValidationResult> {
         "OpenAI rejected this API key. Check that the key is active and has API access.",
       lastValidatedAt: new Date()
     };
-  } catch {
+  } catch (error) {
     return {
       status: "invalid",
       lastError:
-        "We could not reach OpenAI to validate this key right now. Check your key and try again.",
+        error instanceof Error && error.name === "AbortError"
+          ? "OpenAI took too long to respond while validating this key. The key was saved, but not confirmed yet."
+          : "We could not reach OpenAI to validate this key right now. Check your key and try again.",
       lastValidatedAt: new Date()
     };
   }
@@ -172,6 +337,7 @@ export async function saveAiCredential(input: {
         lastValidatedAt: null
       }
     : await callOpenAiValidation(apiKey);
+  clearAiAvailabilityCache(owner.scope);
 
   await prisma.aiCredential.upsert({
     where: {
@@ -212,6 +378,7 @@ export async function testStoredAiCredential() {
   }
 
   const validation = await callOpenAiValidation(decryptStoredSecret(record.encryptedApiKey));
+  clearAiAvailabilityCache(owner.scope);
 
   await prisma.aiCredential.update({
     where: {
@@ -250,6 +417,7 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
   }
 
   const validation = await callOpenAiValidation(apiKey);
+  clearAiAvailabilityCache(owner.scope);
 
   if (!providedApiKey) {
     await prisma.aiCredential.update({
@@ -274,4 +442,68 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
     }),
     configured: false
   };
+}
+
+export async function getAiAvailabilitySummary(input?: {
+  force?: boolean;
+  maxAgeMs?: number;
+}) {
+  const owner = resolveCurrentAiOwner();
+  const maxAgeMs = input?.maxAgeMs ?? AI_AVAILABILITY_FRESH_MS;
+  const cached = availabilityCache.get(owner.scope);
+
+  if (!input?.force && cached && Date.now() - cached.checkedAt <= maxAgeMs) {
+    return cached.result;
+  }
+
+  const record = await prisma.aiCredential.findUnique({
+    where: { ownerScope: owner.scope },
+    select: {
+      encryptedApiKey: true,
+      status: true,
+      lastError: true,
+      lastValidatedAt: true
+    }
+  });
+
+  if (!record) {
+    return toAvailabilitySummary({
+      ownerLabel: owner.label,
+      configured: false,
+      status: "unknown",
+      checkedAt: null,
+      message: null
+    });
+  }
+
+  if (record.status === "invalid") {
+    const result = toAvailabilitySummary({
+      ownerLabel: owner.label,
+      configured: true,
+      status: "unavailable_invalid_key",
+      checkedAt: record.lastValidatedAt ?? new Date(),
+      message: record.lastError?.trim() || buildAvailabilityMessage("unavailable_invalid_key")
+    });
+    availabilityCache.set(owner.scope, {
+      checkedAt: Date.now(),
+      result
+    });
+    return result;
+  }
+
+  const availability = await callOpenAiAvailability(decryptStoredSecret(record.encryptedApiKey));
+  const result = toAvailabilitySummary({
+    ownerLabel: owner.label,
+    configured: true,
+    status: availability.status,
+    checkedAt: availability.checkedAt,
+    message: availability.message
+  });
+
+  availabilityCache.set(owner.scope, {
+    checkedAt: availability.checkedAt.getTime(),
+    result
+  });
+
+  return result;
 }

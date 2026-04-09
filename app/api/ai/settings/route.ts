@@ -30,7 +30,8 @@ export async function PUT(request: Request) {
 
     const settings = await saveAiCredential({
       apiKey: payload.apiKey,
-      validate: payload.validate !== false
+      // Save should be fast and reliable; connection checks happen separately.
+      validate: false
     });
     return NextResponse.json(settings);
   } catch (error) {

@@ -52,6 +52,7 @@ export type MailActionExecutionResult = {
   statusMessage: string;
   toastMessage?: string;
   refreshFolderCounts: boolean;
+  folderPathsToSync?: string[];
 };
 
 export type MailActionContext = {

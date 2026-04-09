@@ -147,6 +147,10 @@ import {
   findMailboxNodeByPath,
   resolveMailboxNodes
 } from "@/lib/mailbox-navigation";
+import {
+  recordMailboxDebugEvent,
+  updateMailboxDebugSnapshot
+} from "@/lib/mailbox-observability";
 import type {
   MailActionCapabilityMap,
   MailActionRequest,
@@ -674,6 +678,48 @@ function orderFoldersByDefault(folders: MailFolder[]) {
   }
 
   return [...inboxFolders, ...otherFolders];
+}
+
+function areFoldersEquivalent(left: MailFolder[], right: MailFolder[]) {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((folder, index) => {
+    const next = right[index];
+    return (
+      folder.path === next.path &&
+      folder.name === next.name &&
+      folder.specialUse === next.specialUse &&
+      folder.count === next.count &&
+      folder.unread === next.unread
+    );
+  });
+}
+
+function buildFolderRefreshQuery(input?: {
+  sync?: boolean;
+  folderPaths?: string[];
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (input?.sync) {
+    searchParams.set("sync", "true");
+  }
+
+  const folderPaths = Array.from(
+    new Set((input?.folderPaths ?? []).map((value) => value.trim()).filter(Boolean))
+  );
+  for (const folderPath of folderPaths) {
+    searchParams.append("folder", folderPath);
+  }
+
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
 }
 
 type AccountMailboxDisclosureState = 1 | 2 | 3;
@@ -1521,6 +1567,24 @@ async function parseJsonResponse<T>(response: Response): Promise<T & { error?: s
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  let timeoutId: number | null = null;
+
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== null) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+}
+
 type AiSettingsSummary = {
   ownerLabel: string;
   provider: "openai";
@@ -1530,6 +1594,23 @@ type AiSettingsSummary = {
   lastError: string | null;
 };
 
+type AiAvailabilitySummary = {
+  ownerLabel: string;
+  provider: "openai";
+  configured: boolean;
+  status:
+    | "unknown"
+    | "available"
+    | "unavailable_invalid_key"
+    | "unavailable_quota_or_billing"
+    | "unavailable_rate_limited"
+    | "unavailable_temporary_error";
+  checkedAt: string | null;
+  message: string | null;
+};
+
+const AI_AVAILABILITY_FRESH_MS = 5 * 60 * 1000;
+
 function getAiSettingsStatusLabel(status: AiSettingsSummary["status"]) {
   switch (status) {
     case "connected":
@@ -1538,6 +1619,64 @@ function getAiSettingsStatusLabel(status: AiSettingsSummary["status"]) {
       return "Invalid";
     default:
       return "Not configured";
+  }
+}
+
+function getAiAvailabilityStatusLabel(status: AiAvailabilitySummary["status"]) {
+  switch (status) {
+    case "available":
+      return "Available";
+    case "unavailable_invalid_key":
+      return "Invalid key";
+    case "unavailable_quota_or_billing":
+      return "Billing or quota issue";
+    case "unavailable_rate_limited":
+      return "Rate-limited";
+    case "unavailable_temporary_error":
+      return "Temporarily unavailable";
+    default:
+      return "Checking";
+  }
+}
+
+function isAiAvailabilityFresh(summary: AiAvailabilitySummary | null) {
+  if (!summary?.checkedAt) {
+    return false;
+  }
+
+  return Date.now() - new Date(summary.checkedAt).getTime() <= AI_AVAILABILITY_FRESH_MS;
+}
+
+function isAiAvailabilityUnavailable(summary: AiAvailabilitySummary | null) {
+  if (!summary?.configured) {
+    return false;
+  }
+
+  return summary.status !== "unknown" && summary.status !== "available";
+}
+
+function getAiAvailabilityMessage(summary: AiAvailabilitySummary | null) {
+  if (!summary) {
+    return null;
+  }
+
+  if (summary.message?.trim()) {
+    return summary.message.trim();
+  }
+
+  switch (summary.status) {
+    case "unavailable_invalid_key":
+      return "Your API key may be invalid or revoked.";
+    case "unavailable_quota_or_billing":
+      return "Your OpenAI API account may be out of credit or over its usage limit.";
+    case "unavailable_rate_limited":
+      return "The AI service appears rate-limited right now. Try again shortly.";
+    case "unavailable_temporary_error":
+      return "Your API key is saved, but AI rewrites aren’t available right now. Update billing, limits, or retry later.";
+    case "available":
+      return "AI rewrites are available right now.";
+    default:
+      return null;
   }
 }
 
@@ -2824,6 +2963,25 @@ interface Toast {
   type: "success" | "error" | "info";
 }
 
+function getComposeRecipientChipLabel(recipient: string) {
+  const trimmed = recipient.trim();
+  const nameMatch = trimmed.match(/^(.+?)\s*<([^>]+)>$/);
+
+  if (nameMatch) {
+    const displayName = nameMatch[1]?.trim();
+    if (displayName) {
+      return displayName;
+    }
+
+    const emailAddress = nameMatch[2]?.trim();
+    if (emailAddress) {
+      return emailAddress;
+    }
+  }
+
+  return trimmed;
+}
+
 function RecipientField({
   label,
   recipients,
@@ -2883,7 +3041,9 @@ function RecipientField({
       <div className="recipient-chips-wrap">
         {recipients.map((recipient) => (
           <div key={recipient} className="recipient-chip">
-            <span className="recipient-chip-text">{recipient}</span>
+            <span className="recipient-chip-text" title={recipient}>
+              {getComposeRecipientChipLabel(recipient)}
+            </span>
             <button
               type="button"
               className="recipient-chip-remove"
@@ -3183,6 +3343,10 @@ export function MailApp() {
   const [aiApiKeyInput, setAiApiKeyInput] = useState("");
   const [aiSettingsError, setAiSettingsError] = useState<string | null>(null);
   const [aiSettingsSuccess, setAiSettingsSuccess] = useState<string | null>(null);
+  const [aiAvailabilitySummary, setAiAvailabilitySummary] = useState<AiAvailabilitySummary | null>(
+    null
+  );
+  const [aiAvailabilityLoading, setAiAvailabilityLoading] = useState(false);
   const [accountFormMode, setAccountFormMode] = useState<"add" | "edit" | null>(null);
   const [accountFormTarget, setAccountFormTarget] = useState<string | null>(null);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
@@ -3353,6 +3517,21 @@ export function MailApp() {
   const previousMailboxQueryRef = useRef<ReturnType<typeof createMailboxQueryState> | null>(null);
   const autoSyncInFlightRef = useRef(false);
   const refreshFromEventTimerRef = useRef<number | null>(null);
+  const folderLoadSeqByAccountRef = useRef<Record<string, number>>({});
+  const folderLoadStateByAccountRef = useRef<
+    Record<
+      string,
+      {
+        status: "idle" | "loading" | "ready" | "failed" | "stale";
+        requestSeq: number;
+        lastAppliedSeq?: number;
+        lastError?: string | null;
+        folderCount?: number;
+        sync: boolean;
+        folderPaths: string[];
+      }
+    >
+  >({});
   const visibleMessageLoadSeqRef = useRef(0);
   const latestVisibleMessageLoadRef = useRef<{ key: string; seq: number } | null>(null);
   const pendingMailMutationsRef = useRef<Record<string, PendingMailMutation>>({});
@@ -3949,29 +4128,140 @@ export function MailApp() {
     []
   );
 
-  const loadFoldersForAccount = useCallback(
-    async (accountId: string, sync = false) => {
-      const folderResponse = await getJson<{ folders: MailFolder[] }>(
-        `/api/accounts/${accountId}/folders${sync ? "?sync=true" : ""}`
-      );
-      setFoldersByAccount((current) => ({
-        ...current,
-        [accountId]: folderResponse.folders
-      }));
-
-      if (accountId === activeAccountIdRef.current) {
-        setFolders(folderResponse.folders);
+  const applyFoldersForAccount = useCallback((accountId: string, nextFolders: MailFolder[]) => {
+    setFoldersByAccount((current) => {
+      const currentFolders = current[accountId] ?? [];
+      if (areFoldersEquivalent(currentFolders, nextFolders)) {
+        return current;
       }
 
-      return folderResponse.folders;
+      return {
+        ...current,
+        [accountId]: nextFolders
+      };
+    });
+
+    if (accountId === activeAccountIdRef.current) {
+      setFolders((current) => (areFoldersEquivalent(current, nextFolders) ? current : nextFolders));
+    }
+  }, []);
+
+  const fetchFoldersForAccount = useCallback(
+    async (
+      accountId: string,
+      options?: {
+        sync?: boolean;
+        folderPaths?: string[];
+      }
+    ) => {
+      const requestSeq = (folderLoadSeqByAccountRef.current[accountId] ?? 0) + 1;
+      folderLoadSeqByAccountRef.current[accountId] = requestSeq;
+      folderLoadStateByAccountRef.current[accountId] = {
+        status: "loading",
+        requestSeq,
+        sync: Boolean(options?.sync),
+        folderPaths: options?.folderPaths ?? []
+      };
+      recordMailboxDebugEvent("folder_load_requested", {
+        accountId,
+        requestSeq,
+        sync: Boolean(options?.sync),
+        folderPaths: options?.folderPaths ?? []
+      });
+
+      try {
+        const folderResponse = await getJson<{ folders: MailFolder[] }>(
+          `/api/accounts/${accountId}/folders${buildFolderRefreshQuery(options)}`
+        );
+        recordMailboxDebugEvent("folder_load_succeeded", {
+          accountId,
+          requestSeq,
+          folderCount: folderResponse.folders.length,
+          sync: Boolean(options?.sync),
+          folderPaths: options?.folderPaths ?? []
+        });
+
+        if (folderLoadSeqByAccountRef.current[accountId] !== requestSeq) {
+          folderLoadStateByAccountRef.current[accountId] = {
+            ...folderLoadStateByAccountRef.current[accountId],
+            status: "stale",
+            requestSeq,
+            folderCount: folderResponse.folders.length
+          };
+          recordMailboxDebugEvent(
+            "folder_load_stale_dropped",
+            {
+              accountId,
+              requestSeq,
+              latestRequestSeq: folderLoadSeqByAccountRef.current[accountId],
+              folderCount: folderResponse.folders.length
+            },
+            { level: "warn" }
+          );
+          return folderResponse.folders;
+        }
+
+        applyFoldersForAccount(accountId, folderResponse.folders);
+        folderLoadStateByAccountRef.current[accountId] = {
+          ...folderLoadStateByAccountRef.current[accountId],
+          status: "ready",
+          requestSeq,
+          lastAppliedSeq: requestSeq,
+          folderCount: folderResponse.folders.length,
+          lastError: null
+        };
+        recordMailboxDebugEvent("folder_load_applied", {
+          accountId,
+          requestSeq,
+          folderCount: folderResponse.folders.length,
+          appliedToActiveAccount: accountId === activeAccountIdRef.current
+        });
+        return folderResponse.folders;
+      } catch (error) {
+        folderLoadStateByAccountRef.current[accountId] = {
+          ...folderLoadStateByAccountRef.current[accountId],
+          status: "failed",
+          requestSeq,
+          lastError: error instanceof Error ? error.message : "Unknown folder load error."
+        };
+        recordMailboxDebugEvent(
+          "folder_load_failed",
+          {
+            accountId,
+            requestSeq,
+            sync: Boolean(options?.sync),
+            folderPaths: options?.folderPaths ?? [],
+            error: error instanceof Error ? error.message : "Unknown folder load error."
+          },
+          { level: "error" }
+        );
+        throw error;
+      }
     },
-    []
+    [applyFoldersForAccount]
+  );
+
+  const loadFoldersForAccount = useCallback(
+    async (accountId: string, sync = false) => {
+      return fetchFoldersForAccount(accountId, { sync });
+    },
+    [fetchFoldersForAccount]
   );
 
   const loadPersistedAccounts = useCallback(
     async (preferredAccountId?: string | null) => {
+      recordMailboxDebugEvent("account_list_load_requested", {
+        preferredAccountId: preferredAccountId ?? null,
+        explicitActiveAccountId: explicitActiveAccountIdRef.current,
+        activeAccountId: activeAccountIdRef.current
+      });
       const response = await getJson<{ accounts: MailAccountSummary[] }>("/api/accounts");
       const nextAccounts = response.accounts;
+      recordMailboxDebugEvent("account_list_load_succeeded", {
+        accountCount: nextAccounts.length,
+        preferredAccountId: preferredAccountId ?? null,
+        accountIds: nextAccounts.map((account) => account.id)
+      });
       setAccounts(nextAccounts);
       setFoldersByAccount((current) => {
         const allowed = new Set(nextAccounts.map((account) => account.id));
@@ -3988,6 +4278,9 @@ export function MailApp() {
       }
 
       if (nextAccounts.length === 0) {
+        recordMailboxDebugEvent("account_list_empty", {
+          preferredAccountId: preferredAccountId ?? null
+        });
         explicitActiveAccountIdRef.current = null;
         setActiveAccountId(null);
         setFolders([]);
@@ -4019,6 +4312,12 @@ export function MailApp() {
 
       const currentActiveAccountId = activeAccountIdRef.current;
       const accountChanged = currentActiveAccountId !== nextActiveAccount.id;
+      recordMailboxDebugEvent("account_selection_resolved", {
+        preferredAccountId: preferredAccountId ?? null,
+        nextActiveAccountId: nextActiveAccount.id,
+        previousActiveAccountId: currentActiveAccountId,
+        accountChanged
+      });
 
       if (accountChanged) {
         setMessages([]);
@@ -4040,6 +4339,12 @@ export function MailApp() {
       options?: { sync?: boolean; makeDefault?: boolean; folderOverride?: string | null }
     ) => {
       const folder = options?.folderOverride || account.defaultFolder || "INBOX";
+      recordMailboxDebugEvent("account_activation_requested", {
+        accountId: account.id,
+        folderPath: folder,
+        sync: Boolean(options?.sync),
+        makeDefault: Boolean(options?.makeDefault)
+      });
 
       if (options?.makeDefault) {
         await patchJson<{ account: MailAccountSummary }>(`/api/accounts/${account.id}`, {
@@ -4080,6 +4385,11 @@ export function MailApp() {
       } else {
         setSelectedUid(null);
       }
+      recordMailboxDebugEvent("account_activation_completed", {
+        accountId: account.id,
+        folderPath: folder,
+        loadedMessageCount: loadedMessages.length
+      });
       setStatus(`Loaded ${loadedMessages.length} messages from ${folder}.`);
     },
     [applyAccountToConnection, loadFoldersForAccount, loadMessageIntoReader]
@@ -4508,6 +4818,18 @@ export function MailApp() {
   }, [settingsOpen, settingsTab]);
 
   useEffect(() => {
+    if (!composeAiOpen || !composeAiSettingsSummary?.configured) {
+      return;
+    }
+
+    if (isAiAvailabilityFresh(aiAvailabilitySummary) || aiAvailabilityLoading) {
+      return;
+    }
+
+    void loadAiAvailability();
+  }, [aiAvailabilityLoading, aiAvailabilitySummary, composeAiOpen, composeAiSettingsSummary]);
+
+  useEffect(() => {
     if (
       accountFormMode === "edit" &&
       accountFormTarget &&
@@ -4531,6 +4853,18 @@ export function MailApp() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) =>
+          Promise.all(registrations.map((registration) => registration.unregister()))
+        )
+        .catch(() => {
+          // Dev mode should not keep stale service workers around.
+        });
       return;
     }
 
@@ -4660,6 +4994,11 @@ export function MailApp() {
       return;
     }
 
+    recordMailboxDebugEvent("mailbox_context_changed", {
+      activeAccountId,
+      folderPath: currentFolderPath
+    });
+
     if (activeAccountId) {
       window.sessionStorage.setItem("mmwbmail-active-account-id", activeAccountId);
     } else {
@@ -4685,10 +5024,24 @@ export function MailApp() {
 
   useEffect(() => {
     if (!activeAccountId) {
+      setFolders((current) => (current.length === 0 ? current : []));
+      return;
+    }
+
+    const nextFolders = foldersByAccount[activeAccountId] ?? [];
+    setFolders((current) => (areFoldersEquivalent(current, nextFolders) ? current : nextFolders));
+  }, [activeAccountId, foldersByAccount]);
+
+  useEffect(() => {
+    if (!activeAccountId) {
       return;
     }
 
     setFoldersByAccount((current) => {
+      if (folders.length === 0 && !current[activeAccountId]) {
+        return current;
+      }
+
       if (current[activeAccountId] === folders) {
         return current;
       }
@@ -5715,6 +6068,10 @@ export function MailApp() {
       }
 
       autoSyncInFlightRef.current = true;
+      recordMailboxDebugEvent("mailbox_background_sync_started", {
+        accountId: activeAccountId,
+        folderPath: currentFolderPath
+      });
 
       try {
         await postJson(`/api/accounts/${activeAccountId}/sync`, {
@@ -5728,8 +6085,20 @@ export function MailApp() {
           preserveSelection: true,
           skipServerSync: true
         });
+        recordMailboxDebugEvent("mailbox_background_sync_completed", {
+          accountId: activeAccountId,
+          folderPath: currentFolderPath
+        });
       } catch {
         // Ignore background sync failures and keep the current UI state.
+        recordMailboxDebugEvent(
+          "mailbox_background_sync_failed",
+          {
+            accountId: activeAccountId,
+            folderPath: currentFolderPath
+          },
+          { level: "warn" }
+        );
       } finally {
         autoSyncInFlightRef.current = false;
       }
@@ -5772,7 +6141,6 @@ export function MailApp() {
       return;
     }
 
-    let source: EventSource | null = null;
     let pollInterval: number | null = null;
     let pollCursor = new Date().toISOString();
     let disposed = false;
@@ -5781,6 +6149,12 @@ export function MailApp() {
       events?: Array<{ folderPath?: string | null }>;
       cursor?: string;
     }) => {
+      recordMailboxDebugEvent("mailbox_event_poll_received", {
+        accountId: activeAccountId,
+        folderPath: currentFolderPath,
+        eventCount: payload?.events?.length ?? 0,
+        cursor: payload?.cursor ?? null
+      });
       if (payload?.cursor) {
         pollCursor = payload.cursor;
       }
@@ -5792,6 +6166,11 @@ export function MailApp() {
           ) ?? false;
 
         if (payload?.events && !hasRelevantEvent) {
+          recordMailboxDebugEvent("mailbox_event_poll_ignored", {
+            accountId: activeAccountId,
+            folderPath: currentFolderPath,
+            eventCount: payload.events.length
+          });
           return;
         }
       } catch {
@@ -5841,32 +6220,7 @@ export function MailApp() {
       }, 15_000);
     };
 
-    if (typeof EventSource !== "undefined") {
-      source = new EventSource(
-        `/api/accounts/${activeAccountId}/events?since=${encodeURIComponent(pollCursor)}`
-      );
-
-      source.onmessage = (event) => {
-        try {
-          queueRefresh(
-            JSON.parse(event.data) as {
-              events?: Array<{ folderPath?: string | null }>;
-              cursor?: string;
-            }
-          );
-        } catch {
-          queueRefresh();
-        }
-      };
-
-      source.onerror = () => {
-        source?.close();
-        source = null;
-        startPolling();
-      };
-    } else {
-      startPolling();
-    }
+    startPolling();
 
     return () => {
       disposed = true;
@@ -5877,7 +6231,6 @@ export function MailApp() {
       if (pollInterval != null) {
         window.clearInterval(pollInterval);
       }
-      source?.close();
     };
   }, [activeAccountId, currentFolderPath, getJson, loadMessages, refreshFolderCounts]);
 
@@ -6055,7 +6408,10 @@ export function MailApp() {
             uids: allUidsToDelete,
             moveToTrash: true
           });
-          await refreshFolderCounts(resolvedAccountId);
+          await refreshFolderCounts(resolvedAccountId, {
+            sync: true,
+            folderPaths: [folder]
+          });
         } catch (error) {
           console.error("Auto-filter batch delete failed:", error);
         }
@@ -6103,6 +6459,18 @@ export function MailApp() {
       key: requestKey,
       seq: requestSeq
     };
+    recordMailboxDebugEvent("message_load_requested", {
+      accountId: resolvedAccountId,
+      folderPath: folder,
+      requestKey,
+      requestSeq,
+      force,
+      preserveSelection,
+      skipServerSync,
+      serverSearchActive,
+      queryMode: activeQueryForFolder?.mode ?? "browse",
+      queryText: activeQueryForFolder?.normalizedSearchText ?? ""
+    });
     const canApplyVisibleState = () =>
       latestVisibleMessageLoadRef.current?.key === requestKey &&
       latestVisibleMessageLoadRef.current?.seq === requestSeq;
@@ -6139,6 +6507,13 @@ export function MailApp() {
         if (canApplyVisibleState()) {
           setMessages(cached);
         }
+        recordMailboxDebugEvent("message_cache_applied", {
+          accountId: resolvedAccountId,
+          folderPath: folder,
+          requestKey,
+          requestSeq,
+          cachedCount: cached.length
+        });
         const cachedSelection = reconcileVisibleSelection(cached, {
           selectedUid,
           selectedMessageUid: selectedMessage?.uid ?? null,
@@ -6162,6 +6537,14 @@ export function MailApp() {
         : Number.POSITIVE_INFINITY;
 
       if (!force && !serverSearchActive && cacheAge < 5 && cached.length > 0) {
+        recordMailboxDebugEvent("message_load_cache_short_circuit", {
+          accountId: resolvedAccountId,
+          folderPath: folder,
+          requestKey,
+          requestSeq,
+          cacheAgeMinutes: Math.round(cacheAge),
+          cachedCount: cached.length
+        });
         console.log(
           `mmwbmail: cache is ${Math.round(cacheAge)}min old — skipping IMAP fetch`
         );
@@ -6204,6 +6587,19 @@ export function MailApp() {
         cached.length > 0 &&
         (folderMeta?.count ?? 0) > 0
       ) {
+        recordMailboxDebugEvent(
+          "message_load_suspicious_empty_kept_cache",
+          {
+            accountId: resolvedAccountId,
+            folderPath: folder,
+            requestKey,
+            requestSeq,
+            cachedCount: cached.length,
+            freshCount: fresh.length,
+            folderMetadataCount: folderMeta?.count ?? null
+          },
+          { level: "warn" }
+        );
         console.warn(
           `mmwbmail: ignoring suspicious empty refresh for ${folder}; keeping ${cached.length} cached messages`
         );
@@ -6282,6 +6678,19 @@ export function MailApp() {
           prevMessageUidsRef.current = new Set(nextMessages.map((message) => message.uid));
           syncUnreadIndicators(nextMessages);
         }
+      } else {
+        recordMailboxDebugEvent(
+          "message_load_stale_dropped",
+          {
+            accountId: resolvedAccountId,
+            folderPath: folder,
+            requestKey,
+            requestSeq,
+            nextMessageCount: nextMessages.length,
+            latestVisibleMessageLoad: latestVisibleMessageLoadRef.current
+          },
+          { level: "warn" }
+        );
       }
       visibleMessages = nextMessages;
       const nextSelection = reconcileVisibleSelection(nextMessages, {
@@ -6297,9 +6706,29 @@ export function MailApp() {
       if (nextSelection.clearSelectedMessage && canApplyVisibleState()) {
         clearVisibleSelection();
       }
+      recordMailboxDebugEvent("message_load_applied", {
+        accountId: resolvedAccountId,
+        folderPath: folder,
+        requestKey,
+        requestSeq,
+        messageCount: nextMessages.length,
+        usedServerSearch: serverSearchActive,
+        selectionUid: nextSelection.selectedUid
+      });
       console.log(`mmwbmail: fetched ${fresh.length} fresh messages, cache updated`);
       return nextMessages;
     } catch (error) {
+      recordMailboxDebugEvent(
+        "message_load_failed",
+        {
+          accountId: resolvedAccountId,
+          folderPath: folder,
+          requestKey,
+          requestSeq,
+          error: error instanceof Error ? error.message : "Unknown message load error."
+        },
+        { level: "error" }
+      );
       console.error("mmwbmail: IMAP fetch failed", error);
       if (visibleMessages.length === 0) {
         throw error;
@@ -6510,7 +6939,10 @@ export function MailApp() {
             flag: "\\Seen",
             action: "add"
           });
-          await refreshFolderCounts(resolvedAccountId);
+          await refreshFolderCounts(resolvedAccountId, {
+            sync: true,
+            folderPaths: [resolvedFolderPath]
+          });
         } catch (error) {
           console.error("Flag update failed:", error);
           setMessages((current) =>
@@ -6565,7 +6997,10 @@ export function MailApp() {
           flag: "\\Seen",
           action: "add"
         });
-        await refreshFolderCounts(input.accountId);
+        await refreshFolderCounts(input.accountId, {
+          sync: true,
+          folderPaths: [input.folderPath]
+        });
       } catch (error) {
         console.error("Flag update failed:", error);
         setMessages((current) =>
@@ -6639,6 +7074,10 @@ export function MailApp() {
 
   async function refreshCurrentFolder(folder = currentFolderPath) {
     const resolvedAccountId = activeAccountId;
+    recordMailboxDebugEvent("mailbox_refresh_requested", {
+      accountId: resolvedAccountId,
+      folderPath: folder
+    });
     try {
       const refreshedMessages = await loadMessages(folder, {
         force: true,
@@ -6662,9 +7101,23 @@ export function MailApp() {
       } else {
         setSelectedUid(null);
       }
+      recordMailboxDebugEvent("mailbox_refresh_completed", {
+        accountId: resolvedAccountId,
+        folderPath: folder,
+        messageCount: refreshedMessages.length
+      });
       setStatus(`Mailbox refreshed for ${folder}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to refresh mailbox.";
+      recordMailboxDebugEvent(
+        "mailbox_refresh_failed",
+        {
+          accountId: resolvedAccountId,
+          folderPath: folder,
+          error: message
+        },
+        { level: "warn" }
+      );
       if (resolvedAccountId) {
         setMailboxRefreshHint({
           accountId: resolvedAccountId,
@@ -6706,7 +7159,10 @@ export function MailApp() {
       );
 
       await clearFolderCache(folderPath, accountId);
-      await refreshFolderCounts(accountId);
+      await refreshFolderCounts(accountId, {
+        sync: true,
+        folderPaths: [folderPath]
+      });
 
       if (activeAccountIdRef.current === accountId && currentFolderPath === folderPath) {
         const refreshedMessages = await loadMessages(folderPath, {
@@ -6744,23 +7200,25 @@ export function MailApp() {
     }
   }
 
-  async function refreshFolderCounts(accountIdOverride?: string) {
+  async function refreshFolderCounts(
+    accountIdOverride?: string,
+    options?: {
+      sync?: boolean;
+      folderPaths?: string[];
+    }
+  ) {
     const resolvedAccountId = accountIdOverride ?? activeAccountId;
     if (!resolvedAccountId) {
       return;
     }
 
     try {
-      const folderResponse = await getJson<{ folders: MailFolder[] }>(
-        `/api/accounts/${resolvedAccountId}/folders`
-      );
-      setFoldersByAccount((current) => ({
-        ...current,
-        [resolvedAccountId]: folderResponse.folders
-      }));
-      if (resolvedAccountId === activeAccountId) {
-        setFolders(folderResponse.folders);
-      }
+      recordMailboxDebugEvent("folder_refresh_requested", {
+        accountId: resolvedAccountId,
+        sync: Boolean(options?.sync),
+        folderPaths: options?.folderPaths ?? []
+      });
+      await fetchFoldersForAccount(resolvedAccountId, options);
     } catch {
       // Ignore count refresh failures and keep the current sidebar state.
     }
@@ -6940,7 +7398,10 @@ export function MailApp() {
       });
 
       if (result.refreshFolderCounts) {
-        await refreshFolderCounts(request.accountId);
+        await refreshFolderCounts(request.accountId, {
+          sync: Boolean(result.folderPathsToSync?.length),
+          folderPaths: result.folderPathsToSync
+        });
       }
 
       if (options?.clearSelectionOnSuccess) {
@@ -7050,7 +7511,10 @@ export function MailApp() {
       }
 
       if (sendingAccountId) {
-        await refreshFolderCounts(sendingAccountId);
+        await refreshFolderCounts(sendingAccountId, {
+          sync: isSentFolder,
+          folderPaths: isSentFolder ? [currentFolderPath] : undefined
+        });
         if (activeAccountId === sendingAccountId && isSentFolder) {
           await loadMessages(currentFolderPath, {
             force: true,
@@ -8185,22 +8649,38 @@ export function MailApp() {
 
   async function loadComposeAiSettingsSummary() {
     setComposeAiSettingsLoading(true);
+    if (aiSettings) {
+      setComposeAiSettingsSummary(aiSettings);
+    }
 
     try {
-      const settings = await getJson<AiSettingsSummary>("/api/ai/settings");
-      setComposeAiSettingsSummary(settings);
-    } catch (error) {
-      setComposeAiError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load AI Writing Assistant status."
+      const settings = await withTimeout(
+        getJson<AiSettingsSummary>("/api/ai/settings"),
+        4500,
+        "AI Writing Assistant took too long to load. Try again."
       );
+      setComposeAiSettingsSummary(settings);
+      setComposeAiError(null);
+    } catch (error) {
+      if (aiSettings) {
+        setComposeAiSettingsSummary(aiSettings);
+        setComposeAiError(null);
+      } else {
+        setComposeAiError(
+          error instanceof Error
+            ? error.name === "AbortError"
+              ? "AI Writing Assistant took too long to load. Try again."
+              : error.message
+            : "Unable to load AI Writing Assistant status."
+        );
+      }
     } finally {
       setComposeAiSettingsLoading(false);
     }
   }
 
   function openComposeAiPanel() {
+    const seededSettings = aiSettings ?? composeAiSettingsSummary;
     setComposeAiOpen(true);
     setComposeAiCategory(null);
     setComposeAiMode(null);
@@ -8208,6 +8688,13 @@ export function MailApp() {
     setComposeSelectionToolbarPos(null);
     setComposeAiError(null);
     setComposeAiPreview(null);
+    if (seededSettings) {
+      setComposeAiSettingsSummary(seededSettings);
+      setComposeAiSettingsLoading(false);
+      if (seededSettings.configured && !isAiAvailabilityFresh(aiAvailabilitySummary)) {
+        setAiAvailabilityLoading(true);
+      }
+    }
     composeAiSelectionSnapshotRef.current = captureComposeAiSelectionSnapshot();
     void loadComposeAiSettingsSummary();
   }
@@ -8238,6 +8725,38 @@ export function MailApp() {
       return [...current, modifierId];
     });
   }
+
+  useEffect(() => {
+    if (!composeAiOpen || !aiSettings) {
+      return;
+    }
+
+    setComposeAiSettingsSummary(aiSettings);
+    setComposeAiSettingsLoading(false);
+  }, [aiSettings, composeAiOpen]);
+
+  useEffect(() => {
+    if (!composeAiOpen) {
+      return;
+    }
+
+    if (composeAiSettingsSummary || composeAiError) {
+      setComposeAiSettingsLoading(false);
+    }
+  }, [composeAiError, composeAiOpen, composeAiSettingsSummary]);
+
+  useEffect(() => {
+    if (!composeAiOpen || !composeAiSettingsLoading) {
+      return;
+    }
+
+    const timeoutId = globalThis.setTimeout(() => {
+      setComposeAiSettingsLoading(false);
+      setComposeAiError((current) => current ?? "AI Writing Assistant took too long to load. Try again.");
+    }, 5200);
+
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [composeAiOpen, composeAiSettingsLoading]);
 
   async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
     if (!composeAiMode) {
@@ -8855,7 +9374,10 @@ export function MailApp() {
     );
 
     if (moved && !folderAlreadyExists) {
-      await refreshFolderCounts(activeAccountId);
+      await refreshFolderCounts(activeAccountId, {
+        sync: true,
+        folderPaths: [currentFolderPath, preset.folderName]
+      });
     }
 
     return moved;
@@ -9345,6 +9867,11 @@ export function MailApp() {
     try {
       const settings = await getJson<AiSettingsSummary>("/api/ai/settings");
       setAiSettings(settings);
+      if (settings.configured) {
+        void loadAiAvailability();
+      } else {
+        setAiAvailabilitySummary(null);
+      }
     } catch (error) {
       setAiSettingsError(
         error instanceof Error
@@ -9353,6 +9880,35 @@ export function MailApp() {
       );
     } finally {
       setAiSettingsLoading(false);
+    }
+  }
+
+  async function loadAiAvailability(force = false) {
+    if (!force && isAiAvailabilityFresh(aiAvailabilitySummary)) {
+      return aiAvailabilitySummary;
+    }
+
+    setAiAvailabilityLoading(true);
+
+    try {
+      const query = force ? "?force=1" : "";
+      const summary = await getJson<AiAvailabilitySummary>(`/api/ai/availability${query}`);
+      setAiAvailabilitySummary(summary);
+      return summary;
+    } catch (error) {
+      const fallback: AiAvailabilitySummary = {
+        ownerLabel: aiSettings?.ownerLabel ?? composeAiSettingsSummary?.ownerLabel ?? "Current owner",
+        provider: "openai",
+        configured: true,
+        status: "unavailable_temporary_error",
+        checkedAt: new Date().toISOString(),
+        message:
+          "Your API key is saved, but AI rewrites aren’t available right now. Update billing, limits, or retry later."
+      };
+      setAiAvailabilitySummary(fallback);
+      return fallback;
+    } finally {
+      setAiAvailabilityLoading(false);
     }
   }
 
@@ -9368,17 +9924,22 @@ export function MailApp() {
     setAiSettingsSuccess(null);
 
     try {
-      const settings = await putJson<AiSettingsSummary>("/api/ai/settings", {
-        apiKey: aiApiKeyInput,
-        validate: true
-      });
+      const settings = await withTimeout(
+        putJson<AiSettingsSummary>("/api/ai/settings", {
+          apiKey: aiApiKeyInput,
+          validate: false
+        }),
+        7000,
+        "Saving the OpenAI API key took too long. Try again."
+      );
       setAiSettings(settings);
       setAiApiKeyInput("");
-      setAiSettingsSuccess(
-        settings.status === "connected"
-          ? "Saved."
-          : "Saved. Connection still needs attention."
-      );
+      if (settings.configured) {
+        void loadAiAvailability(true);
+      } else {
+        setAiAvailabilitySummary(null);
+      }
+      setAiSettingsSuccess("Saved.");
     } catch (error) {
       setAiSettingsError(
         error instanceof Error
@@ -9396,11 +9957,20 @@ export function MailApp() {
     setAiSettingsSuccess(null);
 
     try {
-      const settings = await postJson<AiSettingsSummary>("/api/ai/settings/test", {
-        apiKey: aiApiKeyInput.trim() || undefined
-      });
+      const settings = await withTimeout(
+        postJson<AiSettingsSummary>("/api/ai/settings/test", {
+          apiKey: aiApiKeyInput.trim() || undefined
+        }),
+        7000,
+        "Testing the OpenAI API key took too long. Try again."
+      );
       if (!aiApiKeyInput.trim()) {
         setAiSettings(settings);
+        if (settings.configured) {
+          void loadAiAvailability(true);
+        } else {
+          setAiAvailabilitySummary(null);
+        }
       }
       if (settings.status === "connected") {
         setAiSettingsSuccess("Connected.");
@@ -9430,6 +10000,7 @@ export function MailApp() {
     try {
       const settings = await deleteJson<AiSettingsSummary>("/api/ai/settings");
       setAiSettings(settings);
+      setAiAvailabilitySummary(null);
       setAiApiKeyInput("");
       setAiSettingsSuccess("Removed.");
     } catch (error) {
@@ -10403,6 +10974,21 @@ export function MailApp() {
     () => buildInboxAttentionCounts(messages, threadingEnabled, inboxAttentionConversations),
     [inboxAttentionConversations, messages, threadingEnabled]
   );
+  const shouldUseDerivedInboxAttentionCounts = useMemo(() => {
+    if (
+      mailboxViewMode !== "new-mail" ||
+      !activeMailboxNode ||
+      !isInboxMailboxNode(activeMailboxNode)
+    ) {
+      return false;
+    }
+
+    if (messages.length > 0) {
+      return true;
+    }
+
+    return (activeMailboxNode.count ?? 0) === 0 && (activeMailboxNode.unread ?? 0) === 0;
+  }, [activeMailboxNode, mailboxViewMode, messages.length]);
   const mailboxResultState = useMemo(
     () =>
       getMailboxResultState({
@@ -10707,7 +11293,10 @@ export function MailApp() {
           providerCapabilities: account.provider.capabilities
         });
         const inboxCountsByPath =
-          isActive && activeMailboxNode && isInboxMailboxNode(activeMailboxNode)
+          isActive &&
+          shouldUseDerivedInboxAttentionCounts &&
+          activeMailboxNode &&
+          isInboxMailboxNode(activeMailboxNode)
             ? {
                 [activeMailboxNode.identity.providerPath]: activeInboxAttentionCounts
               }
@@ -10729,9 +11318,136 @@ export function MailApp() {
       activeMailboxNode,
       foldersByAccount,
       mailboxViewMode,
-      orderedFolders
+      orderedFolders,
+      shouldUseDerivedInboxAttentionCounts
     ]
   );
+  useEffect(() => {
+    updateMailboxDebugSnapshot("mailbox_readiness", {
+      loader: {
+        active: false,
+        reason: "disabled"
+      },
+      accounts: {
+        count: accounts.length,
+        activeAccountId,
+        loaded: accounts.length > 0
+      },
+      folders: {
+        activeFolderPath: currentFolderPath,
+        activeFolderCount: folders.length,
+        byAccount: accounts.map((account) => {
+          const accountFolders = foldersByAccount[account.id];
+          const loadState = folderLoadStateByAccountRef.current[account.id] ?? null;
+          return {
+            accountId: account.id,
+            isActive: account.id === activeAccountId,
+            readiness:
+              accountFolders === undefined
+                ? "missing"
+                : accountFolders.length > 0
+                  ? "ready"
+                  : "empty",
+            folderCount: accountFolders?.length ?? 0,
+            loadLifecycle: loadState
+          };
+        })
+      },
+      sidebar: {
+        renderableGroupCount: sidebarMailboxGroups.length,
+        renderableMailboxTargetCount: sidebarMailboxGroups.reduce(
+          (sum, group) => sum + group.mailboxTargets.length,
+          0
+        )
+      }
+    });
+  }, [accounts, activeAccountId, currentFolderPath, folders.length, foldersByAccount, sidebarMailboxGroups]);
+
+  useEffect(() => {
+    updateMailboxDebugSnapshot("mailbox_query", {
+      accountId: activeAccountId,
+      folderPath: currentFolderPath,
+      mailboxId: mailboxQuery.target.mailboxId,
+      providerPath: mailboxQuery.target.providerPath,
+      mode: mailboxQuery.mode,
+      usesServerSideSearch: mailboxQuery.usesServerSideSearch,
+      normalizedSearchText: mailboxQuery.normalizedSearchText,
+      resultKey: mailboxQuery.resultKey
+    });
+    recordMailboxDebugEvent("mailbox_query_updated", {
+      accountId: activeAccountId,
+      folderPath: currentFolderPath,
+      mode: mailboxQuery.mode,
+      normalizedSearchText: mailboxQuery.normalizedSearchText,
+      resultKey: mailboxQuery.resultKey
+    });
+  }, [
+    activeAccountId,
+    currentFolderPath,
+    mailboxQuery.mode,
+    mailboxQuery.normalizedSearchText,
+    mailboxQuery.resultKey,
+    mailboxQuery.target.mailboxId,
+    mailboxQuery.target.providerPath,
+    mailboxQuery.usesServerSideSearch
+  ]);
+
+  useEffect(() => {
+    updateMailboxDebugSnapshot("mailbox_counts", {
+      accountId: activeAccountId,
+      folderPath: currentFolderPath,
+      mailboxViewMode,
+      threadingEnabled,
+      displayCountType: threadingEnabled ? "thread" : "message",
+      sidebarCountSource:
+        mailboxViewMode === "new-mail" && activeMailboxNode?.systemKey === "inbox"
+          ? "derived_from_visible_messages"
+          : "provider_folder_metadata",
+      activeMailboxNode: activeMailboxNode
+        ? {
+            providerPath: activeMailboxNode.identity.providerPath,
+            count: activeMailboxNode.count,
+            unread: activeMailboxNode.unread,
+            systemKey: activeMailboxNode.systemKey
+          }
+        : null,
+      inboxAttentionCounts:
+        mailboxViewMode === "new-mail" && activeMailboxNode?.systemKey === "inbox"
+          ? activeInboxAttentionCounts
+          : null,
+      visibleMessageCount: sortedMessages.length,
+      visibleUnreadCount: sortedUnreadCount,
+      visibleConversationCount: renderedConversationSummaries.length
+    });
+  }, [
+    activeAccountId,
+    activeInboxAttentionCounts,
+    activeMailboxNode,
+    currentFolderPath,
+    mailboxViewMode,
+    renderedConversationSummaries.length,
+    sortedMessages.length,
+    sortedUnreadCount,
+    threadingEnabled
+  ]);
+
+  useEffect(() => {
+    updateMailboxDebugSnapshot("mailbox_selection", {
+      accountId: activeAccountId,
+      folderPath: currentFolderPath,
+      selectedUid,
+      selectedMessageUid: selectedMessage?.uid ?? null,
+      selectedMessageAccountId: selectedMessage?.accountId ?? null,
+      selectedCount: selectedUids.size
+    });
+    recordMailboxDebugEvent("mailbox_selection_changed", {
+      accountId: activeAccountId,
+      folderPath: currentFolderPath,
+      selectedUid,
+      selectedMessageUid: selectedMessage?.uid ?? null,
+      selectedCount: selectedUids.size
+    });
+  }, [activeAccountId, currentFolderPath, selectedMessage?.accountId, selectedMessage?.uid, selectedUid, selectedUids.size]);
   const sortFolderSettingsGroups = useMemo(
     () =>
       accounts.map((account) => {
@@ -13203,7 +13919,7 @@ export function MailApp() {
                               ) : null}
                             </span>
                           </div>
-                          {mailboxTarget.count ? (
+                          {mailboxTarget.count !== null ? (
                             <span
                               className={`folder-row-count ${isMailboxActive ? "active" : ""}`}
                             >
@@ -15353,7 +16069,10 @@ export function MailApp() {
                                               uids: [message.uid],
                                               moveToTrash: true
                                             });
-                                            await refreshFolderCounts(activeAccountId ?? undefined);
+                                            await refreshFolderCounts(activeAccountId ?? undefined, {
+                                              sync: true,
+                                              folderPaths: [currentFolderPath]
+                                            });
                                           } catch (error) {
                                             console.error("Cleanup delete failed:", error);
                                             setStatus("Could not move that message to Trash.");
@@ -15466,7 +16185,10 @@ export function MailApp() {
                                                   uids: [message.uid],
                                                   moveToTrash: true
                                                 });
-                                                await refreshFolderCounts(activeAccountId ?? undefined);
+                                                await refreshFolderCounts(activeAccountId ?? undefined, {
+                                                  sync: true,
+                                                  folderPaths: [currentFolderPath]
+                                                });
                                               } catch (error) {
                                                 console.error("Cleanup preview delete failed:", error);
                                                 setStatus("Could not move that message to Trash.");
@@ -16213,7 +16935,10 @@ export function MailApp() {
                                 uids,
                                 moveToTrash: true
                               });
-                              await refreshFolderCounts(activeAccountId ?? undefined);
+                              await refreshFolderCounts(activeAccountId ?? undefined, {
+                                sync: true,
+                                folderPaths: [currentFolderPath]
+                              });
                             } catch (error) {
                               console.error("Auto-filter initial run failed:", error);
                             }
@@ -16380,7 +17105,10 @@ export function MailApp() {
                               moveToTrash: true
                             });
                             console.log("Keep only recent: server delete succeeded");
-                            await refreshFolderCounts(activeAccountId ?? undefined);
+                            await refreshFolderCounts(activeAccountId ?? undefined, {
+                              sync: true,
+                              folderPaths: [currentFolderPath]
+                            });
                             setStatus(
                               `Removed ${response.deletedCount} older message${
                                 response.deletedCount !== 1 ? "s" : ""
@@ -16545,17 +17273,16 @@ export function MailApp() {
                       setSelectedUid(null);
                     }
 
-                    const [folderResponse, messageResponse] = await Promise.all([
-                      getJson<{ folders: MailFolder[] }>(
-                        `/api/accounts/${activeAccountId}/folders`
-                      ),
+                    const [, messageResponse] = await Promise.all([
+                      refreshFolderCounts(activeAccountId, {
+                        sync: true,
+                        folderPaths: [currentFolderPath]
+                      }),
                       loadMessages(currentFolderPath, {
                         force: true,
                         manageBusy: false
                       })
                     ]);
-
-                    setFolders(folderResponse.folders);
                     await Promise.all(
                       messages
                         .filter((message) => message.from === senderName)
@@ -17188,10 +17915,36 @@ export function MailApp() {
                             : aiSettings?.status === "invalid"
                               ? aiSettings.lastError ||
                                 "The saved key needs attention before rewrite requests can use it."
-                              : "No OpenAI API key is saved yet."}
+                          : "No OpenAI API key is saved yet."}
                         </div>
                       </div>
                     </div>
+
+                    {aiSettings?.configured ? (
+                      aiAvailabilityLoading && !isAiAvailabilityFresh(aiAvailabilitySummary) ? (
+                        <div className="settings-ai-action-status">
+                          Checking AI rewrite availability…
+                        </div>
+                      ) : aiAvailabilitySummary ? (
+                        <div
+                          className={`settings-ai-action-status ${
+                            isAiAvailabilityUnavailable(aiAvailabilitySummary)
+                              ? "error"
+                              : aiAvailabilitySummary.status === "available"
+                                ? "success"
+                                : ""
+                          }`}
+                        >
+                          {isAiAvailabilityUnavailable(aiAvailabilitySummary)
+                            ? `API key saved, but unavailable right now. ${getAiAvailabilityMessage(
+                                aiAvailabilitySummary
+                              )}`
+                            : `AI rewrite availability: ${getAiAvailabilityStatusLabel(
+                                aiAvailabilitySummary.status
+                              )}.`}
+                        </div>
+                      ) : null
+                    ) : null}
 
                     <div className="settings-field">
                       <label>
@@ -18467,6 +19220,76 @@ export function MailApp() {
                       >
                         Open Settings
                       </button>
+                    </div>
+                  ) : composeAiError && !composeAiSettingsSummary ? (
+                    <div className="compose-ai-empty-state">
+                      <div className="compose-ai-empty-title">
+                        AI Writing Assistant couldn&apos;t load
+                      </div>
+                      <div className="compose-ai-empty-copy">{composeAiError}</div>
+                      <div className="compose-ai-request-actions">
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-primary"
+                          onClick={() => {
+                            setComposeAiError(null);
+                            void loadComposeAiSettingsSummary();
+                          }}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-secondary"
+                          onClick={() => {
+                            setSettingsTab("ai");
+                            setSettingsOpen(true);
+                          }}
+                        >
+                          Open Settings
+                        </button>
+                      </div>
+                    </div>
+                  ) : composeAiSettingsSummary?.configured &&
+                    (aiAvailabilityLoading && !isAiAvailabilityFresh(aiAvailabilitySummary)) ? (
+                    <div className="compose-ai-empty-state">
+                      <div className="compose-ai-empty-title">
+                        Checking AI rewrite availability
+                      </div>
+                      <div className="compose-ai-empty-copy">
+                        Confirming that your saved OpenAI API key can run rewrites right now.
+                      </div>
+                    </div>
+                  ) : composeAiSettingsSummary?.configured &&
+                    isAiAvailabilityUnavailable(aiAvailabilitySummary) ? (
+                    <div className="compose-ai-empty-state">
+                      <div className="compose-ai-empty-title">
+                        AI rewrites aren&apos;t available right now
+                      </div>
+                      <div className="compose-ai-empty-copy">
+                        {getAiAvailabilityMessage(aiAvailabilitySummary)}
+                      </div>
+                      <div className="compose-ai-request-actions">
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-primary"
+                          onClick={() => {
+                            void loadAiAvailability(true);
+                          }}
+                        >
+                          Retry check
+                        </button>
+                        <button
+                          type="button"
+                          className="ghostButton compose-ai-action-secondary"
+                          onClick={() => {
+                            setSettingsTab("ai");
+                            setSettingsOpen(true);
+                          }}
+                        >
+                          Open Settings
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <>
