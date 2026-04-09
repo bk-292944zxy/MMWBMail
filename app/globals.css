@@ -7402,10 +7402,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .settings-footer-actions {
   display: flex !important;
+  flex-wrap: wrap !important;
   justify-content: flex-end !important;
+  align-items: center !important;
   gap: 8px !important;
   padding-top: 8px !important;
   border-top: 1px solid var(--border) !important;
+}
+
+.settings-footer-actions .settings-account-feedback {
+  width: 100% !important;
+  margin: 0 0 4px !important;
 }
 
 .settings-blocked-panel {
@@ -8052,6 +8059,27 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 13px !important;
   color: var(--text2) !important;
   padding: 12px 0 !important;
+}
+
+.settings-account-feedback {
+  margin: 10px 0 12px !important;
+  padding: 10px 12px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  border: 1px solid transparent !important;
+}
+
+.settings-account-feedback.success {
+  background: rgba(34, 197, 94, 0.08) !important;
+  border-color: rgba(34, 197, 94, 0.18) !important;
+  color: #166534 !important;
+}
+
+.settings-account-feedback.error {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.18) !important;
+  color: #b42318 !important;
 }
 
 .settings-account-row {

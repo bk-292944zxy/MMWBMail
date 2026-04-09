@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
+import { Prisma } from "@prisma/client";
+
 import { getMailAccountSecret } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { getMailAccountProviderInfo } from "@/lib/mail-provider-metadata";
@@ -10,6 +12,13 @@ type PersistedMailAccountRecord = Awaited<ReturnType<typeof prisma.mailAccount.f
 export type CreateMailAccountInput = {
   label?: string;
 } & MailConnectionPayload;
+
+function isMissingMailAccountUpdate(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2025"
+  );
+}
 
 function getEncryptionKey() {
   const seed = getMailAccountSecret();
@@ -102,8 +111,11 @@ export async function createMailAccount(input: CreateMailAccountInput) {
     throw new Error("Password is required when adding a new account.");
   }
 
-  const account = existing
-    ? await prisma.mailAccount.update({
+  let account;
+
+  if (existing) {
+    try {
+      account = await prisma.mailAccount.update({
         where: { id: existing.id },
         data: {
           label: input.label?.trim() || input.email,
@@ -120,8 +132,15 @@ export async function createMailAccount(input: CreateMailAccountInput) {
           defaultFolder: input.folder?.trim() || existing.defaultFolder || "INBOX",
           isActive: true
         }
-      })
-    : await prisma.mailAccount.create({
+      });
+    } catch (error) {
+      if (!isMissingMailAccountUpdate(error)) {
+        throw error;
+      }
+    }
+  }
+
+  account ??= await prisma.mailAccount.create({
         data: {
           label: input.label?.trim() || input.email,
           email: normalizedEmail,
@@ -181,6 +200,64 @@ export async function deleteMailAccount(accountId: string) {
   const nextAccount = remainingCandidates[0] ?? null;
 
   await prisma.$transaction(async (tx) => {
+    const folders = await tx.mailboxFolder.findMany({
+      where: { accountId },
+      select: { id: true }
+    });
+    const folderIds = folders.map((folder) => folder.id);
+
+    if (folderIds.length > 0) {
+      const messages = await tx.storedMessage.findMany({
+        where: {
+          accountId,
+          folderId: {
+            in: folderIds
+          }
+        },
+        select: { id: true }
+      });
+      const messageIds = messages.map((message) => message.id);
+
+      if (messageIds.length > 0) {
+        await tx.storedMessageBody.deleteMany({
+          where: {
+            storedMessageId: {
+              in: messageIds
+            }
+          }
+        });
+      }
+
+      await tx.storedMessage.deleteMany({
+        where: {
+          accountId,
+          folderId: {
+            in: folderIds
+          }
+        }
+      });
+
+      await tx.mailSyncState.deleteMany({
+        where: {
+          accountId
+        }
+      });
+
+      await tx.mailboxFolder.deleteMany({
+        where: {
+          accountId
+        }
+      });
+    }
+
+    await tx.mailAccountEvent.deleteMany({
+      where: { accountId }
+    });
+
+    await tx.userPreferences.deleteMany({
+      where: { accountId }
+    });
+
     await tx.mailAccount.delete({
       where: { id: accountId }
     });

@@ -166,6 +166,7 @@ type PrintFormat = "print" | "pdf";
 type BulkSelectionMenu = "sort" | "more" | null;
 type ResponsiveInteractionMode = "desktop-workspace" | "mobile-stacked";
 type MobileStackedScreen = "mailboxes" | "messages" | "viewer";
+type SenderFilterScope = "general" | "prioritized";
 type ScrollBridgedFrame = HTMLIFrameElement & {
   __mmwbmailScrollCleanup?: () => void;
 };
@@ -2793,6 +2794,7 @@ export function MailApp() {
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [senderFilter, setSenderFilter] = useState<string | null>(null);
+  const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
   const [subjectPattern, setSubjectPattern] = useState<string | null>(null);
   const [spoofExpanded, setSpoofExpanded] = useState(false);
@@ -2824,6 +2826,8 @@ export function MailApp() {
   >("ui");
   const [accountFormMode, setAccountFormMode] = useState<"add" | "edit" | null>(null);
   const [accountFormTarget, setAccountFormTarget] = useState<string | null>(null);
+  const [accountFormError, setAccountFormError] = useState<string | null>(null);
+  const [accountFormSuccess, setAccountFormSuccess] = useState<string | null>(null);
   const [storedPasswordHintVisible, setStoredPasswordHintVisible] = useState(false);
   const [blockedSearch, setBlockedSearch] = useState("");
   const [selectedBlockedSenders, setSelectedBlockedSenders] = useState<Set<string>>(new Set());
@@ -2957,6 +2961,9 @@ export function MailApp() {
     "sidebar" | "list" | null
   >(null);
   const [workspacePaneSettling, setWorkspacePaneSettling] = useState(false);
+  const composeAttachmentDataUrlCacheRef = useRef<WeakMap<File, string | Promise<string>>>(
+    new WeakMap()
+  );
   const workspaceRef = useRef<HTMLElement | null>(null);
   const workspacePaneSettlingTimerRef = useRef<number | null>(null);
   const bulkSortMenuRef = useRef<HTMLDivElement | null>(null);
@@ -3923,7 +3930,25 @@ export function MailApp() {
       const attachments = await Promise.all(
         composeAttachments.map(async (file, index) => ({
           ...attachmentState[index],
-          dataUrl: await fileToDataUrl(file)
+          dataUrl: await (async () => {
+            const cached = composeAttachmentDataUrlCacheRef.current.get(file);
+            if (cached) {
+              return await cached;
+            }
+
+            const next = fileToDataUrl(file)
+              .then((dataUrl) => {
+                composeAttachmentDataUrlCacheRef.current.set(file, dataUrl);
+                return dataUrl;
+              })
+              .catch((error) => {
+                composeAttachmentDataUrlCacheRef.current.delete(file);
+                throw error;
+              });
+
+            composeAttachmentDataUrlCacheRef.current.set(file, next);
+            return await next;
+          })()
         }))
       );
 
@@ -5365,6 +5390,52 @@ export function MailApp() {
 
   function persistConnection(nextConnection: MailConnectionPayload) {
     setConnection(nextConnection);
+    setAccountFormError(null);
+  }
+
+  function describeAccountConnectError(error: unknown, accountWillBeRemoved: boolean) {
+    const rawMessage =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "Unable to connect this account.";
+    const normalized = rawMessage.toLowerCase();
+    const authFailure =
+      normalized.includes("auth") ||
+      normalized.includes("login failed") ||
+      normalized.includes("invalid credentials") ||
+      normalized.includes("invalid login") ||
+      normalized.includes("password") ||
+      normalized.includes("username") ||
+      normalized.includes("not authenticated");
+
+    if (authFailure) {
+      return accountWillBeRemoved
+        ? "Maximail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again. The account was not added."
+        : "Maximail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again.";
+    }
+
+    return accountWillBeRemoved ? `${rawMessage} The account was not added.` : rawMessage;
+  }
+
+  function describeAccountDeleteError(error: unknown) {
+    const rawMessage =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "Maximail couldn't remove that account right now.";
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("not found") ||
+      normalized.includes("no record was found")
+    ) {
+      return "That account was already removed. Refresh Settings if it still appears.";
+    }
+
+    if (normalized.includes("foreign key") || normalized.includes("constraint")) {
+      return "Maximail couldn't finish removing that account because some saved mailbox data is still linked to it. Try again.";
+    }
+
+    return rawMessage;
   }
 
   function persistFolderOrder(nextOrder: string[]) {
@@ -5775,25 +5846,79 @@ export function MailApp() {
       folder: targetFolder,
       label: connection.email.trim() || "Mailbox"
     });
+    const createdAccount = !accounts.some((entry) => entry.id === accountResponse.account.id);
     const nextAccount =
       (await loadPersistedAccounts(accountResponse.account.id)) ?? accountResponse.account;
     applyAccountToConnection(nextAccount, targetFolder);
-    return { account: nextAccount, folder: targetFolder };
+    return { account: nextAccount, folder: targetFolder, createdAccount };
+  }
+
+  async function verifyAccountConnection() {
+    const targetFolder = connection.folder?.trim() || activeAccount?.defaultFolder || "INBOX";
+
+    await postJson<{ folders: MailFolder[] }>("/api/account/folders", {
+      ...connection,
+      folder: targetFolder
+    });
   }
 
   async function connectMailbox() {
     setIsBusy(true);
+    setAccountFormError(null);
+    setAccountFormSuccess(null);
     setStatus("Saving account and syncing mailbox...");
 
+    const priorActiveAccountId = activeAccountIdRef.current;
+    let createdAccountId: string | null = null;
+    let shouldRollbackCreatedAccount = false;
+
     try {
-      const { account, folder } = await saveAccountSettings();
+      if (accountFormMode === "add") {
+        await verifyAccountConnection();
+      }
+
+      const { account, folder, createdAccount } = await saveAccountSettings();
+      if (createdAccount) {
+        createdAccountId = account.id;
+        shouldRollbackCreatedAccount = true;
+      }
       await activateAccount(account, {
         sync: true,
         folderOverride: folder
       });
+
+      const successMessage =
+        accountFormMode === "add"
+          ? `${account.email} was added and is ready to use.`
+          : `${account.email} was updated successfully.`;
+      setAccountFormSuccess(successMessage);
+      setStatus(successMessage);
+      showToast(accountFormMode === "add" ? "Account added" : "Account updated");
+      setSettingsTab("account");
+      closeAccountForm();
       return true;
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to connect.");
+      if (shouldRollbackCreatedAccount && createdAccountId) {
+        try {
+          await deleteJson<{
+            success: true;
+            deletedAccountId: string;
+            nextAccountId: string | null;
+          }>(`/api/accounts/${createdAccountId}`);
+        } catch (rollbackError) {
+          console.error("mmwbmail: failed to rollback account add after sync/auth failure", rollbackError);
+        }
+
+        try {
+          await loadPersistedAccounts(priorActiveAccountId ?? undefined);
+        } catch (restoreError) {
+          console.error("mmwbmail: failed to restore account list after rollback", restoreError);
+        }
+      }
+
+      const message = describeAccountConnectError(error, shouldRollbackCreatedAccount);
+      setAccountFormError(message);
+      setStatus(message);
       return false;
     } finally {
       setIsBusy(false);
@@ -6457,14 +6582,35 @@ export function MailApp() {
     sentMode = false
   ) {
     setSenderFilter(getFocusFilterValue(message, sentMode));
+    setSenderFilterScope("general");
     setSubjectFilter(null);
     setSubjectPattern(null);
+  }
+
+  function applyPrioritizedSenderFocus(senderName: string) {
+    setSenderFilter(senderName);
+    setSenderFilterScope("prioritized");
+    setSubjectFilter(null);
+    setSubjectPattern(null);
+  }
+
+  function clearSenderFocus() {
+    setSenderFilter(null);
+    setSenderFilterScope(null);
+  }
+
+  function clearPrioritizedSenderFocus() {
+    if (senderFilterScope !== "prioritized") {
+      return;
+    }
+
+    clearSenderFocus();
   }
 
   function applySubjectPivot(message: MailSummary | MailDetail) {
     const pattern = detectSubjectPattern(message.subject, messages);
 
-    setSenderFilter(null);
+    clearSenderFocus();
     setSubjectFilter(message.subject);
     setSubjectPattern(pattern);
   }
@@ -8324,6 +8470,8 @@ export function MailApp() {
       smtpSecure: account.smtpSecure,
       folder: account.defaultFolder ?? "INBOX"
     });
+    setAccountFormError(null);
+    setAccountFormSuccess(null);
     setAccountFormTarget(account.id);
     setAccountFormMode("edit");
   }
@@ -8340,11 +8488,14 @@ export function MailApp() {
       smtpSecure: true,
       folder: "INBOX"
     });
+    setAccountFormError(null);
+    setAccountFormSuccess(null);
     setAccountFormTarget(null);
     setAccountFormMode("add");
   }
 
   function closeAccountForm() {
+    setAccountFormError(null);
     setAccountFormMode(null);
     setAccountFormTarget(null);
   }
@@ -8354,6 +8505,8 @@ export function MailApp() {
       return;
     }
 
+    setAccountFormError(null);
+    setAccountFormSuccess(null);
     setIsBusy(true);
 
     try {
@@ -8362,21 +8515,66 @@ export function MailApp() {
         deletedAccountId: string;
         nextAccountId: string | null;
       }>(`/api/accounts/${account.id}`);
+      const remainingAccounts = accounts.filter((entry) => entry.id !== account.id);
+      const optimisticNextAccount =
+        remainingAccounts.find((entry) => entry.id === result.nextAccountId) ??
+        remainingAccounts.find((entry) => entry.id === explicitActiveAccountIdRef.current) ??
+        remainingAccounts.find((entry) => entry.id === activeAccountIdRef.current) ??
+        remainingAccounts.find((entry) => entry.isDefault) ??
+        remainingAccounts[0] ??
+        null;
 
       if (accountFormTarget === account.id) {
         closeAccountForm();
       }
 
-      const nextAccount = await loadPersistedAccounts(result.nextAccountId ?? undefined);
+      setAccounts(remainingAccounts);
+      setFoldersByAccount((current) => {
+        const next = { ...current };
+        delete next[account.id];
+        return next;
+      });
+
+      let nextAccount = optimisticNextAccount;
+
+      try {
+        nextAccount =
+          (await loadPersistedAccounts(result.nextAccountId ?? undefined)) ?? optimisticNextAccount;
+      } catch (error) {
+        setAccountFormSuccess(
+          `${account.email} was removed, but Maximail couldn't fully refresh the account list yet.`
+        );
+        setStatus(
+          error instanceof Error
+            ? `Deleted ${account.email}, but couldn't refresh the account list.`
+            : `Deleted ${account.email}, but couldn't refresh the account list.`
+        );
+      }
 
       if (account.id === activeAccountId) {
         if (nextAccount) {
-          await activateAccount(nextAccount, {
-            sync: true,
-            folderOverride: nextAccount.defaultFolder || "INBOX"
-          });
+          try {
+            await activateAccount(nextAccount, {
+              sync: true,
+              folderOverride: nextAccount.defaultFolder || "INBOX"
+            });
+          } catch (error) {
+            explicitActiveAccountIdRef.current = nextAccount.id;
+            setActiveAccountId(nextAccount.id);
+            applyAccountToConnection(nextAccount, nextAccount.defaultFolder || "INBOX");
+            setAccountFormSuccess(
+              `${account.email} was removed. ${nextAccount.email} is now selected, but Maximail couldn't fully load it yet.`
+            );
+            setStatus(
+              error instanceof Error
+                ? `Deleted ${account.email}, but couldn't fully load ${nextAccount.email}.`
+                : `Deleted ${account.email}, but couldn't fully load ${nextAccount.email}.`
+            );
+          }
+          setAccountFormSuccess(`${account.email} was removed.`);
           showToast(`Deleted ${account.email}`);
         } else {
+          explicitActiveAccountIdRef.current = null;
           setActiveAccountId(null);
           setFolders([]);
           setFoldersByAccount({});
@@ -8391,6 +8589,7 @@ export function MailApp() {
             setSubjectPattern
           );
           setStatus("Connect a live mailbox to begin.");
+          setAccountFormSuccess(`${account.email} was removed.`);
           showToast(`Deleted ${account.email}`);
         }
       } else {
@@ -8399,10 +8598,13 @@ export function MailApp() {
           delete next[account.id];
           return next;
         });
+        setAccountFormSuccess(`${account.email} was removed.`);
         showToast(`Deleted ${account.email}`);
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to delete account.");
+      const message = describeAccountDeleteError(error);
+      setAccountFormError(message);
+      setStatus(message);
     } finally {
       setIsBusy(false);
     }
@@ -8454,19 +8656,30 @@ export function MailApp() {
         setComposeAttachments((current) =>
           current.filter((entry, entryIndex) => {
             if (typeof index === "number" && entryIndex === index) {
+              composeAttachmentDataUrlCacheRef.current.delete(entry);
               return false;
             }
 
             if (file && entry === file) {
+              composeAttachmentDataUrlCacheRef.current.delete(entry);
               return false;
             }
 
             const fileAttachmentId = composeAttachmentIdsRef.current.get(entry);
             if (attachmentId && fileAttachmentId) {
-              return fileAttachmentId !== attachmentId;
+              if (fileAttachmentId === attachmentId) {
+                composeAttachmentDataUrlCacheRef.current.delete(entry);
+                return false;
+              }
+              return true;
             }
 
-            return filename ? entry.name !== filename : true;
+            if (filename && entry.name === filename) {
+              composeAttachmentDataUrlCacheRef.current.delete(entry);
+              return false;
+            }
+
+            return true;
           })
         );
 
@@ -9015,9 +9228,10 @@ export function MailApp() {
     () =>
       Boolean(
         senderFilter &&
+          senderFilterScope === "prioritized" &&
           prioritizedSenders.some((sender) => sender.name === senderFilter)
       ),
-    [prioritizedSenders, senderFilter]
+    [prioritizedSenders, senderFilter, senderFilterScope]
   );
   const prioritizedSenderUsesCombinedInboxView = Boolean(
     activeInboxAttentionView && prioritizedSenderMatchesActiveFilter
@@ -9588,6 +9802,12 @@ export function MailApp() {
       setBulkSelectionMenu(null);
     }
   }, [selectedUids]);
+
+  useEffect(() => {
+    if (!senderFilter && senderFilterScope !== null) {
+      setSenderFilterScope(null);
+    }
+  }, [senderFilter, senderFilterScope]);
 
   useEffect(() => {
     const previousQuery = previousMailboxQueryRef.current;
@@ -10893,7 +11113,7 @@ export function MailApp() {
         }
 
         if (senderFilter) {
-          setSenderFilter(null);
+          clearSenderFocus();
           return;
         }
 
@@ -11328,7 +11548,7 @@ export function MailApp() {
               <div
                 className="menu-item"
                 onMouseDown={() => {
-                  setSenderFilter(null);
+                  clearSenderFocus();
                   setSubjectFilter(null);
                   setSubjectPattern(null);
                   setOpenMenu(null);
@@ -11418,6 +11638,7 @@ export function MailApp() {
                   type="button"
                   className="sidebar-onboarding-btn sidebar-onboarding-btn-primary"
                   onClick={() => {
+                    clearPrioritizedSenderFocus();
                     setLightweightOnboardingDismissed(true);
                     setMailboxViewMode("new-mail");
                     if (isInboxMailboxNode(activeMailboxNode)) {
@@ -11447,7 +11668,8 @@ export function MailApp() {
                   const unread = messages.filter(
                     (message) => message.from === sender.name && !message.seen
                   ).length;
-                  const isActive = senderFilter === sender.name;
+                  const isActive =
+                    senderFilterScope === "prioritized" && senderFilter === sender.name;
                   const autoFilter = autoFilters.find(
                     (filterRule) => filterRule.senderName === sender.name
                   );
@@ -11457,7 +11679,11 @@ export function MailApp() {
                       key={sender.name}
                       className={`sidebar-item priority-item ${isActive ? "active" : ""}`}
                       onClick={() => {
-                        setSenderFilter(isActive ? null : sender.name);
+                        if (isActive) {
+                          clearSenderFocus();
+                        } else {
+                          applyPrioritizedSenderFocus(sender.name);
+                        }
                         if (isMobileStackedMode) {
                           setMobileStackedScreen("messages");
                         }
@@ -11512,7 +11738,7 @@ export function MailApp() {
                             });
                           }
                           if (senderFilter === sender.name) {
-                            setSenderFilter(null);
+                            clearSenderFocus();
                           }
                         }}
                       >
@@ -11557,6 +11783,7 @@ export function MailApp() {
                       type="button"
                       className={`mailbox-view-btn ${mailboxViewMode === "classic" ? "active" : ""}`}
                       onClick={() => {
+                        clearPrioritizedSenderFocus();
                         setMailboxViewMode("classic");
                         setInboxAttentionView(null);
                       }}
@@ -11567,6 +11794,7 @@ export function MailApp() {
                       type="button"
                       className={`mailbox-view-btn ${mailboxViewMode === "new-mail" ? "active" : ""}`}
                       onClick={() => {
+                        clearPrioritizedSenderFocus();
                         setMailboxViewMode("new-mail");
                         if (isInboxMailboxNode(activeMailboxNode)) {
                           setInboxAttentionView("new-mail");
@@ -11794,6 +12022,7 @@ export function MailApp() {
                             });
                           }}
                           onClick={async () => {
+                            clearPrioritizedSenderFocus();
                             const nextAttentionView =
                               mailboxViewMode === "new-mail"
                                 ? mailboxTarget.inboxAttentionView
@@ -12196,7 +12425,7 @@ export function MailApp() {
               className={`col-chip ${senderFilter ? "col-chip-active" : ""}`}
               onClick={() => {
                 if (senderFilter) {
-                  setSenderFilter(null);
+                  clearSenderFocus();
                 } else if (pivotMessage) {
                   applySenderPivot(pivotMessage, isSentFolder);
                 }
@@ -12250,7 +12479,7 @@ export function MailApp() {
                 className="filter-clear-all"
                 title="Clear all filters"
                 onClick={() => {
-                  setSenderFilter(null);
+                  clearSenderFocus();
                   setSubjectFilter(null);
                   setSubjectPattern(null);
                 }}
@@ -14609,7 +14838,7 @@ export function MailApp() {
                 });
               }
               if (senderFilter === sidebarCtx.sender.name) {
-                setSenderFilter(null);
+                clearSenderFocus();
               }
               setSidebarCtx(null);
             }}
@@ -15221,7 +15450,7 @@ export function MailApp() {
                     }
 
                     if (senderFilter === getSenderFilterValue(deleteTarget)) {
-                      setSenderFilter(null);
+                      clearSenderFocus();
                     }
 
                     if (selectedMessage?.fromAddress === senderEmail) {
@@ -15475,6 +15704,10 @@ export function MailApp() {
                     </button>
                   </div>
 
+                  {accountFormSuccess ? (
+                    <div className="settings-account-feedback success">{accountFormSuccess}</div>
+                  ) : null}
+
                   {accounts.length === 0 ? (
                     <div className="settings-accounts-empty">
                       No accounts configured. Add one to get started.
@@ -15540,6 +15773,7 @@ export function MailApp() {
                             <div className="settings-account-actions">
                               {!account.isDefault ? (
                                 <button
+                                  type="button"
                                   className="settings-account-default-btn"
                                   title="Set as default account"
                                   onClick={async (event) => {
@@ -15567,6 +15801,7 @@ export function MailApp() {
                                 </button>
                               ) : null}
                               <button
+                                type="button"
                                 className={`settings-account-edit-btn ${
                                   isEditing ? "active" : ""
                                 }`}
@@ -15595,6 +15830,7 @@ export function MailApp() {
                                 </svg>
                               </button>
                               <button
+                                type="button"
                                 className="settings-account-delete-btn"
                                 title="Delete account"
                                 onClick={(event) => {
@@ -15638,6 +15874,10 @@ export function MailApp() {
                               : ""
                           }`}
                     </div>
+
+                    {accountFormError ? (
+                      <div className="settings-account-feedback error">{accountFormError}</div>
+                    ) : null}
 
                     <div className="settings-section">
                       <div className="settings-section-label">IMAP / Incoming Mail</div>
@@ -15794,12 +16034,9 @@ export function MailApp() {
                       <button
                         className="modal-btn-confirm"
                         type="button"
-                        onMouseDown={async (event) => {
+                        onMouseDown={(event) => {
                           event.preventDefault();
-                          const connected = await handleConnect();
-                          if (connected) {
-                            closeAccountForm();
-                          }
+                          void handleConnect();
                         }}
                       >
                         {accountFormMode === "add" ? "Add Account" : "Save Changes"}
