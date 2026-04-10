@@ -3135,6 +3135,50 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex-shrink: 0 !important;
 }
 
+.caution-row {
+  border-left: 2px solid rgba(245, 158, 11, 0.42) !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+}
+
+.caution-row:hover {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
+.caution-row.selected {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-left: 2px solid rgba(217, 119, 6, 0.72) !important;
+  padding-left: 12px !important;
+}
+
+.caution-row .row-sender,
+.caution-row .row-subject,
+.caution-row .thread-snippet,
+.caution-row .row-date {
+  color: #78350f !important;
+}
+
+.sender-trust-row-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  min-height: 18px !important;
+  padding: 0 8px !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  letter-spacing: 0.02em !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+
+.sender-trust-row-chip-amber {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(245, 158, 11, 0.28) !important;
+  color: #92400e !important;
+}
+
 .spoof-badge {
   display: inline-flex !important;
   align-items: center !important;
@@ -4740,6 +4784,14 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   position: relative !important;
 }
 
+.compose-editor-stage {
+  position: relative !important;
+  flex: 1 1 auto !important;
+  min-height: 220px !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
 .compose-window.compose-ai-layout .compose-body-editor,
 .compose-window.compose-ai-layout .compose-body-plain {
   min-height: 280px !important;
@@ -4970,7 +5022,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-target {
+  display: inline-flex !important;
   align-self: auto !important;
+  align-items: center !important;
+  width: fit-content !important;
+  max-width: 100% !important;
   padding: 4px 8px !important;
   border-radius: 999px !important;
   background: rgba(15, 23, 42, 0.045) !important;
@@ -5128,9 +5184,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-mode-stage {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
-  gap: 10px !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
   align-content: start !important;
 }
 
@@ -5184,28 +5240,31 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-mode-chip {
   display: inline-flex !important;
-  flex-direction: column !important;
-  align-items: flex-start !important;
-  gap: 5px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
   min-height: 0 !important;
-  padding: 11px 12px !important;
-  border-radius: 13px !important;
+  padding: 9px 12px !important;
+  border-radius: 999px !important;
   border: 1px solid rgba(17, 24, 39, 0.08) !important;
   background: rgba(255,255,255,0.94) !important;
   color: var(--text1) !important;
   text-align: left !important;
   cursor: pointer !important;
   appearance: none !important;
-  width: 100% !important;
-  min-width: min(100%, 208px) !important;
-  max-width: 100% !important;
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: min(100%, 320px) !important;
   transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease,
     box-shadow 140ms ease !important;
 }
 
-.compose-ai-mode-chip:hover {
+.compose-ai-mode-chip:hover,
+.compose-ai-mode-chip:focus-visible {
   border-color: rgba(17, 24, 39, 0.14) !important;
   background: #fff !important;
+  transform: translateY(-1px) !important;
 }
 
 .compose-ai-mode-chip.active {
@@ -5217,7 +5276,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-mode-chip.active .compose-ai-mode-chip-label,
-.compose-ai-mode-chip.active .compose-ai-mode-chip-desc {
+.compose-ai-mode-chip.active .compose-ai-category-card-chevron {
   color: #fff !important;
 }
 
@@ -5225,12 +5284,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 12px !important;
   font-weight: 700 !important;
   color: var(--text1) !important;
-}
-
-.compose-ai-mode-chip-desc {
-  font-size: 11.5px !important;
-  line-height: 1.45 !important;
-  color: var(--text3) !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
 }
 
 .compose-ai-modifier-chip {
@@ -5343,10 +5398,46 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   gap: 12px !important;
 }
 
+.compose-ai-preview-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 24 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 16px 18px 14px !important;
+  background: #ffffff !important;
+  pointer-events: all !important;
+  overflow: auto !important;
+  opacity: 1 !important;
+  animation: compose-ai-preview-reveal 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.compose-ai-preview-overlay-exiting {
+  opacity: 0 !important;
+  transition: opacity 250ms ease !important;
+  pointer-events: none !important;
+  animation: none !important;
+}
+
+@keyframes compose-ai-preview-reveal {
+  from {
+    opacity: 0 !important;
+    transform: translateY(10px) !important;
+  }
+
+  to {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+  }
+}
+
 .compose-ai-preview-step {
   gap: 8px !important;
   padding-top: 4px !important;
-  background: transparent !important;
+  background: rgba(244, 246, 248, 0.92) !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 100% !important;
 }
 
 .compose-ai-preview-step-header {
@@ -5357,9 +5448,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-ai-preview {
   gap: 10px !important;
   padding-top: 0 !important;
-  background: transparent !important;
+  background: rgba(244, 246, 248, 0.92) !important;
   border: none !important;
   box-shadow: none !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
 }
 
 .compose-ai-empty-title,
@@ -5521,7 +5614,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 10px !important;
-  background: transparent !important;
+  background: rgba(244, 246, 248, 0.92) !important;
 }
 
 .compose-ai-panel .compose-ai-step-back {
@@ -5584,7 +5677,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex-direction: column !important;
   gap: 10px !important;
   width: 100% !important;
-  background: transparent !important;
+  background: rgba(244, 246, 248, 0.92) !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
 }
 
 .compose-ai-preview-options-multi {
@@ -5597,13 +5692,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   gap: 12px !important;
-  padding: 14px !important;
+  padding: 58px 14px 14px !important;
   border-radius: 14px !important;
   border: 1px solid rgba(17,24,39,0.08) !important;
   background: #fff !important;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035) !important;
   width: 100% !important;
   min-width: 0 !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  position: relative !important;
+  overflow: hidden !important;
 }
 
 .compose-ai-availability-check {
@@ -5630,13 +5729,23 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 12.75px !important;
   line-height: 1.68 !important;
   color: var(--text1) !important;
-  max-height: 220px !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
   overflow: auto !important;
-  padding-right: 4px !important;
+  padding: 0 4px 0 0 !important;
 }
 
 .compose-ai-preview-actions {
-  justify-content: flex-start !important;
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  z-index: 2 !important;
+  justify-content: flex-end !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  padding: 0 0 0 12px !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, #fff 22%) !important;
 }
 
 .compose-ai-preview-actions .compose-ai-action-secondary {
@@ -6478,8 +6587,6 @@ textarea:focus {
   color: #fff !important;
 }
 
-.message-row:hover .row-checkbox,
-.thread-row:hover .row-checkbox,
 .select-mode .row-checkbox,
 .row-checkbox.checked {
   opacity: 1 !important;
@@ -6604,6 +6711,11 @@ textarea:focus {
 
 .bulk-action-btn-exit {
   margin-left: 4px !important;
+  padding: 2px 6px !important;
+  min-width: 22px !important;
+  justify-content: center !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
 }
 
 .bulk-action-btn svg {
@@ -6643,8 +6755,8 @@ textarea:focus {
   top: calc(100% + 6px) !important;
   left: 0 !important;
   z-index: 240 !important;
-  min-width: 220px !important;
-  max-width: min(320px, 72vw) !important;
+  min-width: 172px !important;
+  max-width: min(220px, 60vw) !important;
   background: #fff !important;
   border: 1px solid var(--border) !important;
   border-radius: 10px !important;
@@ -6710,7 +6822,6 @@ textarea:focus {
   position: relative !important;
 }
 
-.thread-row:hover .thread-avatars,
 .select-mode .thread-row .thread-avatars,
 .thread-row .row-checkbox.checked ~ .thread-avatars {
   margin-left: 28px !important;
@@ -11187,4 +11298,32 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .rail.sidebar .sidebar-hero-sub {
   width: 100% !important;
   max-width: none !important;
+}
+
+.message-row.caution-row,
+.thread-row.caution-row {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-left: 2px solid rgba(245, 158, 11, 0.42) !important;
+}
+
+.message-row.caution-row:hover,
+.thread-row.caution-row:hover {
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+
+.message-row.caution-row.selected,
+.thread-row.caution-row.selected {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-left: 2px solid rgba(217, 119, 6, 0.72) !important;
+  padding-left: 12px !important;
+}
+
+.message-row.caution-row .row-sender,
+.message-row.caution-row .row-subject,
+.message-row.caution-row .row-date,
+.thread-row.caution-row .row-sender,
+.thread-row.caution-row .row-subject,
+.thread-row.caution-row .row-date,
+.thread-row.caution-row .thread-snippet {
+  color: #78350f !important;
 }

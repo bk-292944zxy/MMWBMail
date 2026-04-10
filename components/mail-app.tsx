@@ -81,6 +81,10 @@ import {
 } from "@/composer/session/compose-session-initializer";
 import type { ComposeIntent, MessageComposeIntentKind } from "@/composer/session/compose-intent";
 import {
+  createActiveComposeSession,
+  type ComposePresentationMode
+} from "@/composer/session/active-compose-session";
+import {
   appendNormalizedRecipientInput,
   normalizeRecipientGroups,
   normalizeStructuredRecipientGroups,
@@ -2742,6 +2746,10 @@ function SwipeRow({
     swipeEnabled
   );
   const spoofed = detectSpoof(message).isSpoofed;
+  const senderTrust = !isSentFolder
+    ? resolveSenderTrustPresentation(message, domainVerification)
+    : null;
+  const cautionSender = senderTrust?.tier === "amber";
   const sentRecipientLabel = formatSentRowRecipient(message.to);
   const rowIdentity = isSentFolder ? sentRecipientLabel : message.from;
   const rowAvatarSeed = isSentFolder ? (message.to?.[0] ?? "") : message.fromAddress;
@@ -2834,6 +2842,7 @@ function SwipeRow({
           "message-row",
           selected ? "selected" : "",
           !message.seen ? "unread" : "",
+          cautionSender ? "caution-row" : "",
           spoofed ? "spoof-row" : ""
           ]
             .filter(Boolean)
@@ -2902,6 +2911,11 @@ function SwipeRow({
             <div className="row-top">
               <div className="row-sender-group">
                 <span className="row-sender">{rowIdentity}</span>
+                {!isSentFolder && cautionSender ? (
+                  <span className="sender-trust-row-chip sender-trust-row-chip-amber">
+                    {senderTrust?.icon} {senderTrust?.label}
+                  </span>
+                ) : null}
                 {!isSentFolder && spoofed ? (
                   <span className="sender-trust-row-warning" title="High Risk sender">
                     ⚠
@@ -3308,6 +3322,7 @@ export function MailApp() {
   const [composeAiMode, setComposeAiMode] = useState<AiRewriteModeId | null>(null);
   const [composeAiModifiers, setComposeAiModifiers] = useState<AiRewriteModifierId[]>([]);
   const [composeAiPreview, setComposeAiPreview] = useState<AiRewriteResponse | null>(null);
+  const [composeAiPreviewExiting, setComposeAiPreviewExiting] = useState(false);
   const [composeAiBusy, setComposeAiBusy] = useState(false);
   const [composeAiError, setComposeAiError] = useState<string | null>(null);
   const [composeAiSettingsSummary, setComposeAiSettingsSummary] = useState<AiSettingsSummary | null>(null);
@@ -3386,6 +3401,8 @@ export function MailApp() {
     null
   );
   const composeEditorSyncTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const composeSelectionSyncFrameRef = useRef<number | null>(null);
+  const composeBodyRef = useRef("");
   const composeAiSelectionSnapshotRef = useRef<ComposeAiSelectionSnapshot | null>(null);
   const composeAiRequestSeqRef = useRef(0);
   const composeAiInFlightRef = useRef(false);
@@ -3393,6 +3410,9 @@ export function MailApp() {
     signature: string;
     requestedAt: number;
   } | null>(null);
+  const composeAiPreviewExitTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(
+    null
+  );
   const composeLocalRevisionRef = useRef(0);
   const composeLastSavedRevisionRef = useRef(0);
   const [sidebarSize, setSidebarSize] = useState<"small" | "medium" | "large">(
@@ -3770,8 +3790,73 @@ export function MailApp() {
   const composeSessionFromLabel =
     composeIdentity?.sender?.label ??
     (composeSessionAccountEmail ? composeSessionAccountEmail : "Select sender");
+  const composePresentationMode: ComposePresentationMode = "docked";
+  const activeComposeSession = useMemo(
+    () =>
+      createActiveComposeSession({
+        draftId: composeDraftId,
+        context: composeSessionContext,
+        identity: composeIdentity,
+        content: composeContentState,
+        intent: composeIntent,
+        sourceMessageMeta: composeSourceMessageMeta,
+        recipients: {
+          to: composeRecipients.to,
+          cc: composeRecipients.cc,
+          bcc: composeRecipients.bcc,
+          replyTo: composeReplyTo
+        },
+        subject: composeSubject,
+        bodyText: composeBody,
+        plainText: composePlainText,
+        signature,
+        attachments: composeAttachments,
+        restoredDraft: composeDraft,
+        draftStatus: composeDraftStatus,
+        draftSavedAt: composeDraftSavedAt,
+        draftError: composeDraftError,
+        localRevision: composeLocalRevisionRef.current,
+        lastSavedRevision: composeLastSavedRevisionRef.current,
+        presentationMode: composePresentationMode,
+        isOpen: composeOpen,
+        isMinimized: composeMinimized,
+        position: composePos,
+        width: composeWidth,
+        height: composeHeight
+      }),
+    [
+      composeAttachments,
+      composeBody,
+      composeContentState,
+      composeDraft,
+      composeDraftError,
+      composeDraftId,
+      composeDraftSavedAt,
+      composeDraftStatus,
+      composeHeight,
+      composeIdentity,
+      composeIntent,
+      composeMinimized,
+      composeOpen,
+      composePlainText,
+      composePos,
+      composeRecipients.bcc,
+      composeRecipients.cc,
+      composeRecipients.to,
+      composeReplyTo,
+      composeSessionContext,
+      composeSourceMessageMeta,
+      composeSubject,
+      composeWidth,
+      signature
+    ]
+  );
   const composeActiveSignatureLabel =
     composeContentState?.activeSignatureLabel ?? "Default signature";
+
+  useEffect(() => {
+    composeBodyRef.current = composeBody;
+  }, [composeBody]);
   const quickInsertPresets = useMemo(
     () => composeContentState?.presets ?? [],
     [composeContentState]
@@ -4613,18 +4698,26 @@ export function MailApp() {
     ]
   );
 
+  const readComposeEditorTextSnapshot = useCallback(() => {
+    if (composePlainText) {
+      return composeBodyRef.current;
+    }
+
+    return composeEditorRef.current?.innerText ?? composeBodyRef.current;
+  }, [composePlainText]);
+
   const buildComposeDraftSnapshot = useCallback(
     async (localRevision = composeLocalRevisionRef.current): Promise<DraftSnapshotInput | null> => {
-      if (!composeOpen || !composeDraftId) {
+      if (!activeComposeSession.presentation.isOpen || !activeComposeSession.draft.draftId) {
         return null;
       }
 
       const editor = composeEditorRef.current;
       const htmlBody = composePlainText
-        ? composeBody.replace(/\n/g, "<br/>")
-        : editor?.innerHTML ?? composeBody;
-      const textBody = composePlainText ? composeBody : editor?.innerText ?? composeBody;
-      const attachmentState = getComposeAttachmentState(composeDraftId);
+        ? composeBodyRef.current.replace(/\n/g, "<br/>")
+        : editor?.innerHTML ?? composeBodyRef.current;
+      const textBody = composePlainText ? composeBodyRef.current : readComposeEditorTextSnapshot();
+      const attachmentState = getComposeAttachmentState(activeComposeSession.draft.draftId);
       const attachments = await Promise.all(
         composeAttachments.map(async (file, index) => ({
           ...attachmentState[index],
@@ -4651,25 +4744,27 @@ export function MailApp() {
       );
 
       return {
-        draftId: composeDraftId,
-        accountId: composeSessionContext?.ownerAccountId ?? composeIdentity?.ownerAccountId,
-        composeSessionContext,
+        draftId: activeComposeSession.draft.draftId,
+        accountId:
+          activeComposeSession.context?.ownerAccountId ??
+          activeComposeSession.identity?.ownerAccountId,
+        composeSessionContext: activeComposeSession.context,
         draftIdentitySnapshot: createDraftIdentitySnapshot(
-          composeSessionContext,
-          composeIdentity
+          activeComposeSession.context,
+          activeComposeSession.identity
         ),
-        composeIdentity,
-        composeContentState,
-        composeIntent,
-        sourceMessageMeta: composeSourceMessageMeta,
-        subject: composeSubject,
-        to: composeRecipients.to,
-        cc: composeRecipients.cc,
-        bcc: composeRecipients.bcc,
-        replyTo: composeReplyTo,
+        composeIdentity: activeComposeSession.identity,
+        composeContentState: activeComposeSession.content,
+        composeIntent: activeComposeSession.intent,
+        sourceMessageMeta: activeComposeSession.sourceMessageMeta,
+        subject: activeComposeSession.subject,
+        to: activeComposeSession.recipients.to,
+        cc: activeComposeSession.recipients.cc,
+        bcc: activeComposeSession.recipients.bcc,
+        replyTo: activeComposeSession.recipients.replyTo,
         htmlBody,
         textBody,
-        signature,
+        signature: activeComposeSession.signature,
         attachments,
         localRevision,
         lastSavedRevision: composeLastSavedRevisionRef.current
@@ -4677,22 +4772,11 @@ export function MailApp() {
     },
     [
       composeAttachments,
-      composeBody,
-      composeContentState,
-      composeDraftId,
-      composeIdentity,
-      composeIntent,
-      composeOpen,
+      activeComposeSession,
       composePlainText,
-      composeRecipients.bcc,
-      composeRecipients.cc,
-      composeRecipients.to,
-      composeSourceMessageMeta,
-      composeReplyTo,
-      composeSessionContext,
-      composeSubject,
       createDraftIdentitySnapshot,
       getComposeAttachmentState,
+      readComposeEditorTextSnapshot,
       signature
     ]
   );
@@ -5034,27 +5118,6 @@ export function MailApp() {
     const nextFolders = foldersByAccount[activeAccountId] ?? [];
     setFolders((current) => (areFoldersEquivalent(current, nextFolders) ? current : nextFolders));
   }, [activeAccountId, foldersByAccount]);
-
-  useEffect(() => {
-    if (!activeAccountId) {
-      return;
-    }
-
-    setFoldersByAccount((current) => {
-      if (folders.length === 0 && !current[activeAccountId]) {
-        return current;
-      }
-
-      if (current[activeAccountId] === folders) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [activeAccountId]: folders
-      };
-    });
-  }, [activeAccountId, folders]);
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -5444,6 +5507,10 @@ export function MailApp() {
     });
 
     return () => {
+      if (composeAiPreviewExitTimerRef.current !== null) {
+        globalThis.clearTimeout(composeAiPreviewExitTimerRef.current);
+        composeAiPreviewExitTimerRef.current = null;
+      }
       if (composeEditorSyncTimerRef.current !== null) {
         globalThis.clearTimeout(composeEditorSyncTimerRef.current);
         composeEditorSyncTimerRef.current = null;
@@ -5458,13 +5525,17 @@ export function MailApp() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !composeOpen || !composeDraftId) {
+    if (
+      typeof window === "undefined" ||
+      !activeComposeSession.presentation.isOpen ||
+      !activeComposeSession.draft.draftId
+    ) {
       return;
     }
 
     composeLocalRevisionRef.current += 1;
     draftServiceRef.current.markLocalDirty({
-      draftId: composeDraftId,
+      draftId: activeComposeSession.draft.draftId,
       localRevision: composeLocalRevisionRef.current
     });
 
@@ -5499,12 +5570,12 @@ export function MailApp() {
       }
     };
   }, [
+    activeComposeSession.draft.draftId,
+    activeComposeSession.presentation.isOpen,
     buildComposeDraftSnapshot,
     composeBccList,
     composeBody,
     composeCcList,
-    composeDraftId,
-    composeOpen,
     composePlainText,
     composeReplyTo,
     composeSubject,
@@ -5514,7 +5585,11 @@ export function MailApp() {
   ]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !composeOpen || !composeDraftId) {
+    if (
+      typeof window === "undefined" ||
+      !activeComposeSession.presentation.isOpen ||
+      !activeComposeSession.draft.draftId
+    ) {
       return;
     }
 
@@ -5537,7 +5612,11 @@ export function MailApp() {
       window.removeEventListener("pagehide", flushDraft);
       window.removeEventListener("beforeunload", flushDraft);
     };
-  }, [buildComposeDraftSnapshot, composeDraftId, composeOpen]);
+  }, [
+    activeComposeSession.draft.draftId,
+    activeComposeSession.presentation.isOpen,
+    buildComposeDraftSnapshot
+  ]);
 
   useEffect(() => {
     if (!composeOpen || !composeEditorRef.current) {
@@ -5579,12 +5658,6 @@ export function MailApp() {
     const syncSelectionState = () => {
       if (composeAiOpen) {
         setComposeSelectionToolbarPos(null);
-        setComposeSelectionState({
-          hasSelection: false,
-          text: "",
-          isCollapsed: true
-        });
-        return;
       }
 
       const selectionToolbarWidth = 212;
@@ -5692,14 +5765,34 @@ export function MailApp() {
       });
     };
 
-    syncSelectionState();
-    document.addEventListener("selectionchange", syncSelectionState);
-    window.addEventListener("resize", syncSelectionState);
-    window.addEventListener("scroll", syncSelectionState, true);
+    const scheduleSelectionStateSync = () => {
+      if (typeof window === "undefined") {
+        syncSelectionState();
+        return;
+      }
+
+      if (composeSelectionSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(composeSelectionSyncFrameRef.current);
+      }
+
+      composeSelectionSyncFrameRef.current = window.requestAnimationFrame(() => {
+        composeSelectionSyncFrameRef.current = null;
+        syncSelectionState();
+      });
+    };
+
+    scheduleSelectionStateSync();
+    document.addEventListener("selectionchange", scheduleSelectionStateSync);
+    window.addEventListener("resize", scheduleSelectionStateSync);
+    window.addEventListener("scroll", scheduleSelectionStateSync, true);
     return () => {
-      document.removeEventListener("selectionchange", syncSelectionState);
-      window.removeEventListener("resize", syncSelectionState);
-      window.removeEventListener("scroll", syncSelectionState, true);
+      if (composeSelectionSyncFrameRef.current !== null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(composeSelectionSyncFrameRef.current);
+        composeSelectionSyncFrameRef.current = null;
+      }
+      document.removeEventListener("selectionchange", scheduleSelectionStateSync);
+      window.removeEventListener("resize", scheduleSelectionStateSync);
+      window.removeEventListener("scroll", scheduleSelectionStateSync, true);
     };
   }, [composeAiOpen, composeOpen, composePlainText]);
 
@@ -7490,8 +7583,8 @@ export function MailApp() {
         ...composeBccList
       ]);
       const textBody = composePlainText
-        ? composeBody
-        : composeEditorRef.current?.innerText ?? composeBody;
+        ? composeBodyRef.current
+        : readComposeEditorTextSnapshot();
       const htmlBody = composePlainText
         ? textBody.replace(/\n/g, "<br/>").replace(/  /g, "&nbsp;")
         : composeEditorRef.current?.innerHTML || textBody.replace(/\n/g, "<br/>");
@@ -7555,6 +7648,7 @@ export function MailApp() {
       setComposeBody("");
       setComposeAttachments([]);
       setComposeWordCount({ words: 0, chars: 0 });
+      composeBodyRef.current = "";
       setComposeMinimized(false);
       setComposePlainText(false);
       setComposeQuickInsertOpen(false);
@@ -7743,27 +7837,30 @@ export function MailApp() {
     );
   }
 
-  const flushComposeEditorTextSync = useCallback((text: string) => {
+  const flushComposeEditorTextSync = useCallback((nextText?: string) => {
     if (composeEditorSyncTimerRef.current !== null) {
       globalThis.clearTimeout(composeEditorSyncTimerRef.current);
       composeEditorSyncTimerRef.current = null;
     }
 
+    const text = nextText ?? readComposeEditorTextSnapshot();
+    composeBodyRef.current = text;
+
     startTransition(() => {
       setComposeBody((current) => (current === text ? current : text));
       updateComposeCounts(text);
     });
-  }, []);
+  }, [readComposeEditorTextSnapshot]);
 
-  const scheduleComposeEditorTextSync = useCallback((text: string) => {
+  const scheduleComposeEditorTextSync = useCallback(() => {
     if (composeEditorSyncTimerRef.current !== null) {
       globalThis.clearTimeout(composeEditorSyncTimerRef.current);
     }
 
     composeEditorSyncTimerRef.current = globalThis.setTimeout(() => {
       composeEditorSyncTimerRef.current = null;
-      flushComposeEditorTextSync(text);
-    }, 90);
+      flushComposeEditorTextSync();
+    }, 140);
   }, [flushComposeEditorTextSync]);
 
   async function persistComposeDraftNow(showFeedback = false) {
@@ -8714,6 +8811,10 @@ export function MailApp() {
   function closeComposeAiPanel() {
     composeAiRequestSeqRef.current += 1;
     composeAiInFlightRef.current = false;
+    if (composeAiPreviewExitTimerRef.current !== null) {
+      globalThis.clearTimeout(composeAiPreviewExitTimerRef.current);
+      composeAiPreviewExitTimerRef.current = null;
+    }
     setComposeAiOpen(false);
     setComposeAiCategory(null);
     setComposeAiMode(null);
@@ -8722,6 +8823,7 @@ export function MailApp() {
     setComposeAiBusy(false);
     setComposeAiError(null);
     setComposeAiPreview(null);
+    setComposeAiPreviewExiting(false);
     setComposeAiPreviewOptionId(null);
     composeAiSelectionSnapshotRef.current = null;
   }
@@ -8849,6 +8951,7 @@ export function MailApp() {
         outputType
       });
       if (composeAiRequestSeqRef.current === requestSeq) {
+        setComposeAiPreviewExiting(false);
         setComposeAiPreview(result);
       }
     } catch (error) {
@@ -8866,6 +8969,11 @@ export function MailApp() {
   }
 
   function finishComposeAiApply() {
+    if (composeAiPreviewExitTimerRef.current !== null) {
+      globalThis.clearTimeout(composeAiPreviewExitTimerRef.current);
+      composeAiPreviewExitTimerRef.current = null;
+    }
+    setComposeAiPreviewExiting(false);
     composeAiInFlightRef.current = false;
     composeAiSelectionSnapshotRef.current = null;
     setComposeSelectionState({
@@ -8876,6 +8984,26 @@ export function MailApp() {
     setComposeAiPreview(null);
     setComposeAiOpen(false);
     setComposeAiError(null);
+  }
+
+  function dismissComposeAiPreview() {
+    if (composeAiPreviewExitTimerRef.current !== null) {
+      globalThis.clearTimeout(composeAiPreviewExitTimerRef.current);
+      composeAiPreviewExitTimerRef.current = null;
+    }
+    setComposeAiPreviewExiting(false);
+    setComposeAiPreview(null);
+  }
+
+  function beginComposeAiPreviewExit() {
+    if (composeAiPreviewExitTimerRef.current !== null) {
+      globalThis.clearTimeout(composeAiPreviewExitTimerRef.current);
+    }
+    setComposeAiPreviewExiting(true);
+    composeAiPreviewExitTimerRef.current = globalThis.setTimeout(() => {
+      composeAiPreviewExitTimerRef.current = null;
+      finishComposeAiApply();
+    }, 250);
   }
 
   function applyComposeAiPreview(optionText: string, strategy: "replace" | "insert_below") {
@@ -8912,6 +9040,7 @@ export function MailApp() {
       }
 
       textarea.value = nextValue;
+      composeBodyRef.current = nextValue;
       setComposeBody(nextValue);
       updateComposeCounts(nextValue);
       textarea.focus();
@@ -8924,7 +9053,7 @@ export function MailApp() {
             (nextValue.length - currentValue.length);
       textarea.selectionStart = caretPosition;
       textarea.selectionEnd = caretPosition;
-      finishComposeAiApply();
+      beginComposeAiPreviewExit();
       return;
     }
 
@@ -8955,7 +9084,7 @@ export function MailApp() {
       }
     }
 
-    finishComposeAiApply();
+    beginComposeAiPreviewExit();
   }
 
   async function waitForPrintDocumentAssets(printDocument: Document) {
@@ -10625,34 +10754,33 @@ export function MailApp() {
     setComposeToolbarMenuPosition(nextPosition);
   }
   const composeDraftStatusLabel = useMemo(() => {
-    if (!composeOpen || !composeDraftId) {
+    if (
+      !activeComposeSession.presentation.isOpen ||
+      !activeComposeSession.draft.draftId
+    ) {
       return null;
     }
 
-    if (composeDraftStatus === "saving") {
+    if (activeComposeSession.draft.status === "saving") {
       return "Saving draft…";
     }
 
-    if (composeDraftStatus === "failed") {
-      return composeDraftError ? `Save failed: ${composeDraftError}` : "Save failed";
+    if (activeComposeSession.draft.status === "failed") {
+      return activeComposeSession.draft.error
+        ? `Save failed: ${activeComposeSession.draft.error}`
+        : "Save failed";
     }
 
-    if (composeDraftStatus === "saved" && composeDraftSavedAt) {
-      return `Saved ${formatTimestamp(composeDraftSavedAt)}`;
+    if (activeComposeSession.draft.status === "saved" && activeComposeSession.draft.savedAt) {
+      return `Saved ${formatTimestamp(activeComposeSession.draft.savedAt)}`;
     }
 
-    if (composeDraftStatus === "unsaved") {
+    if (activeComposeSession.draft.status === "unsaved") {
       return "Unsaved changes";
     }
 
     return "Draft ready";
-  }, [
-    composeDraftError,
-    composeDraftId,
-    composeDraftSavedAt,
-    composeDraftStatus,
-    composeOpen
-  ]);
+  }, [activeComposeSession]);
   const composeHelperHints = useMemo(() => {
     const hints: Array<
       | { id: "subject"; label: string; actionLabel: string; onAction: () => void }
@@ -14436,11 +14564,12 @@ export function MailApp() {
                   <button
                     type="button"
                     className={`bulk-action-btn ${bulkSelectionMenu === "more" ? "bulk-action-btn-active" : ""}`}
+                    title="More actions"
                     onClick={() =>
                       setBulkSelectionMenu((current) => (current === "more" ? null : "more"))
                     }
                   >
-                    <span>More</span>
+                    <span aria-hidden="true">▾</span>
                   </button>
                   {bulkSelectionMenu === "more" ? (
                     <div className="bulk-menu bulk-menu-right">
@@ -14480,7 +14609,7 @@ export function MailApp() {
                   onClick={clearSelection}
                   title="Leave multi-select"
                 >
-                  <span>Done</span>
+                  <span aria-hidden="true">×</span>
                 </button>
               </div>
             </div>
@@ -14538,6 +14667,10 @@ export function MailApp() {
                     message.uid === conversationSelection.selectedMessageUid
                 );
                 const latestSpoof = detectSpoof(latestMessage).isSpoofed;
+                const latestSenderTrust = !isSentFolder
+                  ? resolveSenderTrustPresentation(latestMessage, domainVerification)
+                  : null;
+                const latestCautionSender = latestSenderTrust?.tier === "amber";
                 const recipientLabel = isSentFolder
                   ? (() => {
                       const allTo = conversationMessages.flatMap(
@@ -14562,6 +14695,8 @@ export function MailApp() {
                     <div
                       className={`thread-row ${isSelected ? "selected" : ""} ${
                         conversation.unreadCount > 0 ? "unread" : ""
+                      } ${latestCautionSender ? "caution-row" : ""} ${
+                        latestSpoof ? "spoof-row" : ""
                       }`}
                       draggable={dragFirstMessageList}
                       onDragStart={
@@ -14676,6 +14811,11 @@ export function MailApp() {
                         <div className="row-top">
                           <div className="row-sender-group">
                             <span className="row-sender">{recipientLabel}</span>
+                            {!isSentFolder && latestCautionSender ? (
+                              <span className="sender-trust-row-chip sender-trust-row-chip-amber">
+                                {latestSenderTrust?.icon} {latestSenderTrust?.label}
+                              </span>
+                            ) : null}
 
                             {!isSingleMessage ? (
                               <span className="thread-count-badge">
@@ -16273,12 +16413,12 @@ export function MailApp() {
                 onMouseDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  selectAll();
+                  setSelectedUids(new Set([contextMenu.msg.uid]));
+                  setSelectMode(true);
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">✓</span> Select All in View
-                <span className="ctx-badge">{selectableVisibleMessageUids.length}</span>
+                <span className="ctx-icon">✓</span> Multi-select
               </div>
               <div className="ctx-sep" />
               <div
@@ -18369,7 +18509,7 @@ export function MailApp() {
         </div>
       ) : null}
 
-      {composeDraft && !composeOpen
+      {composeDraft && !activeComposeSession.presentation.isOpen
         ? (() => {
             const draft = composeDraft;
             const savedAt = draft.savedAt
@@ -18468,20 +18608,29 @@ export function MailApp() {
           })()
         : null}
 
-      {composeOpen ? (
+      {activeComposeSession.presentation.isOpen ? (
         (() => {
           const isMobile = typeof window !== "undefined" && window.innerWidth <= 600;
-          const composeWindowWidth = composeMinimized ? 260 : composeWidth;
-          const composeWindowHeight = composeMinimized ? 44 : composeHeight;
+          const composeWindowWidth = activeComposeSession.presentation.isMinimized
+            ? 260
+            : activeComposeSession.presentation.size.width;
+          const composeWindowHeight = activeComposeSession.presentation.isMinimized
+            ? 44
+            : activeComposeSession.presentation.size.height;
           const aiAssistedComposeLayout =
-            composeAiOpen && !composeMinimized && !isMobile && typeof window !== "undefined";
+            composeAiOpen &&
+            !activeComposeSession.presentation.isMinimized &&
+            !isMobile &&
+            typeof window !== "undefined";
           const composeRenderWidth = aiAssistedComposeLayout
             ? Math.min(Math.max(composeWindowWidth, 760), Math.max(560, window.innerWidth - 32))
             : composeWindowWidth;
           const composeRenderHeight = aiAssistedComposeLayout
             ? Math.min(Math.max(composeWindowHeight, 760), Math.max(360, window.innerHeight - 32))
             : composeWindowHeight;
-          const pos = composePos ?? getDefaultComposePos(composeWindowHeight, composeWindowWidth);
+          const pos =
+            activeComposeSession.presentation.position ??
+            getDefaultComposePos(composeWindowHeight, composeWindowWidth);
           const anchoredPos = aiAssistedComposeLayout
             ? {
                 x: pos.x - Math.round((composeRenderWidth - composeWindowWidth) / 2),
@@ -18508,9 +18657,9 @@ export function MailApp() {
                   );
           const composeDockThreshold = 4;
           const composeCanResize =
-            !composeMinimized &&
+            !activeComposeSession.presentation.isMinimized &&
             !isMobile &&
-            Boolean(composePos) &&
+            Boolean(activeComposeSession.presentation.position) &&
             typeof window !== "undefined" &&
             clampedX > composeDockThreshold &&
             clampedY > 80 + composeDockThreshold &&
@@ -18611,8 +18760,10 @@ export function MailApp() {
 
           return (
         <div
-          className={`compose-window ${composeMinimized ? "compose-minimized" : ""} ${
-            composePos ? "compose-floating" : ""
+          className={`compose-window ${
+            activeComposeSession.presentation.isMinimized ? "compose-minimized" : ""
+          } ${activeComposeSession.presentation.position ? "compose-floating" : ""} ${
+            activeComposeSession.presentation.mode === "floating" ? "compose-undocked-shell" : ""
           } ${aiAssistedComposeLayout ? "compose-ai-layout" : ""}`}
           style={{
             "--compose-window-width": `${composeRenderWidth}px`,
@@ -18620,7 +18771,7 @@ export function MailApp() {
             left: clampedX,
             top: clampedY,
             width: composeRenderWidth,
-            height: composeMinimized ? "auto" : composeRenderHeight,
+            height: activeComposeSession.presentation.isMinimized ? "auto" : composeRenderHeight,
             bottom: "auto",
             right: "auto"
           } as React.CSSProperties}
@@ -18635,16 +18786,22 @@ export function MailApp() {
               ))
             : null}
           <div
-            className={`modal compose-modal ${composeMinimized ? "minimized" : ""} ${
+            className={`modal compose-modal ${
+              activeComposeSession.presentation.isMinimized ? "minimized" : ""
+            } ${
               aiAssistedComposeLayout ? "compose-ai-layout" : ""
             }`}
-            style={{ height: composeMinimized ? "auto" : composeRenderHeight }}
+            style={{
+              height: activeComposeSession.presentation.isMinimized
+                ? "auto"
+                : composeRenderHeight
+            }}
             onClick={(event) => event.stopPropagation()}
           >
             <div
               className="compose-header"
               onClick={() => {
-                if (composeMinimized) {
+                if (activeComposeSession.presentation.isMinimized) {
                   setComposeMinimized(false);
                 }
               }}
@@ -18689,9 +18846,11 @@ export function MailApp() {
                 document.addEventListener("mouseup", onUp);
               }}
             >
-              <span className="compose-title">{composeSubject || "New Message"}</span>
+              <span className="compose-title">
+                {activeComposeSession.subject || "New Message"}
+              </span>
               <div className="compose-header-actions">
-                {composePos ? (
+                {activeComposeSession.presentation.position ? (
                   <button
                     type="button"
                     className="compose-header-btn"
@@ -19216,7 +19375,7 @@ export function MailApp() {
               }}
             />
 
-            {composeAiOpen ? (
+            {composeAiOpen && !composeAiPreview ? (
               <div className="compose-ai-region">
                 <div className="compose-ai-panel">
                   {!composeAiCategory ? (
@@ -19394,15 +19553,32 @@ export function MailApp() {
                                   className={`compose-ai-mode-chip ${
                                     composeAiMode === mode.id ? "active" : ""
                                   }`}
+                                  aria-label={`${mode.label}. ${mode.description}`}
+                                  onMouseEnter={(event) =>
+                                    showComposeAiCategoryTooltip(
+                                      event.currentTarget,
+                                      mode.description
+                                    )
+                                  }
+                                  onMouseLeave={hideComposeAiCategoryTooltip}
+                                  onFocus={(event) =>
+                                    showComposeAiCategoryTooltip(
+                                      event.currentTarget,
+                                      mode.description
+                                    )
+                                  }
+                                  onBlur={hideComposeAiCategoryTooltip}
                                   onClick={() => {
+                                    hideComposeAiCategoryTooltip();
                                     setComposeAiMode(mode.id);
                                     setComposeAiPreview(null);
                                     setComposeAiError(null);
                                   }}
-                                  title={mode.description}
                                 >
                                   <span className="compose-ai-mode-chip-label">{mode.label}</span>
-                                  <span className="compose-ai-mode-chip-desc">{mode.description}</span>
+                                  <span className="compose-ai-category-card-chevron" aria-hidden="true">
+                                    ›
+                                  </span>
                                 </button>
                               ))}
                             </div>
@@ -19487,108 +19663,6 @@ export function MailApp() {
                         </>
                       ) : null}
 
-                      {composeAiPreview ? (
-                        <div className="compose-ai-preview-step compose-ai-section">
-                          <div className="compose-ai-step-header compose-ai-preview-step-header">
-                            <button
-                              type="button"
-                              className="compose-ai-step-back"
-                              onClick={() => setComposeAiPreview(null)}
-                            >
-                              <span aria-hidden="true">‹</span>
-                              <span>Back</span>
-                            </button>
-                            <div className="compose-ai-step-copy">
-                              <div className="compose-ai-section-title">
-                                {composeAiSelectedMode?.label ?? composeAiCategory}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="compose-ai-close"
-                              aria-label="Close rewrite assistant"
-                              onClick={closeComposeAiPanel}
-                            >
-                              <span aria-hidden="true">×</span>
-                            </button>
-                          </div>
-                          <div className="compose-ai-preview compose-ai-section">
-                          <div className="compose-ai-preview-header">
-                            <div>
-                              <div className="compose-ai-preview-title">
-                                Preview before inserting
-                              </div>
-                              <div className="compose-ai-preview-subtitle">
-                                {composeAiPreview.target === "selection"
-                                  ? "Your draft stays unchanged until you replace the selected text."
-                                  : "Your draft stays unchanged until you replace it or insert the rewrite below."}
-                              </div>
-                            </div>
-                          </div>
-                          <div
-                            className={`compose-ai-preview-options ${
-                              composeAiPreview.options.length > 1
-                                ? "compose-ai-preview-options-multi"
-                                : ""
-                            }`}
-                          >
-                            {composeAiPreview.options.length > 1 ? (
-                              <div className="compose-ai-preview-switcher" role="tablist">
-                                {composeAiPreview.options.map((option, optionIndex) => (
-                                  <button
-                                    key={option.id}
-                                    type="button"
-                                    className={`compose-ai-preview-switch ${
-                                      composeAiActivePreviewOption?.id === option.id ? "active" : ""
-                                    }`}
-                                    onClick={() => setComposeAiPreviewOptionId(option.id)}
-                                    role="tab"
-                                    aria-selected={composeAiActivePreviewOption?.id === option.id}
-                                  >
-                                    Option {optionIndex + 1}
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null}
-                            {composeAiActivePreviewOption ? (
-                              <div key={composeAiActivePreviewOption.id} className="compose-ai-preview-option">
-                                <pre className="compose-ai-preview-text">
-                                  {composeAiActivePreviewOption.text}
-                                </pre>
-                                <div className="compose-ai-preview-actions">
-                                  <button
-                                    type="button"
-                                    className="ghostButton compose-ai-action-primary"
-                                    onClick={() =>
-                                      applyComposeAiPreview(
-                                        composeAiActivePreviewOption.text,
-                                        "replace"
-                                      )
-                                    }
-                                  >
-                                    {composeAiPreview.target === "selection"
-                                      ? "Replace selection"
-                                      : "Replace draft"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="ghostButton compose-ai-action-secondary"
-                                    onClick={() =>
-                                      applyComposeAiPreview(
-                                        composeAiActivePreviewOption.text,
-                                        "insert_below"
-                                      )
-                                    }
-                                  >
-                                    Insert below
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                        </div>
-                      ) : null}
                     </>
                   )}
                 </div>
@@ -19641,131 +19715,248 @@ export function MailApp() {
               </div>
             ) : null}
 
-            {composePlainText ? (
-              <textarea
-                ref={composePlainTextRef}
-                className="compose-body-plain"
-                value={composeBody}
-                onChange={(event) => {
-                  setComposeBody(event.target.value);
-                  updateComposeCounts(event.target.value);
-                }}
-                onKeyDown={(event) => {
-                  void handleComposeShortcutKeyDown(event);
-                }}
-                onSelect={() => {
-                  const textarea = composePlainTextRef.current;
-                  if (!textarea) {
-                    return;
-                  }
-
-                  const start = textarea.selectionStart ?? 0;
-                  const end = textarea.selectionEnd ?? start;
-                  const selectedText = textarea.value.slice(start, end);
-                  setComposeSelectionState({
-                    hasSelection: selectedText.length > 0,
-                    text: selectedText,
-                    isCollapsed: start === end
-                  });
-                }}
-                placeholder="Write your message..."
-              />
-            ) : (
-              <div
-                ref={composeEditorRef}
-                className={`compose-body-editor ${composeDragOver ? "drag-over" : ""}`}
-                contentEditable
-                suppressContentEditableWarning
-                onKeyDown={(event) => {
-                  void handleComposeShortcutKeyDown(event);
-                }}
-                onPaste={async (event) => {
-                  const items = Array.from(event.clipboardData?.items ?? []);
-                  const imageItems = items.filter((item) => item.type.startsWith("image/"));
-
-                  if (imageItems.length === 0) {
-                    return;
-                  }
-
-                  event.preventDefault();
-                  const files = imageItems
-                    .map((item) => item.getAsFile())
-                    .filter((file): file is File => Boolean(file));
-
-                  await composePhotoService.attachPhotos({
-                    files,
-                    source: "paste",
-                    altResolver: () => "pasted image"
-                  });
-                }}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  setComposeDragOver(true);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "copy";
-                }}
-                onDragLeave={(event) => {
-                  const relatedTarget = event.relatedTarget as Node | null;
-
-                  if (!relatedTarget || !event.currentTarget.contains(relatedTarget)) {
-                    setComposeDragOver(false);
-                  }
-                }}
-                onDrop={async (event) => {
-                  event.preventDefault();
-                  setComposeDragOver(false);
-
-                  const files = Array.from(event.dataTransfer.files);
-                  const images: File[] = [];
-                  const others: File[] = [];
-
-                  for (const file of files) {
-                    if (file.type.startsWith("image/")) {
-                      images.push(file);
-                    } else {
-                      others.push(file);
+            <div className="compose-editor-stage">
+              {composePlainText ? (
+                <textarea
+                  ref={composePlainTextRef}
+                  className="compose-body-plain"
+                  value={composeBody}
+                  onChange={(event) => {
+                    composeBodyRef.current = event.target.value;
+                    setComposeBody(event.target.value);
+                    updateComposeCounts(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    void handleComposeShortcutKeyDown(event);
+                  }}
+                  onSelect={() => {
+                    const textarea = composePlainTextRef.current;
+                    if (!textarea) {
+                      return;
                     }
-                  }
 
-                  if (others.length > 0) {
-                    await composeAttachmentService.attachFiles({
-                      files: others,
-                      source: "drop"
+                    const start = textarea.selectionStart ?? 0;
+                    const end = textarea.selectionEnd ?? start;
+                    const selectedText = textarea.value.slice(start, end);
+                    setComposeSelectionState({
+                      hasSelection: selectedText.length > 0,
+                      text: selectedText,
+                      isCollapsed: start === end
                     });
-                  }
+                  }}
+                  placeholder="Write your message..."
+                />
+              ) : (
+                <div
+                  ref={composeEditorRef}
+                  className={`compose-body-editor ${composeDragOver ? "drag-over" : ""}`}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onKeyDown={(event) => {
+                    void handleComposeShortcutKeyDown(event);
+                  }}
+                  onPaste={async (event) => {
+                    const items = Array.from(event.clipboardData?.items ?? []);
+                    const imageItems = items.filter((item) => item.type.startsWith("image/"));
 
-                  const docWithCaret = document as Document & {
-                    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-                  };
-                  const range = docWithCaret.caretRangeFromPoint
-                    ? docWithCaret.caretRangeFromPoint(event.clientX, event.clientY)
-                    : null;
+                    if (imageItems.length === 0) {
+                      return;
+                    }
 
-                  await composePhotoService.attachPhotos({
-                    files: images,
-                    source: "drop",
-                    range
-                  });
-                }}
-                onInput={(event) => {
-                  const text = (event.target as HTMLDivElement).innerText ?? "";
-                  scheduleComposeEditorTextSync(text);
-                }}
-                onClick={(event) => {
-                  const target = event.target as HTMLElement;
-                  if (target.tagName === "IMG") {
-                    const image = target as HTMLImageElement;
-                    setSelectedImg(image);
-                    setImgRect(image.getBoundingClientRect());
-                  } else {
-                    setSelectedImg(null);
-                    setImgRect(null);
-                  }
-                }}
-              />
-            )}
+                    event.preventDefault();
+                    const files = imageItems
+                      .map((item) => item.getAsFile())
+                      .filter((file): file is File => Boolean(file));
+
+                    await composePhotoService.attachPhotos({
+                      files,
+                      source: "paste",
+                      altResolver: () => "pasted image"
+                    });
+                  }}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setComposeDragOver(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDragLeave={(event) => {
+                    const relatedTarget = event.relatedTarget as Node | null;
+
+                    if (!relatedTarget || !event.currentTarget.contains(relatedTarget)) {
+                      setComposeDragOver(false);
+                    }
+                  }}
+                  onDrop={async (event) => {
+                    event.preventDefault();
+                    setComposeDragOver(false);
+
+                    const files = Array.from(event.dataTransfer.files);
+                    const images: File[] = [];
+                    const others: File[] = [];
+
+                    for (const file of files) {
+                      if (file.type.startsWith("image/")) {
+                        images.push(file);
+                      } else {
+                        others.push(file);
+                      }
+                    }
+
+                    if (others.length > 0) {
+                      await composeAttachmentService.attachFiles({
+                        files: others,
+                        source: "drop"
+                      });
+                    }
+
+                    const docWithCaret = document as Document & {
+                      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+                    };
+                    const range = docWithCaret.caretRangeFromPoint
+                      ? docWithCaret.caretRangeFromPoint(event.clientX, event.clientY)
+                      : null;
+
+                    await composePhotoService.attachPhotos({
+                      files: images,
+                      source: "drop",
+                      range
+                    });
+                  }}
+                  onInput={(event) => {
+                    composeBodyRef.current =
+                      (event.currentTarget as HTMLDivElement).textContent ?? "";
+                    scheduleComposeEditorTextSync();
+                  }}
+                  onBlur={() => {
+                    flushComposeEditorTextSync();
+                  }}
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.tagName === "IMG") {
+                      const image = target as HTMLImageElement;
+                      setSelectedImg(image);
+                      setImgRect(image.getBoundingClientRect());
+                    } else {
+                      setSelectedImg(null);
+                      setImgRect(null);
+                    }
+                  }}
+                />
+              )}
+
+              {composeAiPreview ? (
+                <div
+                  className={`compose-ai-preview-overlay ${
+                    composeAiPreviewExiting ? "compose-ai-preview-overlay-exiting" : ""
+                  }`}
+                >
+                  <div className="compose-ai-preview-step compose-ai-section">
+                    <div className="compose-ai-step-header compose-ai-preview-step-header">
+                      <button
+                        type="button"
+                        className="compose-ai-step-back"
+                        onClick={dismissComposeAiPreview}
+                      >
+                        <span aria-hidden="true">‹</span>
+                        <span>Back</span>
+                      </button>
+                      <div className="compose-ai-step-copy">
+                        <div className="compose-ai-section-title">
+                          {composeAiSelectedMode?.label ?? composeAiCategory}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="compose-ai-close"
+                        aria-label="Close rewrite assistant"
+                        onClick={closeComposeAiPanel}
+                      >
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    </div>
+                    <div className="compose-ai-preview compose-ai-section">
+                      <div className="compose-ai-preview-header">
+                        <div>
+                          <div className="compose-ai-preview-title">Preview before inserting</div>
+                          <div className="compose-ai-preview-subtitle">
+                            {composeAiPreview.target === "selection"
+                              ? "Your draft stays unchanged until you replace the selected text."
+                              : "Your draft stays unchanged until you replace it or insert the rewrite below."}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`compose-ai-preview-options ${
+                          composeAiPreview.options.length > 1
+                            ? "compose-ai-preview-options-multi"
+                            : ""
+                        }`}
+                      >
+                        {composeAiPreview.options.length > 1 ? (
+                          <div className="compose-ai-preview-switcher" role="tablist">
+                            {composeAiPreview.options.map((option, optionIndex) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                className={`compose-ai-preview-switch ${
+                                  composeAiActivePreviewOption?.id === option.id ? "active" : ""
+                                }`}
+                                onClick={() => setComposeAiPreviewOptionId(option.id)}
+                                role="tab"
+                                aria-selected={composeAiActivePreviewOption?.id === option.id}
+                              >
+                                Option {optionIndex + 1}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {composeAiActivePreviewOption ? (
+                          <div
+                            key={composeAiActivePreviewOption.id}
+                            className="compose-ai-preview-option"
+                          >
+                            <pre className="compose-ai-preview-text">
+                              {composeAiActivePreviewOption.text}
+                            </pre>
+                            <div className="compose-ai-preview-actions">
+                              <button
+                                type="button"
+                                className="ghostButton compose-ai-action-primary"
+                                onClick={() =>
+                                  applyComposeAiPreview(
+                                    composeAiActivePreviewOption.text,
+                                    "replace"
+                                  )
+                                }
+                              >
+                                {composeAiPreview.target === "selection"
+                                  ? "Replace selection"
+                                  : "Replace draft"}
+                              </button>
+                              <button
+                                type="button"
+                                className="ghostButton compose-ai-action-secondary"
+                                onClick={() =>
+                                  applyComposeAiPreview(
+                                    composeAiActivePreviewOption.text,
+                                    "insert_below"
+                                  )
+                                }
+                              >
+                                Insert below
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             <div className="compose-footer">
               <div className="compose-footer-meta">
