@@ -1,19 +1,30 @@
 import { NextResponse } from "next/server";
 
-import { AiRewriteRequestError, rewriteWithCurrentOwner } from "@/lib/ai-rewrite";
+import {
+  type AiTransformType,
+  AiRewriteRequestError,
+  rewriteWithCurrentOwner
+} from "@/lib/ai-rewrite";
 import type {
   AiRewriteModeId,
   AiRewriteModifierId,
   AiRewriteOutputType
 } from "@/lib/ai-rewrite-modes";
+import type {
+  AiPolishCultureRegionId,
+  AiPolishModeId,
+  AiPolishModifierId
+} from "@/lib/ai-polish-modes";
 
 export const runtime = "nodejs";
 
 type RewritePayload = {
   selectedText?: string;
   fullDraftText?: string;
-  mode?: AiRewriteModeId;
-  modifiers?: AiRewriteModifierId[];
+  type?: AiTransformType;
+  mode?: AiRewriteModeId | AiPolishModeId;
+  modifiers?: Array<AiRewriteModifierId | AiPolishModifierId>;
+  region?: AiPolishCultureRegionId;
   outputType?: AiRewriteOutputType;
 };
 
@@ -26,10 +37,12 @@ export async function POST(request: Request) {
     }
 
     const result = await rewriteWithCurrentOwner({
+      type: payload.type ?? "rewrite",
       selectedText: payload.selectedText,
       fullDraftText: payload.fullDraftText,
       mode: payload.mode,
       modifiers: payload.modifiers ?? [],
+      region: payload.region,
       outputType: payload.outputType ?? "rewrite"
     });
 

@@ -1,4 +1,13 @@
 import {
+  type AiPolishCultureRegionId,
+  type AiPolishModeId,
+  type AiPolishModifierId,
+  AI_POLISH_CULTURE_REGIONS,
+  areAiPolishModifiersValid,
+  getAiPolishModeDefinition
+} from "@/lib/ai-polish-modes";
+import { buildAiPolishMessages } from "@/lib/ai-polish-prompt";
+import {
   type AiRewriteModeId,
   type AiRewriteModifierId,
   type AiRewriteOutputType,
@@ -18,10 +27,16 @@ const ownerRecentRewriteMap = new Map<string, { signature: string; expiresAt: nu
 export type AiRewriteRequest = {
   selectedText?: string;
   fullDraftText?: string;
-  mode: AiRewriteModeId;
-  modifiers?: AiRewriteModifierId[];
+  type?: AiTransformType;
+  mode: AiTransformModeId;
+  modifiers?: AiTransformModifierId[];
+  region?: AiPolishCultureRegionId;
   outputType: AiRewriteOutputType;
 };
+
+export type AiTransformType = "rewrite" | "polish";
+export type AiTransformModeId = AiRewriteModeId | AiPolishModeId;
+export type AiTransformModifierId = AiRewriteModifierId | AiPolishModifierId;
 
 export type AiRewriteOption = {
   id: string;
@@ -30,11 +45,12 @@ export type AiRewriteOption = {
 };
 
 export type AiRewriteResponse = {
-  mode: AiRewriteModeId;
+  type: AiTransformType;
+  mode: AiTransformModeId;
   outputType: AiRewriteOutputType;
   target: "selection" | "draft";
   sourceText: string;
-  modifiers: AiRewriteModifierId[];
+  modifiers: AiTransformModifierId[];
   options: AiRewriteOption[];
 };
 
@@ -75,30 +91,13 @@ function normalizeSourceText(input: AiRewriteRequest) {
 }
 
 function validateRewriteRequest(input: AiRewriteRequest) {
-  const mode = getAiRewriteModeDefinition(input.mode);
-  if (!mode) {
-    throw new AiRewriteRequestError("Unknown rewrite mode.", {
-      status: 400,
-      code: "invalid_mode"
-    });
-  }
-
+  const type = input.type ?? "rewrite";
   const modifiers = Array.from(new Set(input.modifiers ?? []));
   if (modifiers.length > AI_REWRITE_MAX_MODIFIERS) {
     throw new AiRewriteRequestError("Choose up to 3 modifier chips.", {
       status: 400,
       code: "too_many_modifiers"
     });
-  }
-
-  if (!areAiRewriteModifiersValid(mode.id, modifiers)) {
-    throw new AiRewriteRequestError(
-      "One or more modifier chips do not match the selected mode.",
-      {
-        status: 400,
-        code: "invalid_modifiers"
-      }
-    );
   }
 
   if (input.outputType !== "rewrite" && input.outputType !== "two_options") {
@@ -119,17 +118,71 @@ function validateRewriteRequest(input: AiRewriteRequest) {
     );
   }
 
+  if (type === "polish") {
+    const mode = getAiPolishModeDefinition(input.mode);
+    if (!mode) {
+      throw new AiRewriteRequestError("Unknown polish mode.", {
+        status: 400,
+        code: "invalid_mode"
+      });
+    }
+
+    if (!areAiPolishModifiersValid(mode.id, modifiers)) {
+      throw new AiRewriteRequestError(
+        "One or more modifier chips do not match the selected polish mode.",
+        {
+          status: 400,
+          code: "invalid_modifiers"
+        }
+      );
+    }
+
+    return {
+      type,
+      mode,
+      modifiers: modifiers as AiPolishModifierId[],
+      region:
+        input.region &&
+        AI_POLISH_CULTURE_REGIONS.some((item) => item.id === input.region)
+          ? input.region
+          : "global",
+      outputType: input.outputType,
+      source
+    };
+  }
+
+  const mode = getAiRewriteModeDefinition(input.mode);
+  if (!mode) {
+    throw new AiRewriteRequestError("Unknown rewrite mode.", {
+      status: 400,
+      code: "invalid_mode"
+    });
+  }
+
+  if (!areAiRewriteModifiersValid(mode.id, modifiers)) {
+    throw new AiRewriteRequestError(
+      "One or more modifier chips do not match the selected mode.",
+      {
+        status: 400,
+        code: "invalid_modifiers"
+      }
+    );
+  }
+
   return {
+    type,
     mode,
-    modifiers,
+    modifiers: modifiers as AiRewriteModifierId[],
     outputType: input.outputType,
     source
   };
 }
 
 function buildRewriteRequestSignature(input: {
-  mode: AiRewriteModeId;
-  modifiers: AiRewriteModifierId[];
+  type: AiTransformType;
+  mode: AiTransformModeId;
+  modifiers: AiTransformModifierId[];
+  region?: AiPolishCultureRegionId;
   outputType: AiRewriteOutputType;
   source: {
     target: "selection" | "draft";
@@ -137,8 +190,10 @@ function buildRewriteRequestSignature(input: {
   };
 }) {
   return JSON.stringify({
+    type: input.type,
     mode: input.mode,
     modifiers: input.modifiers,
+    region: input.region ?? null,
     outputType: input.outputType,
     target: input.source.target,
     text: input.source.text
@@ -189,8 +244,10 @@ export async function rewriteWithCurrentOwner(input: AiRewriteRequest): Promise<
   const expectedCount = validated.outputType === "two_options" ? 2 : 1;
   const ownerScope = credential.owner.scope;
   const requestSignature = buildRewriteRequestSignature({
+    type: validated.type,
     mode: validated.mode.id,
     modifiers: validated.modifiers,
+    region: validated.type === "polish" ? validated.region : undefined,
     outputType: validated.outputType,
     source: validated.source
   });
@@ -234,7 +291,10 @@ export async function rewriteWithCurrentOwner(input: AiRewriteRequest): Promise<
         model: OPENAI_REWRITE_MODEL,
         temperature: 0.8,
         response_format: { type: "json_object" },
-        messages: buildAiRewriteMessages(validated)
+        messages:
+          validated.type === "polish"
+            ? buildAiPolishMessages(validated)
+            : buildAiRewriteMessages(validated)
       }),
       cache: "no-store"
     });
@@ -267,6 +327,7 @@ export async function rewriteWithCurrentOwner(input: AiRewriteRequest): Promise<
     const options = parseRewriteCompletion(content, expectedCount);
 
     return {
+      type: validated.type,
       mode: validated.mode.id,
       outputType: validated.outputType,
       target: validated.source.target,

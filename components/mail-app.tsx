@@ -131,14 +131,28 @@ import type {
   SidebarMailboxTarget
 } from "@/lib/new-mail-view";
 import {
+  AI_POLISH_CATEGORY,
+  AI_POLISH_CULTURE_REGIONS,
+  AI_POLISH_MODES,
+  getAiPolishModifierDefinitionsForMode,
+  type AiPolishCultureRegionId,
+  type AiPolishModeDefinition,
+  type AiPolishModeId,
+  type AiPolishModifierDefinition,
+  type AiPolishModifierId
+} from "@/lib/ai-polish-modes";
+import {
   AI_REWRITE_CATEGORY_ORDER,
   AI_REWRITE_MAX_INPUT_CHARS,
   AI_REWRITE_MODES,
+  type AiRewriteModeDefinition,
+  type AiRewriteModifierDefinition,
   getAiRewriteModifierDefinitionsForMode,
   type AiRewriteModeId,
   type AiRewriteModifierId,
   type AiRewriteOutputType
 } from "@/lib/ai-rewrite-modes";
+import type { AiTransformType } from "@/lib/ai-rewrite";
 import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
@@ -194,8 +208,8 @@ type LightboxBridgedFrame = HTMLIFrameElement & {
   __mmwbmailLightboxCleanup?: () => void;
 };
 
-const WORKSPACE_MIN_SIDEBAR_WIDTH = 280;
-const WORKSPACE_MIN_LIST_WIDTH = 320;
+const WORKSPACE_MIN_SIDEBAR_WIDTH = 330;
+const WORKSPACE_MIN_LIST_WIDTH = 450;
 const WORKSPACE_MIN_VIEWER_WIDTH = 340;
 const WORKSPACE_DIVIDER_WIDTH = 8;
 const WORKSPACE_WIDE_BREAKPOINT = 1200;
@@ -314,12 +328,18 @@ type SmartMailboxEmptyState = {
   hint?: string;
 };
 
+type ComposeAiModeId = AiRewriteModeId | AiPolishModeId;
+type ComposeAiModifierId = AiRewriteModifierId | AiPolishModifierId;
+type ComposeAiModeDefinition = AiRewriteModeDefinition | AiPolishModeDefinition;
+type ComposeAiModifierDefinition = AiRewriteModifierDefinition | AiPolishModifierDefinition;
+
 type AiRewriteResponse = {
-  mode: AiRewriteModeId;
+  type: AiTransformType;
+  mode: ComposeAiModeId;
   outputType: AiRewriteOutputType;
   target: "selection" | "draft";
   sourceText: string;
-  modifiers: AiRewriteModifierId[];
+  modifiers: ComposeAiModifierId[];
   options: Array<{
     id: string;
     label: string;
@@ -1939,16 +1959,15 @@ const COMPACT_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
 ];
 
 const SELECTION_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
-  "bold",
-  "italic",
-  "underline",
   "uppercase_selection",
   "lowercase_selection",
   "capitalize_selection",
   "link",
   "quote",
-  "rewrite_for_outcome",
-  "clear_formatting"
+  "bullet_list",
+  "outdent",
+  "indent",
+  "rewrite_for_outcome"
 ];
 
 function messageMentionsAttachment(text: string) {
@@ -2036,6 +2055,15 @@ function renderComposerCommandIcon(command: ComposerCommand) {
           <polyline points="3 10 7 12 3 14" />
         </svg>
       );
+    case "outdent":
+      return (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="15" y2="12" />
+          <line x1="3" y1="18" x2="15" y2="18" />
+          <polyline points="7 10 3 12 7 14" />
+        </svg>
+      );
     case "link":
       return (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2053,15 +2081,9 @@ function renderComposerCommandIcon(command: ComposerCommand) {
     case "rewrite":
       return (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3v4" />
-          <path d="M12 17v4" />
-          <path d="M4.93 4.93l2.83 2.83" />
-          <path d="M16.24 16.24l2.83 2.83" />
-          <path d="M3 12h4" />
-          <path d="M17 12h4" />
-          <path d="M4.93 19.07l2.83-2.83" />
-          <path d="M16.24 7.76l2.83-2.83" />
-          <circle cx="12" cy="12" r="3.5" />
+          <path d="M12 20V5" />
+          <path d="m6 11 6-6 6 6" />
+          <path d="M6 20h12" />
         </svg>
       );
     case "clear_formatting":
@@ -2335,7 +2357,7 @@ function getInitialComposeHeight() {
 }
 
 function getComposeMinWidth() {
-  return 420;
+  return 630;
 }
 
 function getComposeMaxWidth() {
@@ -2347,7 +2369,7 @@ function getComposeMaxWidth() {
 }
 
 function getInitialComposeWidth() {
-  return typeof window !== "undefined" ? Math.min(560, getComposeMaxWidth()) : 560;
+  return typeof window !== "undefined" ? Math.min(818, getComposeMaxWidth()) : 818;
 }
 
 function getDefaultComposePos(height: number, width = getInitialComposeWidth()) {
@@ -2847,7 +2869,8 @@ function SwipeRow({
     ? resolveSenderTrustPresentation(message, domainVerification)
     : null;
   const cautionSender = senderTrust?.tier === "amber";
-  const trustedSender = senderTrust?.label === "Verified domain";
+  const positiveSenderTrust =
+    senderTrust?.label === "Verified domain" || senderTrust?.label === "Verified";
   const sentRecipientLabel = formatSentRowRecipient(message.to);
   const rowIdentity = isSentFolder ? sentRecipientLabel : message.from;
   const rowAvatarSeed = isSentFolder ? (message.to?.[0] ?? "") : message.fromAddress;
@@ -3014,9 +3037,13 @@ function SwipeRow({
                     {senderTrust?.icon} {senderTrust?.label}
                   </span>
                 ) : null}
-                {!isSentFolder && trustedSender ? (
-                  <span className="sender-trust-row-chip sender-trust-row-chip-verified">
-                    {senderTrust?.icon} {senderTrust?.label}
+                {!isSentFolder && positiveSenderTrust ? (
+                  <span
+                    className="sender-trust-row-check sender-trust-row-check-verified"
+                    aria-label={senderTrust?.summary}
+                    title={senderTrust?.summary}
+                  >
+                    ✓
                   </span>
                 ) : null}
                 {!isSentFolder && spoofed ? (
@@ -3106,6 +3133,8 @@ const AI_REWRITE_CATEGORY_DESCRIPTIONS: Record<string, string> = {
     "Turn this into something people can quickly understand and respond to",
   "Translate how it lands": "Make sure your intent is interpreted the way you mean it"
 };
+
+const AI_POLISH_DESCRIPTION = "Same message. Better presentation.";
 
 function RecipientField({
   label,
@@ -3371,6 +3400,7 @@ export function MailApp() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkText, setLinkText] = useState("");
+  const [composeSelectionColor, setComposeSelectionColor] = useState("#0a84ff");
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printTargetUid, setPrintTargetUid] = useState<number | null>(null);
   const [printScope, setPrintScope] = useState<PrintScope>("message");
@@ -3427,9 +3457,10 @@ export function MailApp() {
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
+  const [composeAiType, setComposeAiType] = useState<AiTransformType>("rewrite");
   const [composeAiCategory, setComposeAiCategory] = useState<string | null>(null);
-  const [composeAiMode, setComposeAiMode] = useState<AiRewriteModeId | null>(null);
-  const [composeAiModifiers, setComposeAiModifiers] = useState<AiRewriteModifierId[]>([]);
+  const [composeAiMode, setComposeAiMode] = useState<ComposeAiModeId | null>(null);
+  const [composeAiModifiers, setComposeAiModifiers] = useState<ComposeAiModifierId[]>([]);
   const [composeAiPreview, setComposeAiPreview] = useState<AiRewriteResponse | null>(null);
   const [composeAiPreviewExiting, setComposeAiPreviewExiting] = useState(false);
   const [composeAiBusy, setComposeAiBusy] = useState(false);
@@ -3437,6 +3468,8 @@ export function MailApp() {
   const [composeAiSettingsSummary, setComposeAiSettingsSummary] = useState<AiSettingsSummary | null>(null);
   const [composeAiSettingsLoading, setComposeAiSettingsLoading] = useState(false);
   const [composeAiWantTwoOptions, setComposeAiWantTwoOptions] = useState(false);
+  const [composeAiCultureRegion, setComposeAiCultureRegion] =
+    useState<AiPolishCultureRegionId>("global");
   const [composeAiPreviewOptionId, setComposeAiPreviewOptionId] = useState<string | null>(null);
   const [composeAiCategoryTooltip, setComposeAiCategoryTooltip] = useState<{
     text: string;
@@ -5769,8 +5802,8 @@ export function MailApp() {
         setComposeSelectionToolbarPos(null);
       }
 
-      const selectionToolbarWidth = 212;
       const selectionToolbarHeight = 38;
+      const effectiveSelectionToolbarWidth = 340;
       const viewportPadding = 8;
 
       if (composePlainText) {
@@ -5833,10 +5866,13 @@ export function MailApp() {
         rect.width > 0 &&
         rect.height > 0
       ) {
-        const preferredLeft = rect.left + rect.width / 2 - selectionToolbarWidth / 2;
+        const preferredLeft = rect.left + rect.width / 2 - effectiveSelectionToolbarWidth / 2;
         const clampedLeft = Math.max(
           viewportPadding,
-          Math.min(preferredLeft, window.innerWidth - selectionToolbarWidth - viewportPadding)
+          Math.min(
+            preferredLeft,
+            window.innerWidth - effectiveSelectionToolbarWidth - viewportPadding
+          )
         );
         const openAbove = rect.top >= selectionToolbarHeight + 18;
         const top = openAbove
@@ -5912,13 +5948,17 @@ export function MailApp() {
     }
 
     const allowedIds = new Set(
-      getAiRewriteModifierDefinitionsForMode(composeAiMode).map((item) => item.id)
+      (
+        composeAiType === "polish"
+          ? getAiPolishModifierDefinitionsForMode(composeAiMode as AiPolishModeId)
+          : getAiRewriteModifierDefinitionsForMode(composeAiMode as AiRewriteModeId)
+      ).map((item) => item.id)
     );
     setComposeAiModifiers((current) => {
       const next = current.filter((modifierId) => allowedIds.has(modifierId));
       return next.length === current.length ? current : next;
     });
-  }, [composeAiMode]);
+  }, [composeAiMode, composeAiType]);
 
   useEffect(() => {
     if (!composeAiCategory) {
@@ -5930,13 +5970,19 @@ export function MailApp() {
 
     if (
       composeAiMode &&
-      !AI_REWRITE_MODES.some(
-        (mode) => mode.id === composeAiMode && mode.category === composeAiCategory
+      !(
+        composeAiType === "polish"
+          ? AI_POLISH_MODES.some(
+              (mode) => mode.id === composeAiMode && mode.category === composeAiCategory
+            )
+          : AI_REWRITE_MODES.some(
+              (mode) => mode.id === composeAiMode && mode.category === composeAiCategory
+            )
       )
     ) {
       setComposeAiMode(null);
     }
-  }, [composeAiCategory, composeAiMode]);
+  }, [composeAiCategory, composeAiMode, composeAiType]);
 
   useEffect(() => {
     if (!composeToolbarMenuOpen && !composeToolbarOverflowOpen && !composeQuickInsertOpen) {
@@ -8705,6 +8751,32 @@ export function MailApp() {
     selection.addRange(savedRangeRef.current.cloneRange());
   }
 
+  function applyComposeSelectionColor(color: string) {
+    setComposeSelectionColor(color);
+
+    if (composePlainText) {
+      return;
+    }
+
+    restoreComposeEditorSelection();
+    const editor = composeEditorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    execOnEditable("styleWithCSS", "true", editor);
+    execOnEditable("foreColor", color, editor);
+
+    if (typeof window !== "undefined") {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+      }
+    }
+
+    updateComposeRichTextSnapshot();
+  }
+
   function transformComposeSelectionCase(mode: "upper" | "lower" | "title") {
     if (composePlainText) {
       const textarea = composePlainTextRef.current;
@@ -8896,7 +8968,9 @@ export function MailApp() {
       const settings = await withTimeout(
         getJson<AiSettingsSummary>("/api/ai/settings"),
         4500,
-        "AI Writing Assistant took too long to load. Try again."
+        composeAiType === "polish"
+          ? "Polish took too long to load. Try again."
+          : "AI Writing Assistant took too long to load. Try again."
       );
       setComposeAiSettingsSummary(settings);
       setComposeAiError(null);
@@ -8908,9 +8982,13 @@ export function MailApp() {
         setComposeAiError(
           error instanceof Error
             ? error.name === "AbortError"
-              ? "AI Writing Assistant took too long to load. Try again."
+              ? composeAiType === "polish"
+                ? "Polish took too long to load. Try again."
+                : "AI Writing Assistant took too long to load. Try again."
               : error.message
-            : "Unable to load AI Writing Assistant status."
+            : composeAiType === "polish"
+              ? "Unable to load Polish."
+              : "Unable to load AI Writing Assistant status."
         );
       }
     } finally {
@@ -8918,13 +8996,16 @@ export function MailApp() {
     }
   }
 
-  function openComposeAiPanel() {
+  function openComposeAiPanel(type: AiTransformType = "rewrite") {
     const seededSettings = aiSettings ?? composeAiSettingsSummary;
+    const nextCategory = type === "polish" ? AI_POLISH_CATEGORY : null;
     setComposeAiOpen(true);
-    setComposeAiCategory(null);
+    setComposeAiType(type);
+    setComposeAiCategory(nextCategory);
     setComposeAiMode(null);
     setComposeAiModifiers([]);
     setComposeAiWantTwoOptions(false);
+    setComposeAiCultureRegion("global");
     setComposeSelectionToolbarPos(null);
     setComposeAiError(null);
     setComposeAiPreview(null);
@@ -8945,10 +9026,12 @@ export function MailApp() {
       composeAiPreviewExitTimerRef.current = null;
     }
     setComposeAiOpen(false);
+    setComposeAiType("rewrite");
     setComposeAiCategory(null);
     setComposeAiMode(null);
     setComposeAiModifiers([]);
     setComposeAiWantTwoOptions(false);
+    setComposeAiCultureRegion("global");
     setComposeAiBusy(false);
     setComposeAiError(null);
     setComposeAiPreview(null);
@@ -8957,7 +9040,7 @@ export function MailApp() {
     composeAiSelectionSnapshotRef.current = null;
   }
 
-  function toggleComposeAiModifier(modifierId: AiRewriteModifierId) {
+  function toggleComposeAiModifier(modifierId: ComposeAiModifierId) {
     setComposeAiModifiers((current) => {
       if (current.includes(modifierId)) {
         return current.filter((item) => item !== modifierId);
@@ -8997,7 +9080,13 @@ export function MailApp() {
 
     const timeoutId = globalThis.setTimeout(() => {
       setComposeAiSettingsLoading(false);
-      setComposeAiError((current) => current ?? "AI Writing Assistant took too long to load. Try again.");
+      setComposeAiError(
+        (current) =>
+          current ??
+          (composeAiType === "polish"
+            ? "Polish took too long to load. Try again."
+            : "AI Writing Assistant took too long to load. Try again.")
+      );
     }, 5200);
 
     return () => globalThis.clearTimeout(timeoutId);
@@ -9007,9 +9096,38 @@ export function MailApp() {
     setComposeAiPreviewOptionId(composeAiPreview?.options[0]?.id ?? null);
   }, [composeAiPreview]);
 
+  useEffect(() => {
+    if (
+      !composeAiOpen ||
+      composeAiType !== "polish" ||
+      !composeAiMode ||
+      composeAiBusy ||
+      composeAiPreview
+    ) {
+      return;
+    }
+
+    const timeoutId = globalThis.setTimeout(() => {
+      void requestComposeAiRewrite(composeAiWantTwoOptions ? "two_options" : "rewrite");
+    }, 180);
+
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [
+    composeAiBusy,
+    composeAiCultureRegion,
+    composeAiMode,
+    composeAiModifiers,
+    composeAiOpen,
+    composeAiPreview,
+    composeAiType,
+    composeAiWantTwoOptions
+  ]);
+
   async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
     if (!composeAiMode) {
-      setComposeAiError("Choose a rewrite mode first.");
+      setComposeAiError(
+        composeAiType === "polish" ? "Choose a polish mode first." : "Choose an Elevate mode first."
+      );
       return;
     }
 
@@ -9033,10 +9151,12 @@ export function MailApp() {
     }
 
     const requestSignature = JSON.stringify({
+      type: composeAiType,
       target: snapshot.hasSelection ? "selection" : "draft",
       sourceText,
       mode: composeAiMode,
       modifiers: composeAiModifiers,
+      region: composeAiType === "polish" ? composeAiCultureRegion : null,
       outputType
     });
 
@@ -9073,10 +9193,12 @@ export function MailApp() {
 
     try {
       const result = await postJson<AiRewriteResponse>("/api/ai/rewrite", {
+        type: composeAiType,
         selectedText: snapshot.hasSelection ? snapshot.selectedText : undefined,
         fullDraftText: snapshot.hasSelection ? undefined : fullDraftText,
         mode: composeAiMode,
         modifiers: composeAiModifiers,
+        region: composeAiType === "polish" ? composeAiCultureRegion : undefined,
         outputType
       });
       if (composeAiRequestSeqRef.current === requestSeq) {
@@ -9086,7 +9208,11 @@ export function MailApp() {
     } catch (error) {
       if (composeAiRequestSeqRef.current === requestSeq) {
         setComposeAiError(
-          error instanceof Error ? error.message : "Unable to rewrite this draft."
+          error instanceof Error
+            ? error.message
+            : composeAiType === "polish"
+              ? "Unable to polish this draft."
+              : "Unable to rewrite this draft."
         );
       }
     } finally {
@@ -10609,19 +10735,36 @@ export function MailApp() {
   );
   const composeAiModeGroups = useMemo(
     () =>
-      AI_REWRITE_CATEGORY_ORDER.map((category) => ({
-        category,
-        modes: AI_REWRITE_MODES.filter((mode) => mode.category === category)
-      })),
-    []
+      composeAiType === "polish"
+        ? [
+            {
+              category: AI_POLISH_CATEGORY,
+              modes: AI_POLISH_MODES
+            }
+          ]
+        : AI_REWRITE_CATEGORY_ORDER.map((category) => ({
+            category,
+            modes: AI_REWRITE_MODES.filter((mode) => mode.category === category)
+          })),
+    [composeAiType]
   );
   const composeAiAvailableModifiers = useMemo(
-    () => (composeAiMode ? getAiRewriteModifierDefinitionsForMode(composeAiMode) : []),
-    [composeAiMode]
+    () =>
+      composeAiMode
+        ? composeAiType === "polish"
+          ? getAiPolishModifierDefinitionsForMode(composeAiMode as AiPolishModeId)
+          : getAiRewriteModifierDefinitionsForMode(composeAiMode as AiRewriteModeId)
+        : [],
+    [composeAiMode, composeAiType]
   );
   const composeAiSelectedMode = useMemo(
-    () => (composeAiMode ? AI_REWRITE_MODES.find((mode) => mode.id === composeAiMode) ?? null : null),
-    [composeAiMode]
+    () =>
+      composeAiMode
+        ? composeAiType === "polish"
+          ? AI_POLISH_MODES.find((mode) => mode.id === composeAiMode) ?? null
+          : AI_REWRITE_MODES.find((mode) => mode.id === composeAiMode) ?? null
+        : null,
+    [composeAiMode, composeAiType]
   );
   const composeAiSelectedCategoryModes = useMemo(
     () => composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [],
@@ -10658,6 +10801,8 @@ export function MailApp() {
       composeToolbarPreferences.order
         .map((id) => composerCommandMap.get(id))
         .filter((command): command is ComposerCommand => Boolean(command))
+        .filter((command) => command.id !== "insert_image")
+        .filter((command) => command.id !== "clear_formatting")
         .filter((command) => !hiddenToolbarCommandIds.has(command.id))
         .filter((command) => !(composeAiOpen && command.id === "rewrite_for_outcome"))
         .filter((command) => (command.isVisible ? command.isVisible(composeCommandContext) : true)),
@@ -10815,7 +10960,7 @@ export function MailApp() {
             }}
           >
             {renderComposerCommandIcon(command)}
-            {isRewriteCommand ? <span className="fmt-btn-text">Rewrite</span> : null}
+            {isRewriteCommand ? <span className="fmt-btn-text">Elevate</span> : null}
           </button>
         )}
       </Fragment>
@@ -12197,7 +12342,25 @@ export function MailApp() {
     const trust = resolveSenderTrustPresentation(message, domainVerification);
     const expanded = senderTrustExpandedUid === message.uid;
     const showCollapsedSummary = trust.tier === "red" || trust.tier === "amber";
+    const showPositiveTrustIconOnly = trust.label === "Verified domain" || trust.label === "Verified";
     const showTrustIcon = trust.tier !== "blue";
+
+    if (showPositiveTrustIconOnly) {
+      return (
+        <div className={["sender-trust-summary", "sender-trust-summary-icon-only", options?.className ?? ""].filter(Boolean).join(" ")}>
+          <button
+            type="button"
+            className="sender-trust-icon-button"
+            aria-label={trust.detail}
+            title={trust.detail}
+          >
+            <span className="sender-trust-row-check sender-trust-row-check-verified" aria-hidden="true">
+              ✓
+            </span>
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div
@@ -14882,7 +15045,9 @@ export function MailApp() {
                   ? resolveSenderTrustPresentation(latestMessage, domainVerification)
                   : null;
                 const latestCautionSender = latestSenderTrust?.tier === "amber";
-                const latestTrustedSender = latestSenderTrust?.label === "Verified domain";
+                const latestPositiveSenderTrust =
+                  latestSenderTrust?.label === "Verified domain" ||
+                  latestSenderTrust?.label === "Verified";
                 const recipientLabel = isSentFolder
                   ? (() => {
                       const allTo = conversationMessages.flatMap(
@@ -15028,9 +15193,13 @@ export function MailApp() {
                                 {latestSenderTrust?.icon} {latestSenderTrust?.label}
                               </span>
                             ) : null}
-                            {!isSentFolder && latestTrustedSender ? (
-                              <span className="sender-trust-row-chip sender-trust-row-chip-verified">
-                                {latestSenderTrust?.icon} {latestSenderTrust?.label}
+                            {!isSentFolder && latestPositiveSenderTrust ? (
+                              <span
+                                className="sender-trust-row-check sender-trust-row-check-verified"
+                                aria-label={latestSenderTrust?.summary}
+                                title={latestSenderTrust?.summary}
+                              >
+                                ✓
                               </span>
                             ) : null}
 
@@ -19280,9 +19449,66 @@ export function MailApp() {
               }`}
             >
               <div className="compose-fmt-row compose-fmt-row-primary">
+                {!composePlainText ? (
+                  <label
+                    className="fmt-btn fmt-btn-color"
+                    title="Text color"
+                    aria-label="Text color"
+                  >
+                    <span className="fmt-color-glyph">A</span>
+                    <span
+                      className="fmt-color-swatch"
+                      style={{ backgroundColor: composeSelectionColor }}
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="color"
+                      className="compose-color-input-overlay"
+                      value={composeSelectionColor}
+                      aria-label="Text color"
+                      onInput={(event) => {
+                        applyComposeSelectionColor(event.currentTarget.value);
+                      }}
+                      onChange={(event) => {
+                        applyComposeSelectionColor(event.currentTarget.value);
+                      }}
+                    />
+                  </label>
+                ) : null}
                 {primaryToolbarCommands.map((command, index) =>
                   renderComposeToolbarCommand(command, index, primaryToolbarCommands)
                 )}
+                <button
+                  type="button"
+                  className={`fmt-btn fmt-btn-label fmt-btn-ai ${
+                    composeAiOpen && composeAiType === "polish" ? "fmt-btn-active" : ""
+                  }`}
+                  title="Polish presentation and formatting"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    openComposeAiPanel("polish");
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m14 4 6 6" />
+                    <path d="m13 5 2-2 6 6-2 2" />
+                    <path d="M11 7 4 14" />
+                    <path d="m3 21 2.5-6.5L12 8l4 4-6.5 6.5z" />
+                    <path d="M18 2v3" />
+                    <path d="M22 6h-3" />
+                  </svg>
+                  <span className="fmt-btn-text">Polish</span>
+                </button>
                 <div className="compose-toolbar-spacer" />
                 <button
                   type="button"
@@ -19466,7 +19692,15 @@ export function MailApp() {
               ref={attachInputRef}
               type="file"
               multiple
-              style={{ display: "none" }}
+              style={{
+                position: "fixed",
+                width: 1,
+                height: 1,
+                opacity: 0,
+                pointerEvents: "none",
+                left: -9999,
+                top: -9999
+              }}
               onChange={async (event) => {
                 await handleComposeSelectedFiles(Array.from(event.target.files ?? []));
                 event.target.value = "";
@@ -19486,11 +19720,10 @@ export function MailApp() {
                 event.target.value = "";
               }}
             />
-
             {composeAiOpen && !composeAiPreview ? (
               <div className="compose-ai-region">
                 <div className="compose-ai-panel">
-                  {!composeAiCategory ? (
+                  {!composeAiCategory && composeAiType === "rewrite" ? (
                     <div className="compose-ai-panel-header">
                       <div className="compose-ai-panel-header-copy">
                         <div className="compose-ai-panel-title">Not coming out right?</div>
@@ -19503,7 +19736,11 @@ export function MailApp() {
                         <button
                           type="button"
                           className="compose-ai-close"
-                          aria-label="Close rewrite assistant"
+                          aria-label={
+                            composeAiType === "polish"
+                              ? "Close Polish"
+                              : "Close Elevate"
+                          }
                           onClick={closeComposeAiPanel}
                         >
                           <span aria-hidden="true">×</span>
@@ -19514,7 +19751,11 @@ export function MailApp() {
 
                   {composeAiSettingsLoading ? (
                     <div className="compose-ai-empty-state">
-                      <div className="compose-ai-empty-copy">Loading AI Writing Assistant…</div>
+                      <div className="compose-ai-empty-copy">
+                        {composeAiType === "polish"
+                          ? "Loading Polish…"
+                          : "Loading AI Writing Assistant…"}
+                      </div>
                     </div>
                   ) : composeAiSettingsSummary && !composeAiSettingsSummary.configured ? (
                     <div className="compose-ai-empty-state">
@@ -19533,7 +19774,9 @@ export function MailApp() {
                   ) : composeAiError && !composeAiSettingsSummary ? (
                     <div className="compose-ai-empty-state">
                       <div className="compose-ai-empty-title">
-                        AI Writing Assistant couldn&apos;t load
+                        {composeAiType === "polish"
+                          ? "Polish couldn&apos;t load"
+                          : "AI Writing Assistant couldn&apos;t load"}
                       </div>
                       <div className="compose-ai-empty-copy">{composeAiError}</div>
                       <div className="compose-ai-request-actions">
@@ -19563,7 +19806,11 @@ export function MailApp() {
                     <>
                       {composeAiBusy ? (
                         <div className="compose-ai-status-row">
-                          <div className="compose-ai-status-note">Working on your rewrite…</div>
+                          <div className="compose-ai-status-note">
+                            {composeAiType === "polish"
+                              ? "Working on your presentation polish…"
+                              : "Elevating your message…"}
+                          </div>
                         </div>
                       ) : null}
 
@@ -19571,12 +19818,12 @@ export function MailApp() {
                         <div className="settings-account-feedback error">{composeAiError}</div>
                       ) : null}
 
-                      {!composeAiPreviewActive && !composeAiCategory ? (
+                      {!composeAiPreviewActive && !composeAiCategory && composeAiType === "rewrite" ? (
                         <div className="compose-ai-section">
                           <div className="compose-ai-section-header">
                             <div className="compose-ai-section-title">Choose a main category</div>
                             <div className="compose-ai-section-copy">
-                              Start with the kind of outcome you want, then pick the specific rewrite.
+                              Start with the kind of outcome you want, then choose how to elevate the message.
                             </div>
                           </div>
                           <div className="compose-ai-category-grid">
@@ -19626,6 +19873,8 @@ export function MailApp() {
                                 if (composeAiSelectedMode) {
                                   setComposeAiMode(null);
                                   setComposeAiModifiers([]);
+                                } else if (composeAiType === "polish") {
+                                  closeComposeAiPanel();
                                 } else {
                                   setComposeAiCategory(null);
                                   setComposeAiMode(null);
@@ -19641,21 +19890,24 @@ export function MailApp() {
                               <div className="compose-ai-section-title">
                                 {composeAiSelectedMode?.label ?? composeAiCategory}
                               </div>
-                              {!composeAiSelectedMode ? (
+                              {!composeAiSelectedMode && composeAiType === "rewrite" ? (
                                 <div className="compose-ai-section-copy">
-                                  Choose the specific rewrite path inside this category to unlock refinements and rewrite actions.
+                                  Choose the specific elevate path inside this category to unlock refinements and elevate actions.
                                 </div>
                               ) : null}
                             </div>
                             <button
                               type="button"
                               className="compose-ai-close"
-                              aria-label="Close rewrite assistant"
+                              aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
                               onClick={closeComposeAiPanel}
                             >
                               <span aria-hidden="true">×</span>
                             </button>
                           </div>
+                          {composeAiType === "polish" ? (
+                            <p className="compose-ai-description">{AI_POLISH_DESCRIPTION}</p>
+                          ) : null}
                           {!composeAiSelectedMode ? (
                             <div className="compose-ai-mode-stage">
                               {composeAiSelectedCategoryModes.map((mode) => (
@@ -19683,6 +19935,9 @@ export function MailApp() {
                                   onClick={() => {
                                     hideComposeAiCategoryTooltip();
                                     setComposeAiMode(mode.id);
+                                    if (composeAiType === "polish") {
+                                      setComposeAiCultureRegion("global");
+                                    }
                                     setComposeAiPreview(null);
                                     setComposeAiError(null);
                                   }}
@@ -19719,31 +19974,59 @@ export function MailApp() {
                               <div className="compose-ai-refine-header">
                                 <div className="compose-ai-refine-label">Refine this</div>
                                 <div className="compose-ai-refine-meta">
-                                  {composeAiModifiers.length}/3 selected
+                                  {composeAiType === "polish" &&
+                                  composeAiSelectedMode?.id === "culture"
+                                    ? "Region"
+                                    : `${composeAiModifiers.length}/3 selected`}
                                 </div>
                               </div>
-                              <div className="compose-ai-modifier-list">
-                                {composeAiAvailableModifiers.map((modifier) => (
-                                  <button
-                                    key={modifier.id}
-                                    type="button"
-                                    className={`compose-ai-modifier-chip ${
-                                      composeAiModifiers.includes(modifier.id) ? "active" : ""
-                                    }`}
-                                    onClick={() => toggleComposeAiModifier(modifier.id)}
-                                    disabled={
-                                      !composeAiModifiers.includes(modifier.id) &&
-                                      composeAiModifiers.length >= 3
+                              {composeAiType === "polish" &&
+                              composeAiSelectedMode?.id === "culture" ? (
+                                <label className="compose-ai-region-control">
+                                  <span className="compose-ai-region-label">Region</span>
+                                  <select
+                                    className="compose-ai-region-select"
+                                    value={composeAiCultureRegion}
+                                    onChange={(event) =>
+                                      setComposeAiCultureRegion(
+                                        event.target.value as AiPolishCultureRegionId
+                                      )
                                     }
                                   >
-                                    {modifier.label}
-                                  </button>
-                                ))}
-                              </div>
+                                    {AI_POLISH_CULTURE_REGIONS.map((region) => (
+                                      <option key={region.id} value={region.id}>
+                                        {region.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : (
+                                <div className="compose-ai-modifier-list">
+                                  {composeAiAvailableModifiers.map((modifier) => (
+                                    <button
+                                      key={modifier.id}
+                                      type="button"
+                                      className={`compose-ai-modifier-chip ${
+                                        composeAiModifiers.includes(modifier.id) ? "active" : ""
+                                      }`}
+                                      onClick={() => toggleComposeAiModifier(modifier.id)}
+                                      disabled={
+                                        !composeAiModifiers.includes(modifier.id) &&
+                                        composeAiModifiers.length >= 3
+                                      }
+                                    >
+                                      {modifier.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               <div className="compose-ai-modifier-hint">
-                                {composeAiModifiers.length >= 3
-                                  ? "Remove one chip to choose a different refinement."
-                                  : "Optional. Pick up to three refinements."}
+                                {composeAiType === "polish" &&
+                                composeAiSelectedMode?.id === "culture"
+                                  ? "Choose the regional business context you want this presentation tuned for."
+                                  : composeAiModifiers.length >= 3
+                                    ? "Remove one chip to choose a different refinement."
+                                    : "Optional. Pick up to three refinements."}
                               </div>
                             </div>
 
@@ -19768,7 +20051,13 @@ export function MailApp() {
                                   );
                                 }}
                               >
-                                {composeAiBusy ? "Rewriting…" : "Rewrite"}
+                                {composeAiBusy
+                                  ? composeAiType === "polish"
+                                    ? "Polishing…"
+                                    : "Elevating…"
+                                  : composeAiType === "polish"
+                                    ? "Polish"
+                                    : "Elevate"}
                               </button>
                             </div>
                           </div>
@@ -19983,7 +20272,7 @@ export function MailApp() {
                       <button
                         type="button"
                         className="compose-ai-close"
-                        aria-label="Close rewrite assistant"
+                        aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
                         onClick={closeComposeAiPanel}
                       >
                         <span aria-hidden="true">×</span>
@@ -20119,7 +20408,7 @@ export function MailApp() {
                       openComposeAiPanel();
                     }}
                   >
-                    Rewrite
+                    Elevate
                   </button>
                 ) : null}
                 <button
@@ -20147,6 +20436,44 @@ export function MailApp() {
                         left: composeSelectionToolbarPos.left
                       }}
                     >
+                      <label
+                        className="compose-selection-toolbar-btn compose-selection-toolbar-btn-color"
+                        title="Text color"
+                        aria-label="Text color"
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 4 6 20" />
+                          <path d="M18 20 12 4 6 20" />
+                          <path d="M8.5 14h7" />
+                        </svg>
+                        <span
+                          className="compose-selection-toolbar-color-swatch"
+                          style={{ backgroundColor: composeSelectionColor }}
+                          aria-hidden="true"
+                        />
+                        <input
+                          type="color"
+                          className="compose-color-input-overlay"
+                          value={composeSelectionColor}
+                          aria-label="Text color"
+                          onInput={(event) => {
+                            applyComposeSelectionColor(event.currentTarget.value);
+                          }}
+                          onChange={(event) => {
+                            applyComposeSelectionColor(event.currentTarget.value);
+                          }}
+                        />
+                      </label>
                       {selectionToolbarCommands.map((command) => {
                         const isEnabled = command.isEnabled
                           ? command.isEnabled(composeCommandContext)
@@ -20172,7 +20499,7 @@ export function MailApp() {
                           >
                             {renderComposerCommandIcon(command)}
                             {isRewriteCommand ? (
-                              <span className="compose-selection-toolbar-text">Rewrite</span>
+                              <span className="compose-selection-toolbar-text">Elevate</span>
                             ) : null}
                           </button>
                         );
@@ -20917,6 +21244,36 @@ export function MailApp() {
                     </svg>
                     Crop
                   </button>
+                  <button
+                    type="button"
+                    className="img-edit-btn img-edit-btn-danger"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (selectedImg) {
+                        void composeAttachmentService.removeAttachment({
+                          attachmentId: selectedImg.dataset.attachmentId,
+                          filename: selectedImg.dataset.filename,
+                          removeInlineElement: true
+                        });
+                      }
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    </svg>
+                    Remove all
+                  </button>
                 </div>
 
                 {(["nw", "ne", "sw", "se"] as const).map((corner) => (
@@ -21005,106 +21362,6 @@ export function MailApp() {
                     {selectedImg.offsetWidth} × {selectedImg.offsetHeight}
                   </div>
                 ) : null}
-              </div>
-
-              <div
-                className="img-action-popover"
-                style={{
-                  left: imgRect.left + imgRect.width / 2,
-                  top: imgRect.bottom + 10
-                }}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="img-action-bar">
-                  <button
-                    type="button"
-                    className="img-action-btn"
-                    title="Float left"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      if (selectedImg) {
-                        selectedImg.style.display = "block";
-                        selectedImg.style.marginLeft = "0";
-                        selectedImg.style.marginRight = "auto";
-                        setImgRect(selectedImg.getBoundingClientRect());
-                      }
-                    }}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    >
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <line x1="3" y1="12" x2="15" y2="12" />
-                      <line x1="3" y1="18" x2="18" y2="18" />
-                    </svg>
-                    Left
-                  </button>
-                  <button
-                    type="button"
-                    className="img-action-btn"
-                    title="Float right"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      if (selectedImg) {
-                        selectedImg.style.display = "block";
-                        selectedImg.style.marginLeft = "auto";
-                        selectedImg.style.marginRight = "0";
-                        setImgRect(selectedImg.getBoundingClientRect());
-                      }
-                    }}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    >
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <line x1="9" y1="12" x2="21" y2="12" />
-                      <line x1="6" y1="18" x2="21" y2="18" />
-                    </svg>
-                    Right
-                  </button>
-                  <button
-                    type="button"
-                    className="img-action-btn img-action-danger"
-                    title="Remove image"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      if (selectedImg) {
-                        void composeAttachmentService.removeAttachment({
-                          attachmentId: selectedImg.dataset.attachmentId,
-                          filename: selectedImg.dataset.filename,
-                          removeInlineElement: true
-                        });
-                      }
-                    }}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    </svg>
-                    Remove
-                  </button>
-                </div>
               </div>
             </>,
             document.body

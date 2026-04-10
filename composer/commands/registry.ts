@@ -210,13 +210,24 @@ export const COMPOSER_COMMANDS: ComposerCommand[] = [
   },
   {
     id: "indent",
-    label: "Indent",
+    label: "Indent more",
     icon: "indent",
     group: "format",
     isVisible: (ctx) => !ctx.composeState.plainText,
     isEnabled: (ctx) => ctx.editor.hasEditableTarget(),
     run: (ctx) => {
       ctx.editor.exec("indent");
+    }
+  },
+  {
+    id: "outdent",
+    label: "Indent less",
+    icon: "outdent",
+    group: "format",
+    isVisible: (ctx) => !ctx.composeState.plainText,
+    isEnabled: (ctx) => ctx.editor.hasEditableTarget(),
+    run: (ctx) => {
+      ctx.editor.exec("outdent");
     }
   },
   {
@@ -232,7 +243,7 @@ export const COMPOSER_COMMANDS: ComposerCommand[] = [
   },
   {
     id: "rewrite_for_outcome",
-    label: "Rewrite for Outcome",
+    label: "Elevate",
     icon: "rewrite",
     group: "review",
     isEnabled: (ctx) => ctx.editor.hasEditableTarget(),

@@ -18,6 +18,7 @@ export type ComposerCommandId =
   | "bullet_list"
   | "number_list"
   | "indent"
+  | "outdent"
   | "clear_formatting"
   | "rewrite_for_outcome"
   | "attach_file"
