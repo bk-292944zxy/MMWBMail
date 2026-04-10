@@ -153,6 +153,9 @@ import {
   type AiRewriteOutputType
 } from "@/lib/ai-rewrite-modes";
 import type { AiTransformType } from "@/lib/ai-rewrite";
+import type { QuickFactFallback, QuickFactResult } from "@/lib/quickfact";
+import { formatQuickFactForInsert } from "@/lib/quickfact";
+import { fetchQuickFacts } from "@/lib/quickfact-client";
 import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
@@ -354,6 +357,14 @@ type ComposeAiSelectionSnapshot = {
   range: Range | null;
   plainTextStart: number;
   plainTextEnd: number;
+};
+
+type QuickFactUiState = {
+  query: string;
+  loading: boolean;
+  results: QuickFactResult[];
+  error: string | null;
+  fallback: QuickFactFallback | null;
 };
 
 type TrustAwareMessage = Pick<
@@ -1657,6 +1668,23 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   }
 }
 
+function formatQuickFactSourceDate(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
 type AiSettingsSummary = {
   ownerLabel: string;
   provider: "openai";
@@ -2357,7 +2385,7 @@ function getInitialComposeHeight() {
 }
 
 function getComposeMinWidth() {
-  return 630;
+  return 717;
 }
 
 function getComposeMaxWidth() {
@@ -2369,7 +2397,7 @@ function getComposeMaxWidth() {
 }
 
 function getInitialComposeWidth() {
-  return typeof window !== "undefined" ? Math.min(818, getComposeMaxWidth()) : 818;
+  return typeof window !== "undefined" ? Math.min(717, getComposeMaxWidth()) : 717;
 }
 
 function getDefaultComposePos(height: number, width = getInitialComposeWidth()) {
@@ -3438,7 +3466,15 @@ export function MailApp() {
   const [composeQuickInsertPosition, setComposeQuickInsertPosition] = useState<{
     top: number;
     left: number;
+    width: number;
   } | null>(null);
+  const [composeQuickFact, setComposeQuickFact] = useState<QuickFactUiState>({
+    query: "",
+    loading: false,
+    results: [],
+    error: null,
+    fallback: null
+  });
   const [composeSelectionToolbarPos, setComposeSelectionToolbarPos] = useState<{
     top: number;
     left: number;
@@ -3472,6 +3508,11 @@ export function MailApp() {
     useState<AiPolishCultureRegionId>("global");
   const [composeAiPreviewOptionId, setComposeAiPreviewOptionId] = useState<string | null>(null);
   const [composeAiCategoryTooltip, setComposeAiCategoryTooltip] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [composeQuickFactTooltip, setComposeQuickFactTooltip] = useState<{
     text: string;
     top: number;
     left: number;
@@ -3535,6 +3576,8 @@ export function MailApp() {
   const composeToolbarOverflowPopoverRef = useRef<HTMLDivElement | null>(null);
   const composeQuickInsertRef = useRef<HTMLDivElement | null>(null);
   const composeQuickInsertPopoverRef = useRef<HTMLDivElement | null>(null);
+  const composeQuickFactInputRef = useRef<HTMLInputElement | null>(null);
+  const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const draftServiceRef = useRef(
     createDraftService(createLocalStorageDraftAdapter())
   );
@@ -3690,7 +3733,6 @@ export function MailApp() {
   const restoredFolderRef = useRef<string | null>(null);
   const activeAccountIdRef = useRef<string | null>(null);
   const explicitActiveAccountIdRef = useRef<string | null>(null);
-  const didBootstrapAccountsRef = useRef(false);
   const previousMailboxQueryRef = useRef<ReturnType<typeof createMailboxQueryState> | null>(null);
   const autoSyncInFlightRef = useRef(false);
   const refreshFromEventTimerRef = useRef<number | null>(null);
@@ -3711,6 +3753,7 @@ export function MailApp() {
   >({});
   const visibleMessageLoadSeqRef = useRef(0);
   const latestVisibleMessageLoadRef = useRef<{ key: string; seq: number } | null>(null);
+  const initialMailboxLoadKeyRef = useRef<string | null>(null);
   const pendingMailMutationsRef = useRef<Record<string, PendingMailMutation>>({});
   const pendingMailMutationTimersRef = useRef<Record<string, number>>({});
   const prevMessageUidsRef = useRef<Set<number>>(new Set());
@@ -3884,6 +3927,25 @@ export function MailApp() {
     () => accounts.find((account) => account.id === activeAccountId) ?? null,
     [accounts, activeAccountId]
   );
+  const noMailboxRecoveryState = useMemo(() => {
+    if (accounts.length === 0) {
+      return {
+        title: "No email account connected",
+        message: "Add an account to start using your inbox.",
+        hint: "You'll need to connect an email account before you can view messages or compose from this mailbox."
+      };
+    }
+
+    if (!activeAccountId || !activeAccount) {
+      return {
+        title: "No mailbox selected",
+        message: "Choose or add an account to start using your inbox.",
+        hint: "This mailbox needs an active email account before messages and folders can load."
+      };
+    }
+
+    return null;
+  }, [accounts.length, activeAccount, activeAccountId]);
   const shouldShowLightweightOnboarding =
     userDataReady && !lightweightOnboardingDismissed && accounts.length > 0;
   const composeAccount = useMemo(
@@ -4078,16 +4140,18 @@ export function MailApp() {
       return;
     }
 
-    setComposeIdentity((current) =>
-      resolveComposeIdentityState({
+    setComposeIdentity((current) => {
+      const nextIdentity = resolveComposeIdentityState({
         accounts,
         preferredAccountId: composeSessionContext?.ownerAccountId ?? current?.accountId ?? undefined,
         ownerAccountId: composeSessionContext?.ownerAccountId,
         ownerLocked: composeSessionContext?.ownerLocked,
         persistedIdentity: current,
         persistedReplyTo: composeReplyTo
-      })
-    );
+      });
+
+      return JSON.stringify(current) === JSON.stringify(nextIdentity) ? current : nextIdentity;
+    });
   }, [accounts, composeOpen, composeReplyTo, composeSessionContext]);
   useEffect(() => {
     if (!composeOpen || !composeIdentity) {
@@ -4118,8 +4182,12 @@ export function MailApp() {
       return;
     }
 
-    setComposeSessionContext(
-      createComposeSessionContext({
+    setComposeSessionContext((current) => {
+      if (current) {
+        return current;
+      }
+
+      return createComposeSessionContext({
         sessionId: composeDraftId ?? `compose-session-${Date.now()}`,
         accounts,
         ownerAccountId,
@@ -4135,8 +4203,8 @@ export function MailApp() {
         sourceAccountId: composeSourceMessageMeta?.accountId ?? null,
         sourceMessageId: composeSourceMessageMeta?.messageId ?? null,
         sourceMessageUid: composeSourceMessageMeta?.uid ?? null
-      })
-    );
+      });
+    });
   }, [
     accounts,
     composeDraftId,
@@ -4152,24 +4220,20 @@ export function MailApp() {
       return;
     }
 
-    const nextContent = resolveComposeContentForSession(
-      composeIdentity,
-      composeIntent,
-      composeContentState
-    );
-
     setComposeContentState((current) => {
+      const nextContent = resolveComposeContentForSession(
+        composeIdentity,
+        composeIntent,
+        current
+      );
+
       if (JSON.stringify(current) === JSON.stringify(nextContent)) {
         return current;
       }
 
       return nextContent;
     });
-    setSignature((current) =>
-      current === nextContent.activeSignatureText ? current : nextContent.activeSignatureText
-    );
   }, [
-    composeContentState,
     composeIdentity,
     composeIntent,
     composeOpen,
@@ -4177,6 +4241,18 @@ export function MailApp() {
     presetDefinitions,
     signatureDefinitions
   ]);
+
+  useEffect(() => {
+    if (!composeOpen || !composeContentState) {
+      return;
+    }
+
+    setSignature((current) =>
+      current === composeContentState.activeSignatureText
+        ? current
+        : composeContentState.activeSignatureText
+    );
+  }, [composeContentState, composeOpen]);
   const imageAttachments = composeAttachments.filter((file) =>
     file.type.startsWith("image/")
   );
@@ -5139,10 +5215,6 @@ export function MailApp() {
       return;
     }
 
-    if (didBootstrapAccountsRef.current) {
-      return;
-    }
-    didBootstrapAccountsRef.current = true;
     restoredAccountIdRef.current = window.sessionStorage.getItem("mmwbmail-active-account-id");
     restoredFolderRef.current = window.sessionStorage.getItem("mmwbmail-active-folder");
     explicitActiveAccountIdRef.current = restoredAccountIdRef.current;
@@ -5159,15 +5231,6 @@ export function MailApp() {
         if (!account) {
           setStatus("Connect a live mailbox to begin.");
           return;
-        }
-
-        try {
-          await activateAccount(account, {
-            sync: false,
-            folderOverride: restoredFolderRef.current
-          });
-        } catch {
-          // Leave the account selected even if the first folder read fails.
         }
 
         if (!cancelled) {
@@ -5198,7 +5261,7 @@ export function MailApp() {
         globalThis.clearTimeout(retryTimer);
       }
     };
-  }, [activateAccount, loadPersistedAccounts]);
+  }, []);
 
   useEffect(() => {
     const saved = window.sessionStorage.getItem("mmwbmail-folder-order");
@@ -5263,6 +5326,7 @@ export function MailApp() {
 
   useEffect(() => {
     if (accounts.length === 0) {
+      initialMailboxLoadKeyRef.current = null;
       return;
     }
 
@@ -5272,6 +5336,30 @@ export function MailApp() {
       }
     });
   }, [accounts, foldersByAccount, loadFoldersForAccount]);
+
+  useEffect(() => {
+    if (accounts.length === 0) {
+      return;
+    }
+
+    if (activeAccountId && accounts.some((account) => account.id === activeAccountId)) {
+      return;
+    }
+
+    const fallbackAccount =
+      accounts.find((account) => account.id === explicitActiveAccountIdRef.current) ??
+      accounts.find((account) => account.id === restoredAccountIdRef.current) ??
+      accounts.find((account) => account.isDefault) ??
+      accounts[0];
+
+    if (!fallbackAccount) {
+      return;
+    }
+
+    activeAccountIdRef.current = fallbackAccount.id;
+    setActiveAccountId(fallbackAccount.id);
+    applyAccountToConnection(fallbackAccount, restoredFolderRef.current);
+  }, [accounts, activeAccountId, applyAccountToConnection]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -5985,7 +6073,11 @@ export function MailApp() {
   }, [composeAiCategory, composeAiMode, composeAiType]);
 
   useEffect(() => {
-    if (!composeToolbarMenuOpen && !composeToolbarOverflowOpen && !composeQuickInsertOpen) {
+    if (
+      !composeToolbarMenuOpen &&
+      !composeToolbarOverflowOpen &&
+      !composeQuickInsertOpen
+    ) {
       return;
     }
 
@@ -5997,8 +6089,7 @@ export function MailApp() {
       const insideOverflowPopover =
         composeToolbarOverflowPopoverRef.current?.contains(target);
       const insideQuickInsert = composeQuickInsertRef.current?.contains(target);
-      const insideQuickInsertPopover =
-        composeQuickInsertPopoverRef.current?.contains(target);
+      const insideQuickInsertPopover = composeQuickInsertPopoverRef.current?.contains(target);
 
       if (
         !insideCustomize &&
@@ -6044,7 +6135,7 @@ export function MailApp() {
 
   useEffect(() => {
     if (!composeToolbarOverflowOpen) {
-      setComposeToolbarOverflowPosition(null);
+      setComposeToolbarOverflowPosition((current) => (current === null ? current : null));
       return;
     }
 
@@ -6054,7 +6145,14 @@ export function MailApp() {
         240,
         280
       );
-      setComposeToolbarOverflowPosition(nextPosition);
+      setComposeToolbarOverflowPosition((current) =>
+        current &&
+        nextPosition &&
+        current.top === nextPosition.top &&
+        current.left === nextPosition.left
+          ? current
+          : nextPosition
+      );
     };
 
     syncToolbarOverflowPosition();
@@ -6068,17 +6166,45 @@ export function MailApp() {
 
   useEffect(() => {
     if (!composeQuickInsertOpen) {
-      setComposeQuickInsertPosition(null);
+      setComposeQuickInsertPosition((current) => (current === null ? current : null));
       return;
     }
 
     const syncQuickInsertPosition = () => {
-      const nextPosition = getComposeToolbarOverlayPosition(
-        composeQuickInsertRef.current,
-        240,
-        260
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      const composeWindow = composeWindowRef.current;
+      if (!composeWindow) {
+        return;
+      }
+
+      const rect = composeWindow.getBoundingClientRect();
+      const viewportPadding = 12;
+      const nextWidth = Math.min(
+        Math.max(320, rect.width * 0.9),
+        window.innerWidth - viewportPadding * 2
       );
-      setComposeQuickInsertPosition(nextPosition);
+      const nextLeft = Math.min(
+        Math.max(rect.left + (rect.width - nextWidth) / 2, viewportPadding),
+        window.innerWidth - nextWidth - viewportPadding
+      );
+      const nextTop = Math.max(rect.top + 8, viewportPadding);
+
+      const nextPosition = {
+        top: nextTop,
+        left: nextLeft,
+        width: nextWidth
+      };
+      setComposeQuickInsertPosition((current) =>
+        current &&
+        current.top === nextPosition.top &&
+        current.left === nextPosition.left &&
+        current.width === nextPosition.width
+          ? current
+          : nextPosition
+      );
     };
 
     syncQuickInsertPosition();
@@ -6091,10 +6217,29 @@ export function MailApp() {
   }, [composeQuickInsertOpen]);
 
   useEffect(() => {
+    if (!composeQuickInsertOpen) {
+      return;
+    }
+
+    const timeoutId = globalThis.setTimeout(() => {
+      composeQuickFactInputRef.current?.focus();
+      composeQuickFactInputRef.current?.select();
+    }, 0);
+
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [composeQuickInsertOpen]);
+
+  useEffect(() => {
     setSenderTrustExpandedUid(null);
     setUnsubscribeConfirm(false);
     setBimiAvatarFailed(false);
   }, [selectedMessage?.uid]);
+
+  useEffect(() => {
+    if (!composeOpen) {
+      return;
+    }
+  }, [composeOpen]);
 
   useEffect(() => {
     setDomainVerification(null);
@@ -6317,6 +6462,25 @@ export function MailApp() {
 
     resetLightboxView();
   }, [lightboxIndex, lightboxOpen]);
+
+  useEffect(() => {
+    if (!activeAccountId) {
+      initialMailboxLoadKeyRef.current = null;
+      return;
+    }
+
+    const initialLoadKey = `${activeAccountId}:${currentFolderPath}`;
+    if (initialMailboxLoadKeyRef.current === initialLoadKey) {
+      return;
+    }
+
+    initialMailboxLoadKeyRef.current = initialLoadKey;
+    void loadMessages(currentFolderPath, {
+      manageBusy: false,
+      preserveSelection: true,
+      accountIdOverride: activeAccountId
+    });
+  }, [activeAccountId, currentFolderPath, loadMessages]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !activeAccountId) {
@@ -9040,6 +9204,96 @@ export function MailApp() {
     composeAiSelectionSnapshotRef.current = null;
   }
 
+  function openComposeQuickFact() {
+    setComposeToolbarMenuOpen(false);
+    setComposeToolbarMenuPosition(null);
+    setComposeToolbarOverflowOpen(false);
+    setComposeToolbarOverflowPosition(null);
+    setComposeQuickInsertOpen((current) => {
+      const next = !current;
+      if (!next) {
+        setComposeQuickFact((state) => ({ ...state, loading: false, error: null, fallback: null }));
+      }
+      return next;
+    });
+  }
+
+  function closeComposeQuickFact() {
+    setComposeQuickInsertOpen(false);
+    setComposeQuickInsertPosition(null);
+    setComposeQuickFact((state) => ({ ...state, loading: false, error: null, fallback: null }));
+  }
+
+  function handoffComposeQuickFactToBroaderSearch() {
+    const query = composeQuickFact.query.trim();
+    window.dispatchEvent(
+      new CustomEvent("compose:quickfact-broader-search", {
+        detail: { query, source: "quickfact" }
+      })
+    );
+  }
+
+  async function submitComposeQuickFactQuery() {
+    const query = composeQuickFact.query.trim();
+    if (!query) {
+      setComposeQuickFact((state) => ({
+        ...state,
+        error: "What fact do you need?",
+        results: [],
+        loading: false,
+        fallback: null
+      }));
+      return;
+    }
+
+    setComposeQuickFact((state) => ({
+      ...state,
+      loading: true,
+      error: null,
+      results: [],
+      fallback: null
+    }));
+
+    try {
+      const response = await withTimeout(
+        fetchQuickFacts({ query }),
+        6000,
+        "quickfact-timeout"
+      );
+      setComposeQuickFact((state) => ({
+        ...state,
+        loading: false,
+        error: null,
+        results: response.results.slice(0, 2),
+        fallback: response.results.length === 0 ? response.fallback ?? null : null
+      }));
+    } catch (error) {
+      setComposeQuickFact((state) => ({
+        ...state,
+        loading: false,
+        results: [],
+        error: null,
+        fallback:
+          error instanceof Error && error.message === "quickfact-timeout"
+            ? {
+                reason: "timeout",
+                message: "No solid quick fact surfaced fast enough.",
+                actionLabel: "Search more broadly"
+              }
+            : {
+                reason: "backend_error",
+                message: "I couldn't find a clean quick fact for that.",
+                actionLabel: "Search more broadly"
+              }
+      }));
+    }
+  }
+
+  function insertQuickFactResult(result: QuickFactResult, includeSource: boolean) {
+    insertTextIntoCompose(formatQuickFactForInsert(result, { includeSource }));
+    closeComposeQuickFact();
+  }
+
   function toggleComposeAiModifier(modifierId: ComposeAiModifierId) {
     setComposeAiModifiers((current) => {
       if (current.includes(modifierId)) {
@@ -10257,6 +10511,12 @@ export function MailApp() {
     setAccountFormMode("add");
   }
 
+  function openAddAccountRecovery() {
+    setSettingsTab("account");
+    setSettingsOpen(true);
+    openAddAccount();
+  }
+
   function closeAccountForm() {
     setAccountFormError(null);
     setAccountFormMode(null);
@@ -10573,11 +10833,19 @@ export function MailApp() {
         setComposeAttachments((current) =>
           current.filter((entry, entryIndex) => {
             if (typeof index === "number" && entryIndex === index) {
+              const fileAttachmentId = composeAttachmentIdsRef.current.get(entry);
+              if (fileAttachmentId) {
+                composeAttachmentIdsRef.current.delete(entry);
+              }
               composeAttachmentDataUrlCacheRef.current.delete(entry);
               return false;
             }
 
             if (file && entry === file) {
+              const fileAttachmentId = composeAttachmentIdsRef.current.get(entry);
+              if (fileAttachmentId) {
+                composeAttachmentIdsRef.current.delete(entry);
+              }
               composeAttachmentDataUrlCacheRef.current.delete(entry);
               return false;
             }
@@ -10585,6 +10853,7 @@ export function MailApp() {
             const fileAttachmentId = composeAttachmentIdsRef.current.get(entry);
             if (attachmentId && fileAttachmentId) {
               if (fileAttachmentId === attachmentId) {
+                composeAttachmentIdsRef.current.delete(entry);
                 composeAttachmentDataUrlCacheRef.current.delete(entry);
                 return false;
               }
@@ -10592,6 +10861,9 @@ export function MailApp() {
             }
 
             if (filename && entry.name === filename) {
+              if (fileAttachmentId) {
+                composeAttachmentIdsRef.current.delete(entry);
+              }
               composeAttachmentDataUrlCacheRef.current.delete(entry);
               return false;
             }
@@ -10783,6 +11055,20 @@ export function MailApp() {
   };
   const hideComposeAiCategoryTooltip = () => {
     setComposeAiCategoryTooltip(null);
+  };
+  const showComposeQuickFactTooltip = (
+    target: EventTarget & HTMLElement,
+    text: string
+  ) => {
+    const rect = target.getBoundingClientRect();
+    setComposeQuickFactTooltip({
+      text,
+      top: rect.top - 10,
+      left: rect.left + rect.width / 2
+    });
+  };
+  const hideComposeQuickFactTooltip = () => {
+    setComposeQuickFactTooltip(null);
   };
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
@@ -11019,13 +11305,20 @@ export function MailApp() {
 
     return { top, left };
   }
+
   function updateComposeToolbarMenuPosition(trigger?: HTMLElement | null) {
     const nextPosition = getComposeToolbarOverlayPosition(trigger, 240, 420);
     if (!nextPosition) {
       return;
     }
 
-    setComposeToolbarMenuPosition(nextPosition);
+    setComposeToolbarMenuPosition((current) =>
+      current &&
+      current.top === nextPosition.top &&
+      current.left === nextPosition.left
+        ? current
+        : nextPosition
+    );
   }
   const composeDraftStatusLabel = useMemo(() => {
     if (
@@ -14149,8 +14442,21 @@ export function MailApp() {
                 </div>
               </div>
 
-              {accounts.length === 0 ? (
-                <p className="empty">Connect an account to load folders.</p>
+              {noMailboxRecoveryState ? (
+                <div className="sidebar-mailbox-empty-state empty-state">
+                  <div className="empty-state-title">{noMailboxRecoveryState.title}</div>
+                  <div className="empty-state-sub">{noMailboxRecoveryState.message}</div>
+                  {noMailboxRecoveryState.hint ? (
+                    <div className="empty-state-hint">{noMailboxRecoveryState.hint}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="empty-state-cta"
+                    onClick={openAddAccountRecovery}
+                  >
+                    Add account
+                  </button>
+                </div>
               ) : (
                 <div className="sidebar-mailbox-groups">
                   {sidebarMailboxGroups.map(({ account, isActive: isAccountActive, mailboxTargets }) => {
@@ -15017,7 +15323,22 @@ export function MailApp() {
                 ← Swipe left to delete · Swipe right for actions →
               </div>
             ) : null}
-            {mailboxResultState === "empty" ? (
+            {noMailboxRecoveryState ? (
+              <div className="empty empty-state empty-state-actionable">
+                <div className="empty-state-title">{noMailboxRecoveryState.title}</div>
+                <div className="empty-state-sub">{noMailboxRecoveryState.message}</div>
+                {noMailboxRecoveryState.hint ? (
+                  <div className="empty-state-hint">{noMailboxRecoveryState.hint}</div>
+                ) : null}
+                <button
+                  type="button"
+                  className="empty-state-cta"
+                  onClick={openAddAccountRecovery}
+                >
+                  Add account
+                </button>
+              </div>
+            ) : mailboxResultState === "empty" ? (
               <div className="empty empty-state">
                 {scopedMailboxEmptyState.eyebrow ? (
                   <div className="empty-state-eyebrow">{scopedMailboxEmptyState.eyebrow}</div>
@@ -19147,6 +19468,7 @@ export function MailApp() {
 
           return (
         <div
+          ref={composeWindowRef}
           className={`compose-window ${
             activeComposeSession.presentation.isMinimized ? "compose-minimized" : ""
           } ${activeComposeSession.presentation.position ? "compose-floating" : ""} ${
@@ -19478,6 +19800,37 @@ export function MailApp() {
                 {primaryToolbarCommands.map((command, index) =>
                   renderComposeToolbarCommand(command, index, primaryToolbarCommands)
                 )}
+                <div className="compose-toolbar-quickfact" ref={composeQuickInsertRef}>
+                  <button
+                    type="button"
+                    className={`fmt-btn fmt-btn-label ${
+                      composeQuickInsertOpen ? "fmt-btn-active" : ""
+                    }`}
+                    title="QuickFact"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      openComposeQuickFact();
+                    }}
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m21 21-4.35-4.35" />
+                      <path d="M11 8v3" />
+                      <path d="M11 15h.01" />
+                    </svg>
+                    <span className="fmt-btn-text">QuickFact</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   className={`fmt-btn fmt-btn-label fmt-btn-ai ${
@@ -19688,6 +20041,188 @@ export function MailApp() {
                       </div>
                     </div>
             ) : null}
+            {composeQuickInsertOpen && composeQuickInsertPosition
+              ? createPortal(
+                  <div
+                    ref={composeQuickInsertPopoverRef}
+                    className="compose-quickfact-popover"
+                    style={{
+                      top: composeQuickInsertPosition.top,
+                      left: composeQuickInsertPosition.left,
+                      width: composeQuickInsertPosition.width
+                    }}
+                  >
+                    <div className="compose-quickfact-header">
+                      <div className="compose-quickfact-title">QuickFact</div>
+                      <button
+                        type="button"
+                        className="compose-quickfact-close"
+                        aria-label="Close QuickFact"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          closeComposeQuickFact();
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="compose-quickfact-copy">
+                      Get a quick sourced fact without leaving your draft.
+                    </div>
+                    <form
+                      className="compose-quickfact-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void submitComposeQuickFactQuery();
+                      }}
+                    >
+                      <div className="compose-quickfact-input-wrap">
+                        <input
+                          ref={composeQuickFactInputRef}
+                          className="compose-quickfact-input"
+                          type="text"
+                          value={composeQuickFact.query}
+                          placeholder="What fact do you need?"
+                          onChange={(event) =>
+                            setComposeQuickFact((state) => ({
+                              ...state,
+                              query: event.target.value,
+                              error: null,
+                              fallback: null
+                            }))
+                          }
+                        />
+                        {composeQuickFact.query ? (
+                          <button
+                            type="button"
+                            className="compose-quickfact-clear"
+                            aria-label="Clear QuickFact search"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              setComposeQuickFact((state) => ({
+                                ...state,
+                                query: "",
+                                error: null,
+                                results: [],
+                                fallback: null
+                              }));
+                              globalThis.setTimeout(() => {
+                                composeQuickFactInputRef.current?.focus();
+                              }, 0);
+                            }}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
+                      <button
+                        type="submit"
+                        className="compose-quickfact-submit"
+                        disabled={composeQuickFact.loading}
+                      >
+                        {composeQuickFact.loading ? "Searching…" : "Search"}
+                      </button>
+                    </form>
+                    {composeQuickFact.error ? (
+                      <div className="compose-quickfact-error">{composeQuickFact.error}</div>
+                    ) : null}
+                    {composeQuickFact.fallback ? (
+                      <div className="compose-quickfact-fallback">
+                        <div className="compose-quickfact-fallback-message">
+                          {composeQuickFact.fallback.message}
+                        </div>
+                        {composeQuickFact.fallback.actionLabel ? (
+                          <button
+                            type="button"
+                            className="compose-quickfact-fallback-action"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handoffComposeQuickFactToBroaderSearch();
+                            }}
+                          >
+                            {composeQuickFact.fallback.actionLabel}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {composeQuickFact.results.length > 0 ? (
+                      <div className="compose-quickfact-results">
+                        {composeQuickFact.results.map((result) => (
+                          <div key={`${result.sourceUrl}-${result.answer}`} className="compose-quickfact-card">
+                            <div className="compose-quickfact-answer">{result.answer}</div>
+                            <div className="compose-quickfact-source">
+                              <span>{result.sourceName}</span>
+                              {result.sourceDate ? (
+                                <span>{formatQuickFactSourceDate(result.sourceDate)}</span>
+                              ) : null}
+                            </div>
+                            <div className="compose-quickfact-actions">
+                              <button
+                                type="button"
+                                className="compose-quickfact-action-primary"
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  insertQuickFactResult(result, false);
+                                }}
+                              >
+                                Insert
+                              </button>
+                              <button
+                                type="button"
+                                className="compose-quickfact-action-secondary"
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  insertQuickFactResult(result, true);
+                                }}
+                              >
+                                Insert with source
+                              </button>
+                              <a
+                                className="compose-quickfact-open-source"
+                                href={result.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onMouseEnter={(event) =>
+                                  showComposeQuickFactTooltip(
+                                    event.currentTarget,
+                                    "Opening the source page"
+                                  )
+                                }
+                                onMouseLeave={hideComposeQuickFactTooltip}
+                                onFocus={(event) =>
+                                  showComposeQuickFactTooltip(
+                                    event.currentTarget,
+                                    "Opening the source page"
+                                  )
+                                }
+                                onBlur={hideComposeQuickFactTooltip}
+                                onMouseDown={(event) => event.preventDefault()}
+                              >
+                                <span>Open source</span>
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M7 17 17 7" />
+                                  <path d="M9 7h8v8" />
+                                </svg>
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>,
+                  document.body
+                )
+              : null}
             <input
               ref={attachInputRef}
               type="file"
@@ -20527,6 +21062,24 @@ export function MailApp() {
                   document.body
                 )
               : null}
+            {composeOpen &&
+            composeQuickInsertOpen &&
+            composeQuickFactTooltip &&
+            typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    className="compose-ai-tooltip"
+                    style={{
+                      top: composeQuickFactTooltip.top,
+                      left: composeQuickFactTooltip.left
+                    }}
+                    role="tooltip"
+                  >
+                    {composeQuickFactTooltip.text}
+                  </div>,
+                  document.body
+                )
+              : null}
               </>
             ) : null}
           </div>
@@ -21272,7 +21825,7 @@ export function MailApp() {
                       <polyline points="3 6 5 6 21 6" />
                       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                     </svg>
-                    Remove all
+                    Remove
                   </button>
                 </div>
 
@@ -21318,19 +21871,25 @@ export function MailApp() {
                         let newWidth = startW;
                         let newHeight = startH;
 
-                        if (activeCorner === "se" || activeCorner === "ne") {
-                          newWidth = Math.max(40, startW + dx);
-                        } else {
-                          newWidth = Math.max(40, startW - dx);
-                        }
+                        const horizontalWidth =
+                          activeCorner === "se" || activeCorner === "ne"
+                            ? startW + dx
+                            : startW - dx;
+                        const verticalHeight =
+                          activeCorner === "se" || activeCorner === "sw"
+                            ? startH + dy
+                            : startH - dy;
+                        const widthFromHeight = verticalHeight * aspectRatio;
+                        const widthDelta = Math.abs(horizontalWidth - startW);
+                        const heightDeltaAsWidth = Math.abs(widthFromHeight - startW);
 
-                        if (!moveEvent.shiftKey) {
-                          newHeight = newWidth / aspectRatio;
-                        } else if (activeCorner === "se" || activeCorner === "ne") {
-                          newHeight = Math.max(40, startH + dy);
-                        } else {
-                          newHeight = Math.max(40, startH - dy);
-                        }
+                        newWidth = Math.max(
+                          40,
+                          Math.round(
+                            heightDeltaAsWidth > widthDelta ? widthFromHeight : horizontalWidth
+                          )
+                        );
+                        newHeight = Math.max(40, Math.round(newWidth / aspectRatio));
 
                         selectedImg.style.width = `${Math.round(newWidth)}px`;
                         selectedImg.style.height = `${Math.round(newHeight)}px`;
