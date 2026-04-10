@@ -182,6 +182,45 @@ function normalizeBrandKey(value: string) {
   return value.toLowerCase().replace(ESCAPED_NON_ALNUM, "");
 }
 
+function tokenizeBrandableText(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+const BRAND_MATCH_ALIASES: Record<string, string[]> = {
+  att: ["att", "at&t", "at and t"]
+};
+
+function getBrandMatchAliases(brand: string): string[] {
+  return BRAND_MATCH_ALIASES[brand] ?? [brand];
+}
+
+function hasTokenPhraseMatch(tokens: string[], phraseTokens: string[]) {
+  if (tokens.length === 0 || phraseTokens.length === 0 || phraseTokens.length > tokens.length) {
+    return false;
+  }
+
+  for (let start = 0; start <= tokens.length - phraseTokens.length; start += 1) {
+    let matches = true;
+    for (let offset = 0; offset < phraseTokens.length; offset += 1) {
+      if (tokens[start + offset] !== phraseTokens[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function levenshteinDistance(left: string, right: string) {
   if (left === right) {
     return 0;
@@ -268,24 +307,18 @@ export function isEspDomain(domain: string): boolean {
 }
 
 export function matchesBrand(displayName: string): string | null {
-  const normalizedDisplay = displayName.trim().toLowerCase();
-  if (!normalizedDisplay) {
+  const displayTokens = tokenizeBrandableText(displayName);
+  if (displayTokens.length === 0) {
     return null;
   }
 
   const brandKeys = Object.keys(BRAND_DOMAINS).sort((left, right) => right.length - left.length);
   for (const brand of brandKeys) {
-    const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const wholeWordRegex = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
-    if (wholeWordRegex.test(normalizedDisplay)) {
-      return brand;
-    }
-  }
-
-  const squashedDisplay = normalizeBrandKey(normalizedDisplay);
-  for (const brand of brandKeys) {
-    if (squashedDisplay.includes(normalizeBrandKey(brand))) {
-      return brand;
+    for (const alias of getBrandMatchAliases(brand)) {
+      const aliasTokens = tokenizeBrandableText(alias);
+      if (hasTokenPhraseMatch(displayTokens, aliasTokens)) {
+        return brand;
+      }
     }
   }
 

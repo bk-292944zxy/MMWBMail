@@ -176,6 +176,7 @@ import {
   SORT_FOLDER_PRESETS,
   type SortFolderPreset
 } from "@/lib/sort-folders";
+import { normalizeDomain, resolveSenderTrust } from "@/lib/sender-trust";
 import { detectSpoof, detectUnverifiedSender } from "@/lib/sender-verification";
 
 type SortKey = ConversationSortKey;
@@ -337,7 +338,7 @@ type ComposeAiSelectionSnapshot = {
 
 type TrustAwareMessage = Pick<
   MailSummary,
-  "from" | "fromAddress" | "authResultsDmarc" | "authResultsSpf"
+  "from" | "fromAddress" | "authResultsDmarc" | "authResultsDkim" | "authResultsSpf"
 >;
 
 function makeCachedMessageId(uid: number, folder: string, accountId: string) {
@@ -351,32 +352,79 @@ function resolveSenderTrustPresentation(
     "bimiVerified" | "domain" | "dmarcPolicy" | "isEsp" | "trancoRank"
   > | null
 ): SenderTrustPresentation {
+  function finalizeTrustPresentation(presentation: SenderTrustPresentation) {
+    if (
+      process.env.NODE_ENV === "development" &&
+      process.env.NEXT_PUBLIC_ENABLE_SENDER_TRUST_DEBUG === "1"
+    ) {
+      console.debug("sender-trust", {
+        from: message.from,
+        fromAddress: message.fromAddress,
+        domain: normalizeDomain(domainVerification?.domain ?? getDomainFromEmail(message.fromAddress ?? "")),
+        auth: {
+          spf: message.authResultsSpf,
+          dkim: message.authResultsDkim,
+          dmarc: message.authResultsDmarc
+        },
+        uiBadge: presentation.label,
+        tier: presentation.tier,
+        summary: presentation.summary,
+        signals: presentation.signals
+      });
+    }
+
+    return presentation;
+  }
+
   const spoof = detectSpoof(message);
   if (spoof.isSpoofed) {
-    return {
+    return finalizeTrustPresentation({
       tier: "red",
       label: "High Risk",
       icon: "⚠",
       summary: "This sender looks unsafe.",
       detail: spoof.reason,
       signals: []
-    };
+    });
+  }
+
+  const normalizedFromDomain = normalizeDomain(
+    domainVerification?.domain ?? getDomainFromEmail(message.fromAddress ?? "")
+  );
+  const trustResolution = resolveSenderTrust({
+    fromDomain: normalizedFromDomain,
+    dmarcPass: message.authResultsDmarc === "pass",
+    dkimPass: message.authResultsDkim === "pass",
+    spfPass: message.authResultsSpf === "pass"
+  });
+
+  if (trustResolution === "trusted") {
+    return finalizeTrustPresentation({
+      tier: "blue",
+      label: "Verified domain",
+      icon: "✓",
+      summary: "This sender is widely recognized and trusted.",
+      detail: "This sender matches a trusted domain we recognize and is not showing a strong sender warning.",
+      signals: []
+    });
   }
 
   const unverified = detectUnverifiedSender(message, domainVerification);
-  if (unverified.isUnverified) {
-    return {
+  if (unverified.isUnverified || trustResolution === "unverified") {
+    return finalizeTrustPresentation({
       tier: "amber",
-      label: "Caution",
+      label: unverified.isUnverified ? "Caution" : "Unverified",
       icon: "!",
       summary: "The sender identity could not be confirmed.",
-      detail: unverified.reason,
+      detail:
+        unverified.reason ||
+        "This sender did not match our trusted-domain list and did not pass a standard authentication check.",
       signals: unverified.signals
-    };
+    });
   }
 
-  if (domainVerification?.bimiVerified) {
-    return {
+  if (domainVerification?.bimiVerified || trustResolution === "verified") {
+    return finalizeTrustPresentation({
       tier: "verified",
       label: "Verified",
       icon: "✓",
@@ -384,10 +432,10 @@ function resolveSenderTrustPresentation(
       detail:
         "This sender passed domain verification checks and looks consistent with the organization it claims to be from.",
       signals: []
-    };
+    });
   }
 
-  return {
+  return finalizeTrustPresentation({
     tier: "blue",
     label: "Known Sender",
     icon: "•",
@@ -395,7 +443,7 @@ function resolveSenderTrustPresentation(
     detail:
       "We did not find a strong sender warning for this message, but the sender has not been fully verified.",
     signals: []
-  };
+  });
 }
 
 function getSpecializedMailboxEmptyState(input: {
@@ -1713,6 +1761,50 @@ function formatSinceDate(date: string) {
   }).format(new Date(date));
 }
 
+function formatMonthYearRange(oldestDate?: string | Date | null, newestDate?: string | Date | null) {
+  if (!oldestDate && !newestDate) {
+    return "";
+  }
+
+  const oldest = oldestDate ? new Date(oldestDate) : null;
+  const newest = newestDate ? new Date(newestDate) : null;
+  const formatMonthYear = (value: Date) => `${value.getMonth() + 1}/${value.getFullYear()}`;
+
+  if (oldest && newest) {
+    const oldestKey = `${oldest.getMonth()}-${oldest.getFullYear()}`;
+    const newestKey = `${newest.getMonth()}-${newest.getFullYear()}`;
+    return oldestKey === newestKey
+      ? formatMonthYear(oldest)
+      : `${formatMonthYear(oldest)}–${formatMonthYear(newest)}`;
+  }
+
+  return formatMonthYear((oldest ?? newest)!);
+}
+
+function formatCompactMonthYearRange(
+  oldestDate?: string | Date | null,
+  newestDate?: string | Date | null
+) {
+  if (!oldestDate && !newestDate) {
+    return "";
+  }
+
+  const oldest = oldestDate ? new Date(oldestDate) : null;
+  const newest = newestDate ? new Date(newestDate) : null;
+  const formatMonthYear = (value: Date) =>
+    `${value.getMonth() + 1}/${String(value.getFullYear()).slice(-2)}`;
+
+  if (oldest && newest) {
+    const oldestKey = `${oldest.getMonth()}-${oldest.getFullYear()}`;
+    const newestKey = `${newest.getMonth()}-${newest.getFullYear()}`;
+    return oldestKey === newestKey
+      ? formatMonthYear(oldest)
+      : `${formatMonthYear(oldest)}-${formatMonthYear(newest)}`;
+  }
+
+  return formatMonthYear((oldest ?? newest)!);
+}
+
 function getSenderFilterValue(message: MailSummary) {
   return message.from;
 }
@@ -2708,6 +2800,10 @@ type SwipeRowProps = {
   onFocus: () => void;
   onDelete: () => void;
   onToggleRead: () => void;
+  domainVerification?: Pick<
+    DomainVerificationState,
+    "bimiVerified" | "domain" | "dmarcPolicy" | "isEsp" | "trancoRank"
+  > | null;
 };
 
 function SwipeRow({
@@ -2728,7 +2824,8 @@ function SwipeRow({
   onDragEnd,
   onFocus,
   onDelete,
-  onToggleRead
+  onToggleRead,
+  domainVerification
 }: SwipeRowProps) {
   const [revealedSide, setRevealedSide] = useState<"left" | "right" | null>(null);
   const swipeThreshold =
@@ -2750,6 +2847,7 @@ function SwipeRow({
     ? resolveSenderTrustPresentation(message, domainVerification)
     : null;
   const cautionSender = senderTrust?.tier === "amber";
+  const trustedSender = senderTrust?.label === "Verified domain";
   const sentRecipientLabel = formatSentRowRecipient(message.to);
   const rowIdentity = isSentFolder ? sentRecipientLabel : message.from;
   const rowAvatarSeed = isSentFolder ? (message.to?.[0] ?? "") : message.fromAddress;
@@ -2913,6 +3011,11 @@ function SwipeRow({
                 <span className="row-sender">{rowIdentity}</span>
                 {!isSentFolder && cautionSender ? (
                   <span className="sender-trust-row-chip sender-trust-row-chip-amber">
+                    {senderTrust?.icon} {senderTrust?.label}
+                  </span>
+                ) : null}
+                {!isSentFolder && trustedSender ? (
+                  <span className="sender-trust-row-chip sender-trust-row-chip-verified">
                     {senderTrust?.icon} {senderTrust?.label}
                   </span>
                 ) : null}
@@ -3173,6 +3276,12 @@ export function MailApp() {
   const [foldersByAccount, setFoldersByAccount] = useState<Record<string, MailFolder[]>>({});
   const [folderOrder, setFolderOrder] = useState<string[]>([]);
   const [draggedFolderPath, setDraggedFolderPath] = useState<string | null>(null);
+  const [draggedPrioritizedSenderName, setDraggedPrioritizedSenderName] = useState<string | null>(
+    null
+  );
+  const [prioritizedSenderDropTargetName, setPrioritizedSenderDropTargetName] = useState<
+    string | null
+  >(null);
   const [sidebarMailDragState, setSidebarMailDragState] = useState<SidebarMailDragState | null>(
     null
   );
@@ -6413,6 +6522,26 @@ export function MailApp() {
     const [moved] = nextPaths.splice(sourceIndex, 1);
     nextPaths.splice(targetIndex, 0, moved);
     persistFolderOrder(nextPaths);
+  }
+
+  function reorderPrioritizedSenders(sourceName: string, targetName: string) {
+    if (sourceName === targetName) {
+      return;
+    }
+
+    setPrioritizedSenders((current) => {
+      const sourceIndex = current.findIndex((sender) => sender.name === sourceName);
+      const targetIndex = current.findIndex((sender) => sender.name === targetName);
+
+      if (sourceIndex === -1 || targetIndex === -1) {
+        return current;
+      }
+
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
   }
 
   function applyPresetFromEmail(email: string, announce = true) {
@@ -11229,10 +11358,22 @@ export function MailApp() {
           },
           null
         );
+        const newestMessage = sortedMessages.reduce<MailSummary | null>(
+          (newest, message) => {
+            if (!newest) {
+              return message;
+            }
+
+            return new Date(message.date).getTime() > new Date(newest.date).getTime()
+              ? message
+              : newest;
+          },
+          null
+        );
 
         const referenceMessage = sortedMessages[0] ?? null;
 
-        if (!referenceMessage || !oldestMessage) {
+        if (!referenceMessage || !oldestMessage || !newestMessage) {
           return null;
         }
 
@@ -11243,7 +11384,8 @@ export function MailApp() {
             : referenceMessage.fromAddress,
           total: sortedMessages.length,
           unread: sortedUnreadCount,
-          oldestDate: oldestMessage.date
+          oldestDate: oldestMessage.date,
+          newestDate: newestMessage.date
         };
       })()
     : null;
@@ -13594,10 +13736,37 @@ export function MailApp() {
               <div className="sidebar-label">Prioritized</div>
               {prioritizedSenders.length > 0 ? (
                 prioritizedSenders.map((sender) => {
-                  const count = messages.filter((message) => message.from === sender.name).length;
-                  const unread = messages.filter(
-                    (message) => message.from === sender.name && !message.seen
-                  ).length;
+                  const senderMessages = messages.filter((message) => message.from === sender.name);
+                  const count = senderMessages.length;
+                  const unread = senderMessages.filter((message) => !message.seen).length;
+                  const oldestSenderMessage = senderMessages.reduce<MailSummary | null>(
+                    (oldest, message) => {
+                      if (!message.date) {
+                        return oldest;
+                      }
+                      if (!oldest?.date) {
+                        return message;
+                      }
+                      return new Date(message.date).getTime() < new Date(oldest.date).getTime()
+                        ? message
+                        : oldest;
+                    },
+                    null
+                  );
+                  const newestSenderMessage = senderMessages.reduce<MailSummary | null>(
+                    (newest, message) => {
+                      if (!message.date) {
+                        return newest;
+                      }
+                      if (!newest?.date) {
+                        return message;
+                      }
+                      return new Date(message.date).getTime() > new Date(newest.date).getTime()
+                        ? message
+                        : newest;
+                    },
+                    null
+                  );
                   const isActive =
                     senderFilterScope === "prioritized" && senderFilter === sender.name;
                   const autoFilter = autoFilters.find(
@@ -13607,7 +13776,12 @@ export function MailApp() {
                   return (
                     <div
                       key={sender.name}
-                      className={`sidebar-item priority-item ${isActive ? "active" : ""}`}
+                      className={`sidebar-item priority-item ${isActive ? "active" : ""} ${
+                        draggedPrioritizedSenderName === sender.name ? "dragging" : ""
+                      } ${
+                        prioritizedSenderDropTargetName === sender.name ? "priority-item-drop-target" : ""
+                      }`}
+                      draggable
                       onClick={() => {
                         if (isActive) {
                           clearSenderFocus();
@@ -13626,6 +13800,42 @@ export function MailApp() {
                           sender
                         });
                       }}
+                      onDragStart={(event) => {
+                        setDraggedPrioritizedSenderName(sender.name);
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.dropEffect = "move";
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggedPrioritizedSenderName || draggedPrioritizedSenderName === sender.name) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        if (prioritizedSenderDropTargetName !== sender.name) {
+                          setPrioritizedSenderDropTargetName(sender.name);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (prioritizedSenderDropTargetName === sender.name) {
+                          setPrioritizedSenderDropTargetName(null);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        if (!draggedPrioritizedSenderName || draggedPrioritizedSenderName === sender.name) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        event.stopPropagation();
+                        reorderPrioritizedSenders(draggedPrioritizedSenderName, sender.name);
+                        setDraggedPrioritizedSenderName(null);
+                        setPrioritizedSenderDropTargetName(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedPrioritizedSenderName(null);
+                        setPrioritizedSenderDropTargetName(null);
+                      }}
                     >
                       <div className="priority-leading">
                         <span
@@ -13640,9 +13850,10 @@ export function MailApp() {
                       </div>
                       <div className="priority-info">
                         <div className="priority-name">{displaySender(sender.name)}</div>
-                        {unread > 0 ? (
-                          <div className="priority-meta">{unread} unread</div>
-                        ) : null}
+                        <div className="priority-meta">
+                          <span>{count} msgs</span>
+                          <span>{unread} unread</span>
+                        </div>
                       </div>
                       {autoFilter ? (
                         <span
@@ -13666,7 +13877,6 @@ export function MailApp() {
                           </svg>
                         </span>
                       ) : null}
-                      <div className="priority-count">{count}</div>
                       <button
                         className="priority-remove"
                         title="Remove"
@@ -14244,12 +14454,13 @@ export function MailApp() {
                   {currentMailboxLabel}
                 </div>
                 <div className="inbox-count-line">
-                  {(threadingEnabled
-                    ? renderedConversationSummaries.length
-                    : sortedMessages.length)}{" "}
-                  {threadingEnabled ? "threads" : "messages"}
+                  {currentMailboxLabel !== "New Mail"
+                    ? `${threadingEnabled ? renderedConversationSummaries.length : sortedMessages.length} ${
+                        threadingEnabled ? "threads" : "messages"
+                      }`
+                    : ""}
                   {effectiveEmptyAttentionView !== "read" && sortedUnreadCount > 0
-                    ? `, ${sortedUnreadCount} unread`
+                    ? `${currentMailboxLabel !== "New Mail" ? ", " : ""}${sortedUnreadCount} unread`
                     : ""}
                   {mailboxRefreshHint?.accountId === activeAccountId &&
                   mailboxRefreshHint?.folderPath === currentFolderPath ? (
@@ -14453,9 +14664,9 @@ export function MailApp() {
                 {getSenderInitials(senderStats.name || senderStats.email)}
               </div>
               <strong>{senderStats.name}</strong>
-              <span>{senderStats.total} messages</span>
+              <span>{senderStats.total} msgs</span>
               <span>{senderStats.unread} unread</span>
-              <span>since {formatSinceDate(senderStats.oldestDate)}</span>
+              <span>{formatCompactMonthYearRange(senderStats.oldestDate, senderStats.newestDate)}</span>
             </div>
           ) : null}
 
@@ -14671,6 +14882,7 @@ export function MailApp() {
                   ? resolveSenderTrustPresentation(latestMessage, domainVerification)
                   : null;
                 const latestCautionSender = latestSenderTrust?.tier === "amber";
+                const latestTrustedSender = latestSenderTrust?.label === "Verified domain";
                 const recipientLabel = isSentFolder
                   ? (() => {
                       const allTo = conversationMessages.flatMap(
@@ -14813,6 +15025,11 @@ export function MailApp() {
                             <span className="row-sender">{recipientLabel}</span>
                             {!isSentFolder && latestCautionSender ? (
                               <span className="sender-trust-row-chip sender-trust-row-chip-amber">
+                                {latestSenderTrust?.icon} {latestSenderTrust?.label}
+                              </span>
+                            ) : null}
+                            {!isSentFolder && latestTrustedSender ? (
+                              <span className="sender-trust-row-chip sender-trust-row-chip-verified">
                                 {latestSenderTrust?.icon} {latestSenderTrust?.label}
                               </span>
                             ) : null}
@@ -15046,6 +15263,7 @@ export function MailApp() {
                       target: createMessageActionTarget(message.uid)
                     });
                   }}
+                  domainVerification={domainVerification}
                 />
               ))
             )}
@@ -19066,112 +19284,6 @@ export function MailApp() {
                   renderComposeToolbarCommand(command, index, primaryToolbarCommands)
                 )}
                 <div className="compose-toolbar-spacer" />
-                <div className="compose-toolbar-customize" ref={composeQuickInsertRef}>
-                  <button
-                    type="button"
-                    className={`fmt-btn ${composeQuickInsertOpen ? "fmt-btn-active" : ""}`}
-                    title="Quick insert"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      setComposeToolbarMenuOpen(false);
-                      setComposeToolbarOverflowOpen(false);
-                      setComposeQuickInsertOpen((current) => !current);
-                    }}
-                  >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M12 3v18" />
-                      <path d="M3 12h18" />
-                    </svg>
-                  </button>
-                {composeQuickInsertOpen ? (
-                  <div
-                    ref={composeQuickInsertPopoverRef}
-                    className="compose-toolbar-menu compose-quick-insert-menu"
-                  >
-                    <div className="compose-toolbar-menu-header">
-                      <span>Quick Insert</span>
-                    </div>
-                    <div className="compose-toolbar-menu-list">
-                      <button
-                        type="button"
-                        className="compose-quick-insert-item"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          setComposeQuickInsertOpen(false);
-                          setComposeQuickInsertPosition(null);
-                          insertSignatureIntoCompose();
-                        }}
-                      >
-                        <span className="compose-quick-insert-item-icon">
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M3 21h6" />
-                            <path d="M12 3a6 6 0 0 1 6 6c0 5-6 5-6 10" />
-                            <path d="M9 21h12" />
-                          </svg>
-                        </span>
-                        <span className="compose-quick-insert-item-label">
-                          Insert signature
-                        </span>
-                      </button>
-                      {composerCommandMap.get("quote") ? (
-                        <button
-                          type="button"
-                          className="compose-quick-insert-item"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            setComposeQuickInsertOpen(false);
-                            setComposeQuickInsertPosition(null);
-                            const quoteCommand = composerCommandMap.get("quote");
-                            if (quoteCommand) {
-                              void runComposerCommand(quoteCommand);
-                            }
-                          }}
-                        >
-                          <span className="compose-quick-insert-item-icon">
-                            {renderComposerCommandIcon(composerCommandMap.get("quote")!)}
-                          </span>
-                          <span className="compose-quick-insert-item-label">Quote</span>
-                        </button>
-                      ) : null}
-                      {quickInsertPresets.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          className="compose-quick-insert-item"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            setComposeQuickInsertOpen(false);
-                            setComposeQuickInsertPosition(null);
-                            insertComposePresetById(preset.id);
-                          }}
-                        >
-                          <span className="compose-quick-insert-item-label">
-                            {preset.label}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                </div>
                 <button
                   type="button"
                   className={`fmt-btn toolbar-expand-btn ${

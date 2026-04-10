@@ -389,6 +389,10 @@ textarea:focus {
   padding: 8px 12px;
   background: rgba(10, 132, 255, 0.05);
   border-bottom: 1px solid rgba(10, 132, 255, 0.1);
+  font-size: 11px;
+  line-height: 1.2;
+  color: rgba(60,60,67,0.62);
+  flex-wrap: wrap;
 }
 
 .senderAvatar {
@@ -400,6 +404,18 @@ textarea:focus {
   color: white;
   font-size: 10px;
   font-weight: 700;
+}
+
+.senderStatBar strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(0,0,0,0.78);
+}
+
+.senderStatBar span {
+  font-size: 11px;
+  line-height: 1.2;
+  color: rgba(60,60,67,0.52);
 }
 
 .search {
@@ -3177,6 +3193,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: rgba(245, 158, 11, 0.14) !important;
   border-color: rgba(245, 158, 11, 0.28) !important;
   color: #92400e !important;
+}
+
+.sender-trust-row-chip-verified {
+  background: rgba(37, 99, 235, 0.10) !important;
+  border-color: rgba(37, 99, 235, 0.20) !important;
+  color: #1d4ed8 !important;
 }
 
 .spoof-badge {
@@ -7664,6 +7686,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: rgba(255,77,0,0.10) !important;
 }
 
+.priority-item.dragging {
+  opacity: 0.56 !important;
+}
+
+.priority-item.priority-item-drop-target {
+  background: rgba(255,77,0,0.08) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,77,0,0.22) !important;
+}
+
 .priority-item.active .priority-name {
   color: var(--accent) !important;
 }
@@ -7703,10 +7734,23 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .priority-meta {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
   font-size: 10px !important;
-  color: var(--accent) !important;
+  color: rgba(60,60,67,0.52) !important;
   font-weight: 500 !important;
   line-height: 1.25 !important;
+  white-space: nowrap !important;
+}
+
+.priority-meta span {
+  flex-shrink: 0 !important;
+}
+
+.priority-meta span:nth-child(2) {
+  color: var(--accent) !important;
 }
 
 .sidebar[data-size="small"] .folder-row {
