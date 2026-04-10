@@ -11311,6 +11311,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: rgba(245, 158, 11, 0.16) !important;
 }
 
+.message-row.caution-row:hover .focus-pill,
+.thread-row.caution-row:hover .focus-pill {
+  display: none !important;
+}
+
 .message-row.caution-row.selected,
 .thread-row.caution-row.selected {
   background: rgba(245, 158, 11, 0.18) !important;
