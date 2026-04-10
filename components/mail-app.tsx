@@ -3325,9 +3325,14 @@ function RecipientField({
   );
 }
 
-export function MailApp() {
-  const [accounts, setAccounts] = useState<MailAccountSummary[]>([]);
-  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
+function resolveInitialActiveAccountId(accounts: MailAccountSummary[]) {
+  return accounts.find((account) => account.isDefault)?.id ?? accounts[0]?.id ?? null;
+}
+
+export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccountSummary[] }) {
+  const initialActiveAccountId = resolveInitialActiveAccountId(initialAccounts);
+  const [accounts, setAccounts] = useState<MailAccountSummary[]>(initialAccounts);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(initialActiveAccountId);
   const [connection, setConnection] = useState<MailConnectionPayload>(defaultConnection);
   const [folders, setFolders] = useState<MailFolder[]>([]);
   const [foldersByAccount, setFoldersByAccount] = useState<Record<string, MailFolder[]>>({});
@@ -3731,7 +3736,7 @@ export function MailApp() {
   );
   const restoredAccountIdRef = useRef<string | null>(null);
   const restoredFolderRef = useRef<string | null>(null);
-  const activeAccountIdRef = useRef<string | null>(null);
+  const activeAccountIdRef = useRef<string | null>(initialActiveAccountId);
   const explicitActiveAccountIdRef = useRef<string | null>(null);
   const previousMailboxQueryRef = useRef<ReturnType<typeof createMailboxQueryState> | null>(null);
   const autoSyncInFlightRef = useRef(false);

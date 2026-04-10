@@ -1534,8 +1534,8 @@ input::placeholder {
 
 /* Compose button */
 .compose-btn,
-button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]),
-button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]) {
+button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]),
+button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]) {
   background: var(--accent) !important;
   color: #fff !important;
   border: none !important;
@@ -3373,6 +3373,48 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: center !important;
 }
 
+.tb-event-wrap {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.tb-event-popover {
+  position: absolute !important;
+  top: calc(100% + 8px) !important;
+  right: 0 !important;
+  z-index: 40 !important;
+  width: min(320px, 70vw) !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16) !important;
+}
+
+.tb-event-popover-title {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--text1) !important;
+  margin-bottom: 8px !important;
+}
+
+.tb-event-popover-grid {
+  display: grid !important;
+  gap: 5px !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+  color: var(--text2) !important;
+}
+
+.tb-event-popover-notes,
+.tb-event-popover-reasoning {
+  margin-top: 8px !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+  color: var(--text3) !important;
+}
+
 .tb-sort-wrap-end {
   justify-content: flex-end !important;
 }
@@ -4183,26 +4225,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .fmt-btn-rewrite {
   color: var(--text2) !important;
-  background: rgba(10,132,255,0.05) !important;
-  border: 1px solid rgba(10,132,255,0.12) !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 .fmt-btn-ai {
   color: var(--text2) !important;
-  background: rgba(255, 159, 10, 0.08) !important;
-  border: 1px solid rgba(255, 159, 10, 0.16) !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 .fmt-btn-rewrite:hover {
-  color: var(--accent) !important;
-  background: rgba(10,132,255,0.09) !important;
-  border-color: rgba(10,132,255,0.2) !important;
+  color: #111827 !important;
+  background: rgba(15,23,42,0.06) !important;
 }
 
 .fmt-btn-ai:hover {
-  color: #b45309 !important;
-  background: rgba(255, 159, 10, 0.13) !important;
-  border-color: rgba(255, 159, 10, 0.24) !important;
+  color: #111827 !important;
+  background: rgba(15,23,42,0.06) !important;
 }
 
 .fmt-btn-color {
@@ -4315,7 +4355,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .toolbar-expand-btn.fmt-btn-active svg {
-  transform: rotate(180deg) !important;
+  transform: none !important;
+}
+
+.toolbar-expand-btn,
+.toolbar-expand-btn:hover,
+.toolbar-expand-btn.fmt-btn-active {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .compose-toolbar-customize {
@@ -4519,6 +4567,529 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   min-width: 0 !important;
   font-size: 12px !important;
   font-weight: 500 !important;
+}
+
+.compose-quickfact-popover {
+  position: fixed !important;
+  z-index: 10030 !important;
+  width: min(calc(90vw - 24px), calc(90% - 24px), 712px) !important;
+  max-width: calc(100vw - 24px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 12px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background: rgba(255,255,255,0.98) !important;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+.compose-quickfact-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.compose-quickfact-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--text1) !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-close {
+  width: 24px !important;
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid rgba(15, 23, 42, 0.10) !important;
+  border-radius: 8px !important;
+  background: rgba(255,255,255,0.78) !important;
+  color: rgba(15, 23, 42, 0.64) !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-close:hover {
+  background: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: rgba(15, 23, 42, 0.92) !important;
+}
+
+.compose-quickfact-copy {
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+  color: var(--text3) !important;
+}
+
+.compose-quickfact-form {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.compose-quickfact-input-wrap {
+  position: relative !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.compose-quickfact-input {
+  width: 100% !important;
+  height: 34px !important;
+  padding: 0 36px 0 11px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  background: #fff !important;
+  color: var(--text1) !important;
+  font-size: 12.5px !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-clear {
+  position: absolute !important;
+  top: 50% !important;
+  right: 8px !important;
+  transform: translateY(-50%) !important;
+  width: 20px !important;
+  height: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  background: transparent !important;
+  color: rgba(15, 23, 42, 0.52) !important;
+  border-radius: 999px !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-clear:hover {
+  background: rgba(15, 23, 42, 0.05) !important;
+  color: rgba(15, 23, 42, 0.9) !important;
+}
+
+.compose-quickfact-input:focus {
+  outline: none !important;
+  border-color: rgba(10, 132, 255, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.10) !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-submit {
+  flex-shrink: 0 !important;
+  min-height: 34px !important;
+  padding: 7px 12px !important;
+  border-radius: 10px !important;
+  background: rgba(31, 41, 55, 0.94) !important;
+  border-color: rgba(31, 41, 55, 0.94) !important;
+  color: #fff !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-submit:hover:not(:disabled) {
+  background: rgba(17, 24, 39, 0.98) !important;
+  border-color: rgba(17, 24, 39, 0.98) !important;
+}
+
+.compose-quickfact-error {
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+  color: #b42318 !important;
+}
+
+.compose-quickfact-fallback {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background: rgba(248, 250, 252, 0.82) !important;
+}
+
+.compose-quickfact-fallback-message {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  color: var(--text2) !important;
+}
+
+.compose-quickfact-fallback-action {
+  flex-shrink: 0 !important;
+  min-height: 32px !important;
+  padding: 6px 11px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(55, 65, 81, 0.22) !important;
+  background: transparent !important;
+  color: rgba(31, 41, 55, 0.92) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.compose-quickfact-fallback-action:hover {
+  background: rgba(15, 23, 42, 0.04) !important;
+}
+
+.compose-quickfact-results {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.compose-quickfact-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 10px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  background: rgba(248, 250, 252, 0.9) !important;
+}
+
+.compose-quickfact-answer {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  color: var(--text1) !important;
+}
+
+.compose-quickfact-source {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  font-size: 10.75px !important;
+  color: var(--text3) !important;
+}
+
+.compose-quickfact-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-action-primary,
+.compose-quickfact-popover button.compose-quickfact-action-secondary {
+  min-height: 30px !important;
+  padding: 6px 10px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-style: solid !important;
+  border-width: 1px !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-action-primary {
+  background: rgba(31, 41, 55, 0.94) !important;
+  border-color: rgba(31, 41, 55, 0.94) !important;
+  color: #fff !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-action-secondary {
+  background: rgba(255,255,255,0.86) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: rgba(31, 41, 55, 0.86) !important;
+  box-shadow: none !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-action-primary:hover:not(:disabled) {
+  background: rgba(17, 24, 39, 0.98) !important;
+  border-color: rgba(17, 24, 39, 0.98) !important;
+}
+
+.compose-quickfact-popover button.compose-quickfact-action-secondary:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.16) !important;
+  color: rgba(15, 23, 42, 0.96) !important;
+}
+
+.compose-quickfact-open-source {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  justify-content: flex-start !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: rgba(31, 41, 55, 0.78) !important;
+  text-decoration: none !important;
+}
+
+.compose-quickfact-open-source:hover {
+  background: transparent !important;
+  color: rgba(15, 23, 42, 0.96) !important;
+  text-decoration: none !important;
+}
+
+.compose-event-popover {
+  position: fixed !important;
+  z-index: 10030 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 12px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background: rgba(255,255,255,0.98) !important;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+.compose-event-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.compose-event-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--text1) !important;
+}
+
+.compose-event-popover button.compose-event-close {
+  width: 24px !important;
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid rgba(15, 23, 42, 0.10) !important;
+  border-radius: 8px !important;
+  background: rgba(255,255,255,0.78) !important;
+  color: rgba(15, 23, 42, 0.64) !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+}
+
+.compose-event-popover button.compose-event-close:hover {
+  background: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: rgba(15, 23, 42, 0.92) !important;
+}
+
+.compose-event-copy,
+.compose-event-empty,
+.compose-event-notes,
+.compose-event-reasoning {
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
+  color: var(--text3) !important;
+}
+
+.compose-event-form {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px 12px !important;
+}
+
+.compose-event-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+.compose-event-field-wide {
+  grid-column: 1 / -1 !important;
+}
+
+.compose-event-label {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: var(--text2) !important;
+}
+
+.compose-event-label-with-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.compose-event-label-with-icon svg,
+.compose-event-section-title svg {
+  color: var(--text3) !important;
+  flex-shrink: 0 !important;
+}
+
+.compose-event-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  padding: 11px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  border-radius: 12px !important;
+  background: rgba(248, 250, 252, 0.68) !important;
+}
+
+.compose-event-section-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: var(--text1) !important;
+}
+
+.compose-event-section-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px 12px !important;
+}
+
+.compose-event-input {
+  width: 100% !important;
+  min-height: 36px !important;
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  background: #fff !important;
+  color: var(--text1) !important;
+  font-size: 12.5px !important;
+  box-sizing: border-box !important;
+}
+
+.compose-event-input-error {
+  border-color: rgba(185, 28, 28, 0.32) !important;
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.08) !important;
+}
+
+.compose-event-input:focus {
+  outline: none !important;
+  border-color: rgba(10, 132, 255, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.10) !important;
+}
+
+.compose-event-textarea {
+  min-height: 82px !important;
+  resize: vertical !important;
+}
+
+.compose-event-toggle-field {
+  align-self: end !important;
+}
+
+.compose-event-toggle-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 2px 0 !important;
+}
+
+.compose-event-checkbox {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+}
+
+.compose-event-toggle {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text2) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.compose-event-toggle-track {
+  width: 34px !important;
+  height: 20px !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, 0.12) !important;
+  padding: 2px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  transition: background 0.16s ease !important;
+}
+
+.compose-event-toggle-thumb {
+  width: 16px !important;
+  height: 16px !important;
+  border-radius: 999px !important;
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18) !important;
+  transition: transform 0.16s ease !important;
+}
+
+.compose-event-toggle.is-on .compose-event-toggle-track {
+  background: rgba(31, 41, 55, 0.88) !important;
+}
+
+.compose-event-toggle.is-on .compose-event-toggle-thumb {
+  transform: translateX(14px) !important;
+}
+
+.compose-event-error {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  color: #b42318 !important;
+}
+
+.compose-event-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+}
+
+.compose-event-popover button.compose-event-action-primary,
+.compose-event-popover button.compose-event-action-secondary {
+  min-height: 32px !important;
+  padding: 6px 11px !important;
+  border-radius: 10px !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.compose-event-popover button.compose-event-action-primary {
+  background: rgba(31, 41, 55, 0.94) !important;
+  border-color: rgba(31, 41, 55, 0.94) !important;
+  color: #fff !important;
+}
+
+.compose-event-popover button.compose-event-action-primary:hover {
+  background: rgba(17, 24, 39, 0.98) !important;
+  border-color: rgba(17, 24, 39, 0.98) !important;
+}
+
+.compose-event-popover button.compose-event-action-secondary {
+  background: rgba(255,255,255,0.86) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: rgba(31, 41, 55, 0.86) !important;
+}
+
+.compose-event-popover button.compose-event-action-secondary:hover {
+  background: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.16) !important;
+  color: rgba(15, 23, 42, 0.96) !important;
+}
+
+@media (max-width: 720px) {
+  .compose-event-form {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .compose-event-section-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 .compose-toolbar-overflow-select {
@@ -6436,6 +7007,34 @@ label,
   max-width: 34ch !important;
 }
 
+.empty-state-actionable {
+  gap: 10px !important;
+}
+
+.empty-state-cta {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 34px !important;
+  padding: 7px 14px !important;
+  border: 1px solid rgba(15, 23, 42, 0.88) !important;
+  border-radius: 10px !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.empty-state-cta:hover {
+  background: rgba(15, 23, 42, 0.98) !important;
+  border-color: rgba(15, 23, 42, 0.98) !important;
+}
+
+.sidebar-mailbox-empty-state {
+  padding: 8px 14px 10px 14px !important;
+}
+
 .toolbar,
 .viewerHeader,
 .filterStrip,
@@ -7120,8 +7719,8 @@ textarea:focus {
 
 .primaryButton,
 .compose-btn,
-button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]),
-button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]) {
+button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]),
+button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]) {
   background: var(--accent) !important;
   color: #fff !important;
   border: none !important;
@@ -11265,8 +11864,8 @@ input::placeholder {
 }
 
 .compose-btn,
-button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]),
-button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]) {
+button[class*="compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]),
+button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):not(.compose-selection-toolbar-btn):not(.compose-helper-chip):not([class*="compose-ai"]):not([class*="compose-quickfact"]):not([class*="compose-event"]) {
   background: var(--accent) !important;
   color: #fff !important;
   border-radius: 10px !important;
@@ -11318,7 +11917,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-fmt-row-primary {
   min-height: 26px !important;
   padding-bottom: 6px !important;
-  border-bottom: 1px solid rgba(60,60,67,0.08) !important;
+  border-bottom: none !important;
 }
 
 .compose-fmt-row-secondary {
@@ -11327,14 +11926,14 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-fmt-row-secondary .fmt-btn {
-  width: 22px !important;
-  height: 22px !important;
+  width: 24px !important;
+  height: 24px !important;
   opacity: 0.7 !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn svg {
-  width: 12px !important;
-  height: 12px !important;
+  width: 14px !important;
+  height: 14px !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn:hover,

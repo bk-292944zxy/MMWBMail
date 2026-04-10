@@ -1,3 +1,7 @@
+import { loadEnvConfig } from "@next/env";
+
+loadEnvConfig(process.cwd());
+
 function isProductionRuntime() {
   return process.env.NODE_ENV === "production";
 }
@@ -57,6 +61,16 @@ export function getCronSecret() {
 
   if (!value) {
     throw new Error("CRON_SECRET is not configured.");
+  }
+
+  return value;
+}
+
+export function getTavilyApiKey() {
+  const value = readEnv("TAVILY_API_KEY");
+
+  if (!value) {
+    throw new Error("TAVILY_API_KEY is not configured.");
   }
 
   return value;

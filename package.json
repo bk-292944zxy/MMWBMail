@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev",
+    "predev": "rm -rf .next",
+    "dev": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev --webpack",
     "build": "node ./node_modules/next/dist/bin/next build --webpack",
     "start": "node app.js",
     "lint": "node ./node_modules/next/dist/bin/next lint",
     "typecheck": "tsc --noEmit",
+    "validate:import": "./node_modules/node/bin/node --import tsx scripts/validate-import.ts",
     "postinstall": "prisma generate"
   },
   "engines": {
