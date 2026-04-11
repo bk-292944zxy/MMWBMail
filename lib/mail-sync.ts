@@ -5,12 +5,23 @@ import {
   listAccountMailboxesViaProvider,
   syncAccountMailboxViaProvider
 } from "@/lib/mail-provider";
-import type { MailDetail, MailFolder, MailSummary } from "@/lib/mail-types";
+import type { MailDetail, MailFolder, MailSummary, ReceivedMessageMedia } from "@/lib/mail-types";
 
 type SyncMailAccountOptions = {
   folderPaths?: string[];
   includeBodies?: boolean;
 };
+
+const MEDIA_FETCH_TIMEOUT_MS = 2500;
+const MESSAGE_MEDIA_CACHE_TTL_MS = 5 * 60 * 1000;
+const messageMediaCache = new Map<
+  string,
+  {
+    media: ReceivedMessageMedia[];
+    fetchedAt: number;
+  }
+>();
+const messageMediaInflight = new Map<string, Promise<ReceivedMessageMedia[] | null>>();
 
 export type MailSyncResult = {
   accountId: string;
@@ -174,14 +185,79 @@ function mapStoredDetail(message: {
     html: string;
     emailBody: string;
   } | null;
+}, input?: {
+  media?: ReceivedMessageMedia[];
 }): MailDetail {
   const fallbackBody = buildStoredBodyFallback(message.subject, message.preview);
   return {
     ...mapStoredSummary(message),
     text: message.body?.text ?? fallbackBody.text,
     html: message.body?.html ?? fallbackBody.html,
-    emailBody: message.body?.emailBody ?? fallbackBody.emailBody
+    emailBody: message.body?.emailBody ?? fallbackBody.emailBody,
+    media: input?.media
   };
+}
+
+function buildMessageMediaCacheKey(accountId: string, folderPath: string, uid: number) {
+  return `${accountId}:${folderPath}:${uid}`;
+}
+
+function readCachedMessageMedia(cacheKey: string) {
+  const cached = messageMediaCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.fetchedAt > MESSAGE_MEDIA_CACHE_TTL_MS) {
+    messageMediaCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.media;
+}
+
+async function loadMessageMedia(
+  accountId: string,
+  folderPath: string,
+  uid: number
+): Promise<ReceivedMessageMedia[] | null> {
+  const cacheKey = buildMessageMediaCacheKey(accountId, folderPath, uid);
+  const cached = readCachedMessageMedia(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const existingInflight = messageMediaInflight.get(cacheKey);
+  if (existingInflight) {
+    return existingInflight;
+  }
+
+  const mediaPromise = (async () => {
+    try {
+      const providerDetail = (await Promise.race([
+        getAccountMessageViaProvider(accountId, folderPath, uid),
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), MEDIA_FETCH_TIMEOUT_MS);
+        })
+      ])) as Awaited<ReturnType<typeof getAccountMessageViaProvider>> | null;
+      const media = Array.isArray(providerDetail?.media) ? providerDetail.media : [];
+      if (media.length === 0) {
+        return null;
+      }
+      messageMediaCache.set(cacheKey, {
+        media,
+        fetchedAt: Date.now()
+      });
+      return media;
+    } catch {
+      return null;
+    } finally {
+      messageMediaInflight.delete(cacheKey);
+    }
+  })();
+
+  messageMediaInflight.set(cacheKey, mediaPromise);
+  return mediaPromise;
 }
 
 async function upsertMessageBodyWithTimeout(
@@ -497,9 +573,19 @@ export async function getSyncedMessageDetail(accountId: string, folderPath: stri
     return null;
   }
 
+  const mediaCacheKey = buildMessageMediaCacheKey(accountId, folderPath, uid);
+  let detailMedia = readCachedMessageMedia(mediaCacheKey);
+
   if (!message.body) {
     try {
       const detail = await upsertMessageBodyWithTimeout(accountId, folderPath, uid, 1500);
+      if (Array.isArray(detail?.media) && detail.media.length > 0) {
+        detailMedia = detail.media;
+        messageMediaCache.set(mediaCacheKey, {
+          media: detail.media,
+          fetchedAt: Date.now()
+        });
+      }
       if (!detail) {
         void upsertMessageBody(accountId, folderPath, uid).catch((error) => {
           console.error("mmwbmail: deferred message body fetch failed", {
@@ -531,5 +617,18 @@ export async function getSyncedMessageDetail(accountId: string, folderPath: stri
     }
   }
 
-  return message ? mapStoredDetail(message) : null;
+  if (!message) {
+    return null;
+  }
+
+  if (message.hasAttachments && (!detailMedia || detailMedia.length === 0)) {
+    const loadedMedia = await loadMessageMedia(accountId, folderPath, uid);
+    if (loadedMedia && loadedMedia.length > 0) {
+      detailMedia = loadedMedia;
+    }
+  }
+
+  return mapStoredDetail(message, {
+    media: detailMedia ?? undefined
+  });
 }

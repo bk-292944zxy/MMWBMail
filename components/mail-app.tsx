@@ -2,6 +2,7 @@
 
 import {
   Fragment,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   startTransition,
@@ -261,6 +262,7 @@ type LoadMessagesOptions = {
   preserveSelection?: boolean;
   skipServerSync?: boolean;
 };
+type AccentTheme = "orange" | "blue" | "green" | "purple";
 
 const USER_DATA_VERSION = 3;
 const DB_NAME = "mmwbmail";
@@ -291,6 +293,7 @@ interface UserData {
     collapsedSortFolderVisibility: "essential_only" | "include_active_sort_folders";
     accountMailboxDisclosureStates: Record<string, AccountMailboxDisclosureState>;
     lightweightOnboardingDismissed: boolean;
+    accentTheme: AccentTheme;
   };
 }
 
@@ -310,7 +313,8 @@ const DEFAULT_USER_DATA: UserData = {
     mailboxViewMode: "classic",
     collapsedSortFolderVisibility: "essential_only",
     accountMailboxDisclosureStates: {},
-    lightweightOnboardingDismissed: false
+    lightweightOnboardingDismissed: false,
+    accentTheme: "orange"
   }
 };
 
@@ -730,50 +734,46 @@ function isViewerFileAttachment(item: ReceivedMessageMedia) {
   );
 }
 
-function getAttachmentFileCategory(item: ReceivedMessageMedia) {
-  const contentType = item.contentType.toLowerCase();
-  const filename = item.filename.toLowerCase();
+function getAttachmentBadge(filename: string, mimeType?: string | null) {
+  const name = filename.toLowerCase();
+  const contentType = (mimeType ?? "").toLowerCase();
 
-  if (contentType.includes("pdf") || filename.endsWith(".pdf")) {
-    return { icon: "PDF", label: "PDF" };
+  if (contentType.includes("pdf") || /\.pdf$/.test(name)) {
+    return { label: "PDF", bg: "#FDECEA", color: "#C0392B", friendlyType: "PDF" };
   }
-
   if (
     contentType.includes("word") ||
     contentType.includes("officedocument.wordprocessingml") ||
-    /\.(doc|docx)$/.test(filename)
+    /\.(doc|docx|odt)$/.test(name)
   ) {
-    return { icon: "DOC", label: "Document" };
+    return { label: "DOC", bg: "#EBF3FB", color: "#1A5EA8", friendlyType: "Word Document" };
+  }
+  if (contentType.includes("spreadsheet") || contentType.includes("excel") || /\.(xls|xlsx|ods)$/.test(name)) {
+    return { label: "XLS", bg: "#EAF7EE", color: "#1E7E3E", friendlyType: "Spreadsheet" };
+  }
+  if (contentType.includes("presentation") || /\.(ppt|pptx|odp)$/.test(name)) {
+    return { label: "PPT", bg: "#FEF3E8", color: "#C05000", friendlyType: "Presentation" };
+  }
+  if (contentType.includes("zip") || contentType.includes("compressed") || /\.(zip|rar|7z|gz|tar)$/.test(name)) {
+    return { label: "ZIP", bg: "#F3F0FB", color: "#5B3EA8", friendlyType: "Archive" };
+  }
+  if (contentType.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg)$/.test(name)) {
+    return { label: "IMG", bg: "#FDF0F8", color: "#A0328A", friendlyType: "Image" };
+  }
+  if (contentType.startsWith("video/") || /\.(mp4|mov|avi|mkv)$/.test(name)) {
+    return { label: "VID", bg: "#F0F7FF", color: "#1060A8", friendlyType: "Video" };
+  }
+  if (contentType.startsWith("audio/") || /\.(mp3|wav|aac|flac)$/.test(name)) {
+    return { label: "AUD", bg: "#FFF8E8", color: "#8A6000", friendlyType: "Audio" };
+  }
+  if (contentType.includes("html") || /\.(html|htm)$/.test(name)) {
+    return { label: "HTM", bg: "#F0FBF4", color: "#1A7A3C", friendlyType: "HTML" };
+  }
+  if (contentType.startsWith("text/") || /\.(txt|md|csv)$/.test(name)) {
+    return { label: "TXT", bg: "#F5F5F5", color: "#555555", friendlyType: "Text" };
   }
 
-  if (
-    contentType.includes("spreadsheet") ||
-    contentType.includes("excel") ||
-    /\.(xls|xlsx|csv)$/.test(filename)
-  ) {
-    return { icon: "XLS", label: "Spreadsheet" };
-  }
-
-  if (
-    contentType.startsWith("image/") ||
-    /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg)$/.test(filename)
-  ) {
-    return { icon: "IMG", label: "Image" };
-  }
-
-  if (
-    contentType.includes("zip") ||
-    contentType.includes("compressed") ||
-    /\.(zip|rar|7z|tar|gz)$/.test(filename)
-  ) {
-    return { icon: "ZIP", label: "Archive" };
-  }
-
-  if (contentType.includes("calendar") || filename.endsWith(".ics")) {
-    return { icon: "ICS", label: "Calendar" };
-  }
-
-  return { icon: "FILE", label: "File" };
+  return { label: "FILE", bg: "#F0F0F0", color: "#666666", friendlyType: "File" };
 }
 
 function stampMessageAccount<T extends MailSummary>(message: T, accountId?: string | null): T {
@@ -916,6 +916,34 @@ function isHistoricalMailboxTarget(target: SidebarMailboxTarget) {
   );
 }
 
+function isEssentialMailboxTarget(
+  target: SidebarMailboxTarget,
+  mailboxViewMode: MailboxViewMode
+) {
+  if (isSpamLikeMailboxTarget(target)) {
+    return true;
+  }
+
+  if (mailboxViewMode === "new-mail") {
+    return (
+      target.inboxAttentionView === "new-mail" || target.inboxAttentionView === "read"
+    );
+  }
+
+  return isInboxMailboxNode(target.mailboxNode);
+}
+
+function isQuietSystemMailboxTarget(target: SidebarMailboxTarget) {
+  if (target.mailboxNode.systemKey === "archive" || target.mailboxNode.systemKey === "drafts") {
+    return true;
+  }
+  if (target.mailboxNode.systemKey === "sent") {
+    return true;
+  }
+  const normalized = `${target.name} ${target.mailboxNode.identity.providerPath}`.toLowerCase();
+  return normalized.includes("sent messages");
+}
+
 function isActiveBuiltInSortMailboxTarget(target: SidebarMailboxTarget) {
   if (target.isVirtual) {
     return false;
@@ -938,27 +966,30 @@ function getAccountMailboxDisclosureTargets(
     includeActiveSortFoldersInCollapsed: boolean;
   }
 ) {
-  const essentialTargets =
-    input.mailboxViewMode === "new-mail"
-      ? mailboxTargets.filter((target) => target.inboxAttentionView !== null)
-      : mailboxTargets.filter((target) => isInboxMailboxNode(target.mailboxNode));
-  const spamTarget =
-    mailboxTargets.find((target) => target.mailboxNode.systemKey === "spam") ??
-    mailboxTargets.find((target) => isSpamLikeMailboxTarget(target)) ??
-    null;
-  const trashTarget =
-    mailboxTargets.find((target) => target.mailboxNode.systemKey === "trash") ?? null;
-  const workingTargets = mailboxTargets.filter((target) => !isHistoricalMailboxTarget(target));
-  const historicalTargets = mailboxTargets.filter((target) => isHistoricalMailboxTarget(target));
-  const activeBuiltInSortTargets = mailboxTargets.filter((target) =>
+  const essentialTargets = mailboxTargets.filter((target) =>
+    isEssentialMailboxTarget(target, input.mailboxViewMode)
+  );
+  const quietSystemTargets = mailboxTargets.filter((target) =>
+    isQuietSystemMailboxTarget(target)
+  );
+  const activeSortTargets = mailboxTargets.filter((target) =>
     isActiveBuiltInSortMailboxTarget(target)
   );
-
-  const activeTarget = mailboxTargets.find(
-    (target) =>
-      target.mailboxNode.identity.providerPath === input.activeProviderPath &&
-      target.inboxAttentionView === input.activeInboxAttentionView
-  );
+  const userCreatedTargets = mailboxTargets.filter((target) => {
+    if (target.isVirtual) {
+      return false;
+    }
+    if (isEssentialMailboxTarget(target, input.mailboxViewMode)) {
+      return false;
+    }
+    if (isQuietSystemMailboxTarget(target)) {
+      return false;
+    }
+    if (isActiveBuiltInSortMailboxTarget(target)) {
+      return false;
+    }
+    return target.mailboxNode.systemKey === null;
+  });
 
   const dedupeTargets = (targets: SidebarMailboxTarget[]) => {
     const seen = new Set<string>();
@@ -976,52 +1007,30 @@ function getAccountMailboxDisclosureTargets(
   };
 
   if (input.disclosureState === 1) {
-    const primaryTargets = essentialTargets.length > 0 ? [...essentialTargets] : mailboxTargets.slice(0, 1);
-    if (spamTarget) {
-      primaryTargets.push(spamTarget);
-    }
-    if (trashTarget) {
-      primaryTargets.push(trashTarget);
-    }
-    if (input.includeActiveSortFoldersInCollapsed) {
-      primaryTargets.push(...activeBuiltInSortTargets);
-    }
-    if (activeTarget) {
-      primaryTargets.push(activeTarget);
-    }
-
     return {
-      visibleTargets: dedupeTargets(primaryTargets),
+      visibleTargets: dedupeTargets(essentialTargets),
       quietTargets: [] as SidebarMailboxTarget[]
     };
   }
 
   if (input.disclosureState === 2) {
-    const expandedTargets = [...workingTargets];
-    if (activeTarget) {
-      expandedTargets.push(activeTarget);
-    }
-
     return {
-      visibleTargets: dedupeTargets(expandedTargets),
+      visibleTargets: dedupeTargets([
+        ...essentialTargets,
+        ...activeSortTargets,
+        ...userCreatedTargets
+      ]),
       quietTargets: [] as SidebarMailboxTarget[]
     };
   }
 
-  const fullWorkingTargets = [...workingTargets];
-  if (activeTarget && !fullWorkingTargets.some((target) => target.id === activeTarget.id)) {
-    fullWorkingTargets.push(activeTarget);
-  }
-
-  const visibleTargets = dedupeTargets(fullWorkingTargets);
-  const visibleTargetIds = new Set(visibleTargets.map((target) => target.id));
-  const quietTargets = dedupeTargets(
-    historicalTargets.filter((target) => !visibleTargetIds.has(target.id))
-  );
-
   return {
-    visibleTargets,
-    quietTargets
+    visibleTargets: dedupeTargets([
+      ...essentialTargets,
+      ...activeSortTargets,
+      ...userCreatedTargets
+    ]),
+    quietTargets: dedupeTargets(quietSystemTargets)
   };
 }
 
@@ -1132,6 +1141,43 @@ function buildRecipientSuggestion(displayName?: string | null, address?: string 
 function mergeRecipientSuggestionLists(existing: string[], incoming: string[]) {
   const merged = normalizeRecipientStrings([...incoming, ...existing]);
   return merged.slice(0, 120);
+}
+
+function isWithinDateFocusPreset(
+  inputDate: string | null | undefined,
+  preset: "today" | "this_week" | "30_days" | "6_months",
+  now: Date
+) {
+  if (!inputDate) {
+    return false;
+  }
+  const messageDate = new Date(inputDate);
+  if (Number.isNaN(messageDate.getTime()) || messageDate.getTime() > now.getTime()) {
+    return false;
+  }
+
+  if (preset === "today") {
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    return messageDate >= startOfDay;
+  }
+
+  if (preset === "this_week") {
+    const startOfWeek = new Date(now);
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    return messageDate >= startOfWeek;
+  }
+
+  if (preset === "30_days") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 30);
+    return messageDate >= start;
+  }
+
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - 6);
+  return messageDate >= start;
 }
 
 function browserSupportsSystemContacts() {
@@ -1969,12 +2015,18 @@ type ServerPreferencesPayload = {
 };
 
 function getSenderInitials(sender: string) {
-  return sender
+  const parts = sender
     .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return "?";
+  }
+
+  const first = parts[0]?.[0]?.toUpperCase() ?? "";
+  const last = (parts.length > 1 ? parts[parts.length - 1] : parts[0])?.[0]?.toUpperCase() ?? "";
+  return `${first}${last}`.slice(0, 2) || "?";
 }
 
 function stripHtml(html: string): string {
@@ -2005,6 +2057,42 @@ function getAvatarColor(seed: string) {
   return `hsl(${hue} 60% 46%)`;
 }
 
+function getPriorityAvatarPalette(seed: string) {
+  const palette = [
+    { background: "#22C55E", color: "#FFFFFF" },
+    { background: "#4F46E5", color: "#FFFFFF" },
+    { background: "#F97316", color: "#FFFFFF" },
+    { background: "#DB2777", color: "#FFFFFF" },
+    { background: "#0D9488", color: "#FFFFFF" },
+    { background: "#7C3AED", color: "#FFFFFF" }
+  ] as const;
+  let hash = 0;
+  for (const character of seed) {
+    hash = character.charCodeAt(0) + ((hash << 5) - hash);
+  }
+  return palette[Math.abs(hash) % palette.length];
+}
+
+function renderSidebarCountBadge(
+  value: number | null | undefined,
+  options?: { emphasize?: boolean }
+) {
+  if (!value || value <= 0) {
+    return null;
+  }
+
+  return (
+    <span
+      key={`unread-${value}`}
+      className={`sidebar-count-badge ${
+        value > 1 ? "sidebar-count-badge-pill" : "sidebar-count-badge-muted"
+      } ${options?.emphasize ? "sidebar-count-badge-emphasis" : ""} unread-badge`}
+    >
+      {value}
+    </span>
+  );
+}
+
 function displaySender(from: string): string {
   const match = from.match(/^(.+?)\s*</);
 
@@ -2017,6 +2105,31 @@ function displaySender(from: string): string {
 
 function displayFolderName(path: string) {
   return path.replace(/^INBOX\./i, "");
+}
+
+function formatSidebarAccountEmail(email: string | null | undefined) {
+  if (!email) {
+    return "No account";
+  }
+
+  const normalized = email.trim();
+  const match = normalized.match(/^([^@\s]+)@([^@\s]+)$/);
+  if (!match) {
+    return normalized;
+  }
+
+  const username = match[1];
+  const domain = match[2].toLowerCase();
+
+  if (domain === "makingmyworldbetter.com") {
+    return `${username}@MMWB`;
+  }
+
+  if (domain.endsWith(".com")) {
+    return `${username}@${domain.slice(0, -4)}`;
+  }
+
+  return `${username}@${domain}`;
 }
 
 function formatSentRowRecipient(to: string[] | undefined): string {
@@ -2534,32 +2647,205 @@ function transformCase(type: "upper" | "lower" | "title" | "sentence") {
 function renderFolderGlyph(folderName: string, folderPath: string) {
   const normalized = `${folderName} ${folderPath}`.toLowerCase();
 
+  const envelopeGlyph = (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
+      <path d="M1 3.5l6 4.5 6-4.5" />
+    </svg>
+  );
+
+  if (
+    normalized.includes("new mail") ||
+    normalized.includes("read mail") ||
+    normalized.includes("inbox")
+  ) {
+    return envelopeGlyph;
+  }
+
   if (normalized.includes("trash")) {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="3 6 5 6 21 6" />
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-        <path d="M10 11v6M14 11v6" />
-        <path d="M9 6V4h6v2" />
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" />
       </svg>
     );
   }
 
   if (normalized.includes("spam") || normalized.includes("junk")) {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 1.8-2.5 2.2-2.5 4" />
-        <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="7" cy="7" r="5.5" />
+        <path d="M5 5.2C5.2 3.8 6 3 7 3s2 .9 2 2c0 1.8-2 2.2-2 3.8" />
+        <circle cx="7" cy="10.8" r="0.55" fill="currentColor" stroke="none" />
       </svg>
     );
   }
 
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-    </svg>
-  );
+  if (normalized.includes("follow-up")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="1" y="2.5" width="12" height="9" rx="1.5" />
+        <path d="M1 5.5h12" />
+        <path d="M4.5 2.5v3" />
+        <path d="M9.5 2.5v3" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("receipts")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M2 4.5h10M3 2.5h8l1 2H2l1-2zM3 4.5l.8 7h6.4l.8-7" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("reference")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 1.5h6l3 3v9H2v-12z" />
+        <path d="M9 1.5v3h3" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("travel")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M7 1.5a4 4 0 0 1 4 4c0 3-4 7-4 7s-4-4-4-7a4 4 0 0 1 4-4z" />
+        <circle cx="7" cy="5.5" r="1.3" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("archive")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="1" y="4.5" width="12" height="8" rx="1" />
+        <path d="M1 4.5h12M5 7.5h4" />
+        <rect x="1" y="2.5" width="12" height="2" rx="0.5" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("draft")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M2 1.5h7l3 3v8.5H2v-11.5z" />
+        <path d="M9 1.5v3h3" />
+        <path d="M4.5 6.5h5M4.5 8.5h3" />
+      </svg>
+    );
+  }
+
+  if (normalized.includes("sent")) {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M13 7l-4-4v2.5C5 5.5 2.5 7 2 11c1.5-2.5 3.5-3.5 7-3.5V10l4-3z" />
+      </svg>
+    );
+  }
+
+  return envelopeGlyph;
 }
 
 function renderSortFolderGlyph(preset: SortFolderPreset) {
@@ -3470,6 +3756,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [selectMode, setSelectMode] = useState(false);
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [selectedMessage, setSelectedMessage] = useState<MailDetail | null>(null);
+  const [detailVisible, setDetailVisible] = useState(true);
   const [mailActionStatuses, setMailActionStatuses] = useState<Record<string, MailActionStatus>>(
     {}
   );
@@ -3651,6 +3938,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
   const [subjectPattern, setSubjectPattern] = useState<string | null>(null);
+  const [dateFocusPreset, setDateFocusPreset] = useState<
+    "today" | "this_week" | "30_days" | "6_months" | null
+  >(null);
+  const [dateFocusMenuOpen, setDateFocusMenuOpen] = useState(false);
+  const dateFocusMenuRef = useRef<HTMLDivElement | null>(null);
   const [senderTrustExpandedUid, setSenderTrustExpandedUid] = useState<number | null>(null);
   const [unsubscribeConfirm, setUnsubscribeConfirm] = useState(false);
   const [unsubConfirmOpen, setUnsubConfirmOpen] = useState(false);
@@ -3692,6 +3984,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [tavilyApiKeyInput, setTavilyApiKeyInput] = useState("");
   const [tavilySettingsError, setTavilySettingsError] = useState<string | null>(null);
   const [tavilySettingsSuccess, setTavilySettingsSuccess] = useState<string | null>(null);
+  const [replacingOpenAI, setReplacingOpenAI] = useState(false);
+  const [replacingTavily, setReplacingTavily] = useState(false);
   const [aiAvailabilitySummary, setAiAvailabilitySummary] = useState<AiAvailabilitySummary | null>(
     null
   );
@@ -3712,7 +4006,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeToolbarOverflowPopoverRef = useRef<HTMLDivElement | null>(null);
   const composeQuickInsertRef = useRef<HTMLDivElement | null>(null);
   const composeQuickInsertPopoverRef = useRef<HTMLDivElement | null>(null);
-  const composeQuickFactInputRef = useRef<HTMLInputElement | null>(null);
+  const composeQuickFactInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const draftServiceRef = useRef(
     createDraftService(createLocalStorageDraftAdapter())
@@ -3739,9 +4033,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [sidebarSize, setSidebarSize] = useState<"small" | "medium" | "large">(
     "medium"
   );
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>(() => {
+    if (typeof window === "undefined") {
+      return "orange";
+    }
+    return loadUserData().prefs.accentTheme ?? "orange";
+  });
   const [collapsedSortFolderVisibility, setCollapsedSortFolderVisibility] = useState<
     "essential_only" | "include_active_sort_folders"
   >("essential_only");
+  const [sortSettingsExpandedAccounts, setSortSettingsExpandedAccounts] = useState<
+    Record<string, boolean>
+  >({});
   const [recentRecipients, setRecentRecipients] = useState<string[]>([]);
   const [accountMailboxDisclosureStates, setAccountMailboxDisclosureStates] = useState<
     Record<string, AccountMailboxDisclosureState>
@@ -3769,9 +4072,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }[]
   >([]);
   const [cleanupMode, setCleanupMode] = useState(false);
+  const [cleanupVisible, setCleanupVisible] = useState(false);
+  const [cleanupFlashSender, setCleanupFlashSender] = useState<string | null>(null);
   const [cleanupExpandedSender, setCleanupExpandedSender] = useState<string | null>(null);
   const [cleanupExpandedMsg, setCleanupExpandedMsg] = useState<number | null>(null);
   const [cleanupPreviewCache, setCleanupPreviewCache] = useState<Record<number, MailDetail>>({});
+  const [cleanupSort, setCleanupSort] = useState<"count" | "date" | "name">("count");
   const [cleanupSortMenuSender, setCleanupSortMenuSender] = useState<string | null>(null);
   const [keepRecentTarget, setKeepRecentTarget] = useState<MailSummary | null>(null);
   const [keepRecentDays, setKeepRecentDays] = useState<1 | 7 | 30 | 60 | 90>(30);
@@ -3894,6 +4200,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const pendingMailMutationTimersRef = useRef<Record<string, number>>({});
   const prevMessageUidsRef = useRef<Set<number>>(new Set());
   const openMessageSeqRef = useRef(0);
+  const attachmentSelectionGuardRef = useRef<{
+    uid: number;
+    accountId: string | null;
+    folderPath: string;
+    expiresAt: number;
+  } | null>(null);
+  const attachmentHydrationAttemptedRef = useRef<Set<string>>(new Set());
+  const detailTransitionTimerRef = useRef<number | null>(null);
+  const detailTransitionInitializedRef = useRef(false);
+  const cleanupFlashTimeoutRef = useRef<number | null>(null);
   const newMailReadDelayRef = useRef<{
     uid: number;
     accountId: string;
@@ -3920,6 +4236,49 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const lastEditableRef = useRef<HTMLElement | null>(null);
   const isWideWorkspace = responsiveInteractionMode === "desktop-workspace";
   const isMobileStackedMode = responsiveInteractionMode === "mobile-stacked";
+  const selectedMessageTransitionKey = selectedMessage?.uid ?? selectedUid ?? null;
+
+  useEffect(() => {
+    if (!detailTransitionInitializedRef.current) {
+      detailTransitionInitializedRef.current = true;
+      setDetailVisible(true);
+      return;
+    }
+
+    setDetailVisible(false);
+    if (detailTransitionTimerRef.current !== null) {
+      window.clearTimeout(detailTransitionTimerRef.current);
+    }
+    detailTransitionTimerRef.current = window.setTimeout(() => {
+      setDetailVisible(true);
+      detailTransitionTimerRef.current = null;
+    }, 160);
+
+    return () => {
+      if (detailTransitionTimerRef.current !== null) {
+        window.clearTimeout(detailTransitionTimerRef.current);
+      }
+    };
+  }, [selectedMessageTransitionKey]);
+
+  useEffect(() => {
+    if (!cleanupMode) {
+      setCleanupVisible(false);
+      return;
+    }
+
+    setCleanupVisible(false);
+    const frame = window.requestAnimationFrame(() => setCleanupVisible(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [cleanupMode]);
+
+  useEffect(() => {
+    return () => {
+      if (cleanupFlashTimeoutRef.current !== null) {
+        window.clearTimeout(cleanupFlashTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const clearAccountMailboxDisclosureAnimation = useCallback((accountId: string) => {
     const timeoutId = accountMailboxDisclosureAnimationTimeoutsRef.current[accountId];
@@ -5412,6 +5771,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [activeAccountId]);
 
   useEffect(() => {
+    attachmentHydrationAttemptedRef.current.clear();
+  }, [activeAccountId, currentFolderPath]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -5743,7 +6106,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       previousInteractionMode !== responsiveInteractionMode &&
       previousInteractionMode === "mobile-stacked" &&
       responsiveInteractionMode === "desktop-workspace" &&
-      mobileStackedScreen !== "viewer"
+      mobileStackedScreen !== "viewer" &&
+      !selectedMessage
     ) {
       openMessageSeqRef.current += 1;
       setSelectedMessage(null);
@@ -5811,6 +6175,25 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [activeAccountId, currentFolderPath, selectedUid]);
 
   useEffect(() => {
+    if (!dateFocusMenuOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const node = dateFocusMenuRef.current;
+      if (!node) {
+        return;
+      }
+      if (!node.contains(event.target as Node)) {
+        setDateFocusMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [dateFocusMenuOpen]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -5822,6 +6205,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setBlockedSenders(new Set(data.blockedSenders));
     setPinnedMessages(new Set(data.pinnedMessages));
     setSidebarSize(data.prefs.sidebarSize);
+    setAccentTheme(data.prefs.accentTheme ?? "orange");
     setDefaultSignature(data.prefs.signature);
     setSignatureDefinitions(data.signatureDefinitions ?? []);
     setPresetDefinitions(data.presetDefinitions ?? []);
@@ -5834,6 +6218,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setLightweightOnboardingDismissed(data.prefs.lightweightOnboardingDismissed ?? false);
     setUserDataReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.documentElement.setAttribute("data-accent-theme", accentTheme);
+  }, [accentTheme]);
 
   useEffect(() => {
     if (!userDataReady || !activeAccountId) {
@@ -5864,7 +6255,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         mailboxViewMode,
         collapsedSortFolderVisibility,
         accountMailboxDisclosureStates,
-        lightweightOnboardingDismissed
+        lightweightOnboardingDismissed,
+        accentTheme
       }
     });
 
@@ -5892,6 +6284,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     mailboxViewMode,
     threadingEnabled,
     lightweightOnboardingDismissed,
+    accentTheme,
     userDataReady
   ]);
 
@@ -6386,14 +6779,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const rect = composeWindow.getBoundingClientRect();
       const viewportPadding = 12;
       const nextWidth = Math.min(
-        Math.max(320, rect.width * 0.9),
+        Math.max(360, rect.width * 0.76),
         window.innerWidth - viewportPadding * 2
       );
       const nextLeft = Math.min(
         Math.max(rect.left + (rect.width - nextWidth) / 2, viewportPadding),
         window.innerWidth - nextWidth - viewportPadding
       );
-      const nextTop = Math.max(rect.top + 8, viewportPadding);
+      const centeredTop = rect.top + rect.height / 2 - 120;
+      const nextTop = Math.min(
+        Math.max(centeredTop, viewportPadding),
+        window.innerHeight - 180
+      );
 
       const nextPosition = {
         top: nextTop,
@@ -6431,6 +6828,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     return () => globalThis.clearTimeout(timeoutId);
   }, [composeQuickInsertOpen]);
+
+  useEffect(() => {
+    if (!composeQuickInsertOpen) {
+      return;
+    }
+
+    autoResizeComposeQuickFactInput();
+  }, [autoResizeComposeQuickFactInput, composeQuickFact.query, composeQuickInsertOpen]);
 
   useEffect(() => {
     setSenderTrustExpandedUid(null);
@@ -7512,6 +7917,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     const requestSeq = ++openMessageSeqRef.current;
+    attachmentHydrationAttemptedRef.current.delete(
+      `${resolvedAccountId}:${resolvedFolderPath}:${message.uid}`
+    );
     const fallbackMessage = stampMessageAccount(message, resolvedAccountId);
     setSelectedUid(message.uid);
     setSelectedMessage(buildFallbackMessageDetail(fallbackMessage));
@@ -11381,6 +11789,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const hideComposeQuickFactTooltip = () => {
     setComposeQuickFactTooltip(null);
   };
+  function autoResizeComposeQuickFactInput() {
+    const input = composeQuickFactInputRef.current;
+    if (!input) {
+      return;
+    }
+
+    input.style.height = "0px";
+    const nextHeight = Math.min(Math.max(input.scrollHeight, 38), 220);
+    input.style.height = `${nextHeight}px`;
+    input.style.overflowY = input.scrollHeight > 220 ? "auto" : "hidden";
+  }
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
     : "Using full draft";
@@ -11437,6 +11856,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           !compactToolbarCommandIds.has(command.id) && command.id !== "insert_signature"
       ),
     [compactToolbarCommandIds, composerToolbarCommands]
+  );
+  const primaryFontToolbarCommands = useMemo(
+    () =>
+      primaryToolbarCommands.filter(
+        (command) =>
+          command.id !== "rewrite_for_outcome" && command.id !== "create_calendar_event"
+      ),
+    [primaryToolbarCommands]
+  );
+  const primaryAiToolbarCommands = useMemo(
+    () =>
+      primaryToolbarCommands.filter(
+        (command) =>
+          command.id === "rewrite_for_outcome" || command.id === "create_calendar_event"
+      ),
+    [primaryToolbarCommands]
   );
   const overflowToolbarCommands = useMemo(() => {
     if (composeToolbarPreferences.mode !== "compact") {
@@ -11796,14 +12231,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       subjectPattern
     ]
   );
-  const queriedMessages = useMemo(
-    () =>
-      filterMessagesForMailboxQuery(messages, mailboxQuery, {
-        blockedSenders,
-        focusFilterValue: (message) => getFocusFilterValue(message, isSentFolder)
-      }),
-    [blockedSenders, isSentFolder, mailboxQuery, messages]
-  );
+  const queriedMessages = useMemo(() => {
+    const baseMessages = filterMessagesForMailboxQuery(messages, mailboxQuery, {
+      blockedSenders,
+      focusFilterValue: (message) => getFocusFilterValue(message, isSentFolder)
+    });
+
+    if (!dateFocusPreset) {
+      return baseMessages;
+    }
+
+    const now = new Date();
+    return baseMessages.filter((message) =>
+      isWithinDateFocusPreset(message.date, dateFocusPreset, now)
+    );
+  }, [blockedSenders, dateFocusPreset, isSentFolder, mailboxQuery, messages]);
   const queriedSortedMessages = [...queriedMessages].sort((left, right) =>
     compareMessages(left, right, sortBy)
   );
@@ -12205,6 +12647,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     if (!resolvedAccountId || !message.hasAttachments) {
       return;
     }
+    const hydrationKey = `${resolvedAccountId}:${currentFolderPath}:${message.uid}`;
+    if (attachmentHydrationAttemptedRef.current.has(hydrationKey)) {
+      return;
+    }
+    attachmentHydrationAttemptedRef.current.add(hydrationKey);
 
     try {
       const response = await getJson<{ message: MailDetail }>(
@@ -12232,6 +12679,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const mediaItems = Array.isArray(message.media) ? message.media : [];
     const attachments = mediaItems.filter(isViewerFileAttachment);
     const isExpanded = expandedAttachmentSections.has(message.uid);
+    const hydrationKey = `${message.accountId ?? activeAccountId ?? "unknown"}:${currentFolderPath}:${message.uid}`;
+    const hasAttemptedHydration = attachmentHydrationAttemptedRef.current.has(hydrationKey);
     const primaryAttachmentName = attachments[0]?.filename ?? null;
     const additionalAttachmentCount = attachments.length > 1 ? attachments.length - 1 : 0;
 
@@ -12246,6 +12695,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           className={`viewer-attachment-toggle ${isExpanded ? "expanded" : ""}`}
           onClick={() => {
             const nextExpanded = !isExpanded;
+            if (nextExpanded) {
+              attachmentSelectionGuardRef.current = {
+                uid: message.uid,
+                accountId: message.accountId ?? activeAccountId ?? null,
+                folderPath: currentFolderPath,
+                expiresAt: Date.now() + 3000
+              };
+            }
             setExpandedAttachmentSections((current) => {
               const next = new Set(current);
               if (nextExpanded) {
@@ -12296,13 +12753,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             {additionalAttachmentCount > 0 ? (
               <span className="viewer-attachment-summary-more">+{additionalAttachmentCount}</span>
             ) : null}
-            {attachments.length === 0 ? (
+            {attachments.length === 0 && !hasAttemptedHydration ? (
               <span className="viewer-attachment-summary-state">loading…</span>
             ) : null}
           </span>
           <span className="viewer-attachment-chevron-wrap">
             <span className="viewer-attachment-chevron" aria-hidden="true">
-              ▾
+              ›
             </span>
           </span>
         </button>
@@ -12310,26 +12767,31 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           attachments.length > 0 ? (
             <div className="viewer-attachment-list">
               {attachments.map((item) => {
-                const category = getAttachmentFileCategory(item);
+                const badge = getAttachmentBadge(item.filename, item.contentType);
                 const openHref = item.sourceUrl || item.saveUrl;
                 const downloadHref = item.saveUrl || item.sourceUrl;
+                const mimeType = item.contentType ? item.contentType.split(";")[0] : null;
 
                 return (
                   <div key={item.id} className="viewer-attachment-item">
-                    <div className="viewer-attachment-icon" aria-hidden="true">
-                      {category.icon}
+                    <div
+                      className="viewer-attachment-icon"
+                      aria-hidden="true"
+                      style={{ background: badge.bg, color: badge.color }}
+                    >
+                      {badge.label}
                     </div>
                     <div className="viewer-attachment-meta">
                       <div className="viewer-attachment-name" title={item.filename}>
                         {item.filename}
                       </div>
                       <div className="viewer-attachment-type">
-                        {category.label}
-                        {item.contentType ? (
+                        {badge.friendlyType}
+                        {mimeType ? (
                           <>
                             <span className="viewer-attachment-meta-sep">·</span>
                             <span className="viewer-attachment-mime">
-                              {item.contentType.split(";")[0]}
+                              {mimeType}
                             </span>
                           </>
                         ) : null}
@@ -12337,25 +12799,34 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     </div>
                     <div className="viewer-attachment-actions">
                       {openHref ? (
-                        <a
+                        <button
+                          type="button"
                           className="viewer-attachment-link"
-                          href={openHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            window.open(openHref, "_blank", "noopener,noreferrer");
+                          }}
                         >
                           Open
-                        </a>
+                        </button>
                       ) : null}
                       {downloadHref ? (
-                        <a
+                        <button
+                          type="button"
                           className="viewer-attachment-link"
-                          href={downloadHref}
-                          download={item.filename}
-                          onClick={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const anchor = document.createElement("a");
+                            anchor.href = downloadHref;
+                            anchor.download = item.filename;
+                            anchor.rel = "noopener noreferrer";
+                            document.body.appendChild(anchor);
+                            anchor.click();
+                            document.body.removeChild(anchor);
+                          }}
                         >
                           Download
-                        </a>
+                        </button>
                       ) : null}
                     </div>
                   </div>
@@ -12363,7 +12834,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               })}
             </div>
           ) : (
-            <div className="viewer-attachment-empty">Attachments detected for this message.</div>
+            <div className="viewer-attachment-empty">
+              {hasAttemptedHydration
+                ? "Attachments are not available yet for this message."
+                : "Loading attachments…"}
+            </div>
           )
         ) : null}
       </section>
@@ -12862,16 +13337,33 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       preserveSelection: true,
       scopeAccountId: activeAccountId
     });
+    const attachmentGuard = attachmentSelectionGuardRef.current;
+    const guardActive =
+      Boolean(attachmentGuard) &&
+      Date.now() < (attachmentGuard?.expiresAt ?? 0) &&
+      attachmentGuard?.uid === (selectedMessage?.uid ?? selectedUid ?? -1) &&
+      attachmentGuard?.accountId === (selectedMessage?.accountId ?? activeAccountId ?? null) &&
+      attachmentGuard?.folderPath === currentFolderPath;
 
-    if (nextSelection.selectedUid !== selectedUid) {
+    if (
+      nextSelection.selectedUid !== selectedUid &&
+      !(guardActive && nextSelection.selectedUid === null && selectedUid !== null)
+    ) {
       setSelectedUid(nextSelection.selectedUid);
     }
 
-    if (nextSelection.clearSelectedMessage) {
+    if (nextSelection.clearSelectedMessage && !guardActive) {
       openMessageSeqRef.current += 1;
       setSelectedMessage(null);
     }
-  }, [activeAccountId, selectedMessage?.accountId, selectedMessage?.uid, selectedUid, sortedMessages]);
+  }, [
+    activeAccountId,
+    currentFolderPath,
+    selectedMessage?.accountId,
+    selectedMessage?.uid,
+    selectedUid,
+    sortedMessages
+  ]);
 
   useEffect(() => {
     const visibleUids = new Set(sortedMessages.map((message) => message.uid));
@@ -14741,6 +15233,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   const senderMessages = messages.filter((message) => message.from === sender.name);
                   const count = senderMessages.length;
                   const unread = senderMessages.filter((message) => !message.seen).length;
+                  const avatarPalette = getPriorityAvatarPalette(sender.name);
                   const oldestSenderMessage = senderMessages.reduce<MailSummary | null>(
                     (oldest, message) => {
                       if (!message.date) {
@@ -14841,22 +15334,37 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     >
                       <div className="priority-leading">
                         <span
-                          className="priority-folder-icon"
-                          style={{ color: sender.color }}
+                          className="priority-avatar"
+                          style={{
+                            "--priority-avatar-bg": avatarPalette.background,
+                            "--priority-avatar-fg": avatarPalette.color,
+                            backgroundColor: avatarPalette.background,
+                            color: avatarPalette.color,
+                            width: "28px",
+                            height: "28px",
+                            minWidth: "28px",
+                            minHeight: "28px",
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            border: "1px solid rgba(60, 60, 67, 0.14)"
+                          } as CSSProperties}
                           aria-hidden="true"
                         >
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M3 7.75A2.75 2.75 0 0 1 5.75 5h3.42c.56 0 1.1.22 1.5.62l1.1 1.1c.19.19.44.28.7.28h5.78A2.75 2.75 0 0 1 21 9.75v6.5A2.75 2.75 0 0 1 18.25 19H5.75A2.75 2.75 0 0 1 3 16.25z" />
-                          </svg>
+                          {getSenderInitials(displaySender(sender.name))}
                         </span>
                       </div>
                       <div className="priority-info">
                         <div className="priority-name">{displaySender(sender.name)}</div>
                         <div className="priority-meta">
-                          <span>{count} msgs</span>
-                          {unread > 0 ? <span>{unread} unread</span> : null}
+                          {count} {count === 1 ? "message" : "messages"}
                         </div>
                       </div>
+                      {renderSidebarCountBadge(unread)}
                       {autoFilter ? (
                         <span
                           className="priority-autofilter-badge"
@@ -14916,19 +15424,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div className="sidebar-cleanup-btn-wrap">
               <button className="sidebar-cleanup-btn" onClick={() => setCleanupMode(true)}>
                 <svg
-                  width="13"
-                  height="13"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+                  stroke="var(--accent)"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6M14 11v6" />
-                  <path d="M9 6V4h6v2" />
+                  <line x1="4" y1="7" x2="20" y2="7" />
+                  <line x1="4" y1="12" x2="16" y2="12" />
+                  <line x1="4" y1="17" x2="12" y2="17" />
                 </svg>
                 Cleanup Inbox
               </button>
@@ -14936,55 +15443,57 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
             <div className="sidebar-folders">
               <div className="sidebar-folders-header">
-                <span className="sidebar-label">Mailboxes</span>
+                <div className="sidebar-folders-header-copy">
+                  <div className="sidebar-folders-header-title-row">
+                    <span className="sidebar-label">Mailboxes</span>
+                    <button className="sidebar-refresh-btn" onClick={() => forceRefresh()}>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
                 <div className="sidebar-folders-header-actions">
                   <div
                     className="mailbox-view-toggle"
                     title="New Mail View: An optional attention-first mode where Inbox becomes New Mail, read inbox items appear in a virtual Read Mail folder, and threaded conversations stay complete."
                   >
+                    <span className="mailbox-view-label">New Mail view</span>
                     <button
                       type="button"
-                      className={`mailbox-view-btn ${mailboxViewMode === "classic" ? "active" : ""}`}
+                      className={`mailbox-view-switch-btn ${
+                        mailboxViewMode === "new-mail" ? "is-on" : ""
+                      }`}
                       onClick={() => {
                         clearPrioritizedSenderFocus();
+                        if (mailboxViewMode !== "new-mail") {
+                          setMailboxViewMode("new-mail");
+                          if (isInboxMailboxNode(activeMailboxNode)) {
+                            setInboxAttentionView("new-mail");
+                          }
+                          return;
+                        }
                         setMailboxViewMode("classic");
                         setInboxAttentionView(null);
                       }}
+                      aria-label="Toggle New Mail view"
+                      aria-pressed={mailboxViewMode === "new-mail"}
                     >
-                      Classic
-                    </button>
-                    <button
-                      type="button"
-                      className={`mailbox-view-btn ${mailboxViewMode === "new-mail" ? "active" : ""}`}
-                      onClick={() => {
-                        clearPrioritizedSenderFocus();
-                        setMailboxViewMode("new-mail");
-                        if (isInboxMailboxNode(activeMailboxNode)) {
-                          setInboxAttentionView("new-mail");
-                        }
-                      }}
-                    >
-                      New Mail
+                      <span className="mailbox-view-switch-track" aria-hidden="true">
+                        <span className="mailbox-view-switch-thumb" />
+                      </span>
                     </button>
                   </div>
-                  <button
-                    className="sidebar-refresh-btn"
-                    onClick={() => forceRefresh()}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                    </svg>
-                  </button>
                 </div>
               </div>
 
@@ -15006,6 +15515,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               ) : (
                 <div className="sidebar-mailbox-groups">
                   {sidebarMailboxGroups.map(({ account, isActive: isAccountActive, mailboxTargets }) => {
+                    const formattedAccountEmail = formatSidebarAccountEmail(account.email);
+                    const rawAccountLabel = account.label?.trim() ?? "";
+                    const formattedAccountLabel = rawAccountLabel
+                      ? formatSidebarAccountEmail(rawAccountLabel)
+                      : "";
+                    const resolvedAccountLabel = formattedAccountLabel || formattedAccountEmail;
+                    const shouldHideSecondaryEmail =
+                      !isAccountActive && resolvedAccountLabel === formattedAccountEmail;
                     const persistedDisclosureState =
                       accountMailboxDisclosureStates[account.id] ?? 1;
                     const disclosureState = sidebarMailDragState
@@ -15123,7 +15640,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                     const renderMailboxRow = (
                       mailboxTarget: SidebarMailboxTarget,
-                      options?: { quiet?: boolean }
+                      options?: { quiet?: boolean; staggerIndex?: number }
                     ) => {
                       const mailboxNode = mailboxTarget.mailboxNode;
                       const isMailboxActive =
@@ -15166,6 +15683,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <div
                           key={mailboxTarget.id}
                           className={`folder-row ${isMailboxActive ? "active" : ""} ${
+                            isMailboxActive && mailboxTarget.inboxAttentionView === "new-mail"
+                              ? "folder-row-active-new-mail"
+                              : ""
+                          } ${
                             mailboxTarget.inboxAttentionView === "read" ? "folder-row-quiet" : ""
                           } ${options?.quiet ? "folder-row-historical" : ""} ${
                             sortFolderPresentation ? "folder-row-sort-preset" : ""
@@ -15179,6 +15700,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           } ${isMailDropHover ? "folder-row-drop-target" : ""} ${
                             isDragReveal ? "folder-row-drag-reveal" : ""
                           }`}
+                          style={
+                            rowAnimationClass === "folder-row-entering"
+                              ? {
+                                  animationDelay: `${Math.min(
+                                    (options?.staggerIndex ?? 0) * 30,
+                                    240
+                                  )}ms`
+                                }
+                              : undefined
+                          }
                           title={sortFolderTooltip ?? undefined}
                           draggable={canReorder && !mailboxTarget.isVirtual && !sidebarMailDragState}
                           onContextMenu={(event) => {
@@ -15309,13 +15840,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               ) : null}
                             </span>
                           </div>
-                          {mailboxTarget.count !== null && mailboxTarget.count > 0 ? (
-                            <span
-                              className={`folder-row-count ${isMailboxActive ? "active" : ""}`}
-                            >
-                              {mailboxTarget.count}
-                            </span>
-                          ) : null}
+                          {renderSidebarCountBadge(mailboxTarget.count, {
+                            emphasize: mailboxTarget.inboxAttentionView === "new-mail"
+                          })}
                         </div>
                       );
                     };
@@ -15340,15 +15867,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           className={`sidebar-mailbox-heading ${
                             isAccountActive ? "active" : ""
                           }`}
-                          onClick={cycleDisclosureState}
                         >
                           <div className="sidebar-account-row-info">
                             <div className="sidebar-account-row-label">
-                              {account.label || account.email}
+                              {resolvedAccountLabel}
                             </div>
-                            <div className="sidebar-account-row-email">
-                              {isAccountActive ? "Current account" : account.email}
-                            </div>
+                            {!shouldHideSecondaryEmail ? (
+                              <div
+                                className={`sidebar-account-row-email ${
+                                  isAccountActive ? "sidebar-account-row-current" : ""
+                                }`}
+                              >
+                                {isAccountActive ? "current" : formattedAccountEmail}
+                              </div>
+                            ) : null}
                           </div>
                           <button
                             type="button"
@@ -15367,21 +15899,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             }}
                           >
                             <span className="sidebar-mailbox-disclosure-lines">
-                              <span
-                                className={`sidebar-mailbox-disclosure-line ${
-                                  disclosureState >= 1 ? "active" : ""
-                                }`}
-                              />
-                              <span
-                                className={`sidebar-mailbox-disclosure-line ${
-                                  disclosureState >= 2 ? "active" : ""
-                                }`}
-                              />
-                              <span
-                                className={`sidebar-mailbox-disclosure-line ${
-                                  disclosureState >= 3 ? "active" : ""
-                                }`}
-                              />
+                              {Array.from({ length: disclosureState }).map((_, index) => (
+                                <span
+                                  key={`disclosure-line-${index + 1}`}
+                                  className="sidebar-mailbox-disclosure-line active"
+                                />
+                              ))}
                             </span>
                           </button>
                         </div>
@@ -15390,10 +15913,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           <div className="sidebar-folder-empty">No folders loaded yet.</div>
                         ) : (
                           <div className="sidebar-mailbox-content">
-                            {animatedVisibleTargets.map((mailboxTarget) =>
-                              renderMailboxRow(mailboxTarget)
-                            )}
-                            {animatedQuietTargets.length > 0 ? (
+                            {(() => {
+                              const animatedEssentialTargets = animatedVisibleTargets.filter(
+                                (target) =>
+                                  isEssentialMailboxTarget(target, mailboxViewMode)
+                              );
+                              const animatedWorkingTargets = animatedVisibleTargets.filter(
+                                (target) =>
+                                  !isEssentialMailboxTarget(target, mailboxViewMode)
+                              );
+
+                              return (
+                                <>
+                                  {animatedEssentialTargets.map((mailboxTarget, index) =>
+                                    renderMailboxRow(mailboxTarget, { staggerIndex: index })
+                                  )}
+                                  {animatedEssentialTargets.length > 0 &&
+                                  animatedWorkingTargets.length > 0 ? (
+                                    <div className="sidebar-mailbox-history-divider" />
+                                  ) : null}
+                                  {animatedWorkingTargets.map((mailboxTarget, index) =>
+                                    renderMailboxRow(mailboxTarget, {
+                                      staggerIndex: animatedEssentialTargets.length + index
+                                    })
+                                  )}
+                                </>
+                              );
+                            })()}
+                            {animatedVisibleTargets.length > 0 &&
+                            animatedQuietTargets.length > 0 ? (
                               <>
                                 <div
                                   className={`sidebar-mailbox-history-divider ${
@@ -15408,8 +15956,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                         : ""
                                   }`}
                                 />
-                                {animatedQuietTargets.map((mailboxTarget) =>
-                                  renderMailboxRow(mailboxTarget, { quiet: true })
+                                {animatedQuietTargets.map((mailboxTarget, index) =>
+                                  renderMailboxRow(mailboxTarget, {
+                                    quiet: true,
+                                    staggerIndex: animatedVisibleTargets.length + index
+                                  })
                                 )}
                               </>
                             ) : null}
@@ -15420,6 +15971,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   })}
                 </div>
               )}
+              {showPreviewBranchBadge ? (
+                <div
+                  className="preview-branch-badge preview-branch-badge-sidebar"
+                  aria-label={`Preview branch ${previewBranchName}`}
+                >
+                  <span className="preview-branch-glyph">⑂</span>
+                  <span>{previewBranchName}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </aside>
@@ -15615,8 +16175,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div
               role="button"
               tabIndex={0}
-              className={`col-chip ${subjectFilter ? "col-chip-active" : ""}`}
-              style={{ flex: isPrioritizedSenderView ? 1 : 1.4 }}
+              className={`col-chip col-chip-subject ${subjectFilter ? "col-chip-active" : ""}`}
               onClick={() => {
                 if (subjectFilter) {
                   setSubjectFilter(null);
@@ -15628,8 +16187,85 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             >
               Subject <span className="col-chip-icon">⊙</span>
             </div>
-            <div className="col-chip col-chip-date">
-              Date <span style={{ opacity: 0.5, fontSize: "10px" }}>▾</span>
+            <div
+              ref={dateFocusMenuRef}
+              style={{ position: "relative", marginLeft: "auto" }}
+            >
+              <button
+                type="button"
+                className={`col-chip col-chip-date ${dateFocusPreset ? "col-chip-date-active" : ""}`}
+                onClick={() => setDateFocusMenuOpen((current) => !current)}
+                title="Date Focus"
+                aria-label="Date Focus"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                <span style={{ opacity: 0.5, fontSize: "10px" }}>▾</span>
+              </button>
+              {dateFocusMenuOpen ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    right: 0,
+                    minWidth: 148,
+                    background: "var(--surface2)",
+                    border: "0.5px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 12px 28px rgba(15,23,42,0.15)",
+                    padding: 4,
+                    zIndex: 30
+                  }}
+                >
+                  {([
+                    { id: "today", label: "Today" },
+                    { id: "this_week", label: "This Week" },
+                    { id: "30_days", label: "30 Days" },
+                    { id: "6_months", label: "6 Months" },
+                    ...(dateFocusPreset ? [{ id: "none", label: "None" } as const] : [])
+                  ] as const).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setSortBy("date");
+                        setDateFocusPreset(preset.id === "none" ? null : preset.id);
+                        setDateFocusMenuOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        border: "none",
+                        background:
+                          dateFocusPreset === preset.id ? "var(--accent-soft)" : "transparent",
+                        color:
+                          dateFocusPreset === preset.id ? "var(--accent)" : "var(--text2)",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: dateFocusPreset === preset.id ? 600 : 500,
+                        padding: "7px 9px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -16373,6 +17009,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               {selectedMessage ? renderMobileViewerActions(selectedMessage) : null}
             </div>
           ) : null}
+          <div
+            className={`detail-transition-layer ${detailVisible ? "is-visible" : "is-hidden"}`}
+          >
           {selectedMessage ? showConversationView ? (
             <article className="messageDetail thread-conversation">
               {activeConversation && !isMobileStackedMode ? (
@@ -16383,70 +17022,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     </span>
                     <span className="thread-conversation-summary-meta">
                       {activeConversation.messageCount} messages
-                      {activeConversation.unreadCount > 0
-                        ? ` · ${activeConversation.unreadCount} unread`
-                        : ""}
                     </span>
-                  </div>
-                  <div className="email-toolbar thread-conversation-toolbar">
-                    {mailActionCapabilities.archive.supported ? (
-                      <button
-                        className="tb-btn"
-                        title="Archive conversation"
-                        disabled={mailActionBusy}
-                        onClick={() =>
-                          void dispatchConversationAction("archive", activeConversation.id, {
-                            destinationFolder: mailActionCapabilities.archive.destinationFolder,
-                            toastMessage: "Conversation archived"
-                          })
-                        }
-                      >
-                        <span>Archive</span>
-                      </button>
-                    ) : null}
-                    <button
-                      className="tb-btn"
-                      title={getReadToggleActionCopy(activeConversation.unreadCount === 0, {
-                        scope: "conversation"
-                      }).title}
-                      disabled={mailActionBusy}
-                      onClick={() =>
-                        void dispatchConversationAction(
-                          activeConversation.unreadCount > 0
-                            ? "mark_read"
-                            : "mark_unread",
-                          activeConversation.id
-                        )
-                      }
-                      >
-                        <span>
-                          {
-                            getReadToggleActionCopy(activeConversation.unreadCount === 0, {
-                              scope: "conversation"
-                            }).label
-                          }
-                        </span>
-                      </button>
-                    {mailActionCapabilities.move.supported ? (
-                      <button
-                        className="tb-btn"
-                        title="Move conversation"
-                        disabled={mailActionBusy}
-                        onClick={() => openConversationMove(activeConversation.id)}
-                      >
-                        <span>Move</span>
-                      </button>
-                    ) : null}
-                    <button
-                      className="tb-btn tb-btn-danger"
-                      title="Delete conversation"
-                      disabled={mailActionBusy}
-                      onClick={() =>
-                        void dispatchConversationAction("delete", activeConversation.id)
-                      }
-                    >
-                      <span>Delete</span>
-                    </button>
                   </div>
                 </div>
               ) : null}
@@ -16479,6 +17055,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               {displaySender(message.from)}
                             </span>
                             {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
+                            <span className="email-sender-date-inline">
+                              {message.date
+                                ? new Date(message.date).toLocaleString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit"
+                                  })
+                                : ""}
+                            </span>
                           </div>
                           <div className="email-sender-address">
                             {message.fromAddress || message.from}
@@ -16493,20 +17079,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </div>
                         <div className="email-date-block">
                           {renderMessageSourceDisclosure(message.uid)}
-                          <div className="email-date-str">
-                            {message.date
-                              ? new Date(message.date).toLocaleString(undefined, {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "numeric",
-                                  minute: "2-digit"
-                                })
-                              : ""}
-                          </div>
-                          {renderHeaderAttachmentIndicator({
-                            hasAttachments: message.hasAttachments,
-                            media: detail?.media
-                          })}
                           <button
                             type="button"
                             className="thread-view-toggle"
@@ -16607,31 +17179,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           </svg>
                           <span>Forward</span>
                         </button>
-                        <button
-                          className="tb-btn"
-                          title="Edit as New"
-                          onClick={async (event) => {
-                            event.stopPropagation();
-                            const resolved = await resolveMessageDetail(message);
-                            handleEditAsNew(resolved);
-                          }}
-                        >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
-                          </svg>
-                          <span>Edit as New</span>
-                        </button>
-
                         <div className="tb-sep" />
 
                         <button
@@ -16685,32 +17232,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           </svg>
                           <span>Delete</span>
                         </button>
-                        <button
-                          className="tb-btn"
-                          title="Mark as Spam"
-                          onClick={async (event) => {
-                            event.stopPropagation();
-                            const resolved = await resolveMessageDetail(message);
-                            await handleSpam(resolved);
-                          }}
-                        >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="8" x2="12" y2="12" />
-                            <line x1="12" y1="16" x2="12.01" y2="16" />
-                          </svg>
-                          <span>Spam</span>
-                        </button>
-
                         <div className="tb-sep" />
 
                         <button
@@ -16759,7 +17280,33 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           </svg>
                           <span>Move…</span>
                         </button>
+                        <div className="tb-sep" />
                         {renderSortButton(message, { stopPropagation: true })}
+                        <button
+                          className="tb-btn"
+                          title="Mark as Spam"
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            const resolved = await resolveMessageDetail(message);
+                            await handleSpam(resolved);
+                          }}
+                        >
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                          </svg>
+                          <span>Spam</span>
+                        </button>
                         <button
                           className="tb-btn"
                           title="Print"
@@ -16831,6 +17378,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       {displaySender(selectedMessage.from)}
                     </span>
                     {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
+                    <span className="email-sender-date-inline">
+                      {selectedMessage.date
+                        ? new Date(selectedMessage.date).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit"
+                          })
+                        : ""}
+                    </span>
                   </div>
                   <div className="email-sender-address">
                     {selectedMessage.fromAddress || selectedMessage.from}
@@ -16845,17 +17402,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </div>
                 <div className="email-date-block">
                   {renderMessageSourceDisclosure(selectedMessage.uid)}
-                  <div className="email-date-str">
-                    {selectedMessage.date
-                      ? new Date(selectedMessage.date).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit"
-                        })
-                      : ""}
-                  </div>
-                  {renderHeaderAttachmentIndicator(selectedMessage)}
                 </div>
               </div>
 
@@ -16930,27 +17476,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </svg>
                   <span>Forward</span>
                 </button>
-                <button
-                  className="tb-btn"
-                  title="Edit as New"
-                  onClick={() => handleEditAsNew(selectedMessage)}
-                >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
-                  </svg>
-                  <span>Edit as New</span>
-                </button>
-
                 <div className="tb-sep" />
 
                 <button
@@ -16996,28 +17521,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </svg>
                   <span>Delete</span>
                 </button>
-                <button
-                  className="tb-btn"
-                  title="Mark as Spam"
-                  onClick={() => handleSpam(selectedMessage)}
-                >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  <span>Spam</span>
-                </button>
-
                 <div className="tb-sep" />
 
                 <button
@@ -17058,7 +17561,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </svg>
                   <span>Move…</span>
                 </button>
+                <div className="tb-sep" />
                 {renderSortButton(selectedMessage)}
+                <button
+                  className="tb-btn"
+                  title="Mark as Spam"
+                  onClick={() => handleSpam(selectedMessage)}
+                >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>Spam</span>
+                </button>
                 <button
                   className="tb-btn"
                   title="Print"
@@ -17081,84 +17606,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </svg>
                   <span>Print</span>
                 </button>
-                {(() => {
-                  const unsub = detectUnsubscribe(selectedMessage);
-                  const unsubscribeEmail = selectedMessage.listUnsubscribeEmail?.trim() ?? "";
-                  const canOpenLink = unsub.found && Boolean(unsub.url);
-                  const canSendEmail = unsubscribeEmail.length > 0;
-
-                  if (!canOpenLink && !canSendEmail) return null;
-
-                  return (
-                    <>
-                      <div className="tb-sep" />
-                      <div className="tb-unsub-wrap">
-                        <button
-                          className={`tb-btn tb-btn-unsub${unsubscribeConfirm ? " tb-btn-unsub-active" : ""}`}
-                          title="Unsubscribe from this sender"
-                          onClick={() => setUnsubscribeConfirm((v) => !v)}
-                        >
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                          </svg>
-                          <span>Unsubscribe</span>
-                        </button>
-                        {unsubscribeConfirm ? (
-                          <div className="tb-unsub-confirm">
-                            <span className="tb-unsub-confirm-text">
-                              {canOpenLink ? (
-                                <>
-                                  Open unsubscribe link for <strong>{selectedMessage.from}</strong>?
-                                </>
-                              ) : (
-                                <>
-                                  Send an unsubscribe email to{" "}
-                                  <strong>{unsubscribeEmail}</strong>?
-                                </>
-                              )}
-                            </span>
-                            <div className="tb-unsub-confirm-actions">
-                              <button
-                                className="tb-unsub-confirm-btn"
-                                onClick={() => {
-                                  if (canOpenLink && unsub.url) {
-                                    window.open(unsub.url, "_blank", "noopener,noreferrer");
-                                    setUnsubscribeConfirm(false);
-                                    showToast(
-                                      `Unsubscribe link opened for ${selectedMessage.from}`
-                                    );
-                                    return;
-                                  }
-
-                                  if (canSendEmail) {
-                                    handleUnsubscribeByEmail(selectedMessage);
-                                  }
-                                }}
-                              >
-                                {canOpenLink ? "Open link" : "Send unsubscribe email"}
-                              </button>
-                              {canOpenLink && canSendEmail ? (
-                                <button
-                                  className="tb-unsub-email-link"
-                                  onClick={() => handleUnsubscribeByEmail(selectedMessage)}
-                                >
-                                  or send unsubscribe email
-                                </button>
-                              ) : null}
-                              <button
-                                className="tb-unsub-cancel-btn"
-                                onClick={() => setUnsubscribeConfirm(false)}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </>
-                  );
-                })()}
               </div>
               ) : null}
 
@@ -17198,6 +17645,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="detail-empty-text">No message selected</div>
             </div>
           )}
+          </div>
         </section>
 
         {cleanupMode
@@ -17232,39 +17680,171 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                   return accumulator;
                 }, {})
-              ).sort((left, right) => right.messages.length - left.messages.length);
+              );
+              const sortedSenderGroups = [...senderGroups].sort((left, right) => {
+                if (cleanupSort === "name") {
+                  return displaySender(left.name).localeCompare(displaySender(right.name));
+                }
+                if (cleanupSort === "date") {
+                  const leftNewest = left.messages.reduce((newest, message) => {
+                    const value = new Date(message.date).getTime();
+                    return value > newest ? value : newest;
+                  }, 0);
+                  const rightNewest = right.messages.reduce((newest, message) => {
+                    const value = new Date(message.date).getTime();
+                    return value > newest ? value : newest;
+                  }, 0);
+                  return rightNewest - leftNewest;
+                }
+                return right.messages.length - left.messages.length;
+              });
 
               return (
-                <div className="cleanup-overlay">
-                  <div className="cleanup-header">
-                    <div className="cleanup-title">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                <div className={`cleanup-overlay ${cleanupVisible ? "is-visible" : ""}`}>
+                  <div
+                    className="cleanup-header"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      background: "var(--surface2)",
+                      borderBottom: "0.5px solid var(--border)"
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "13px 18px 8px"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="var(--text)"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2 4h12M4.5 4V3h7v1M5.5 7v5M10.5 7v5M3 4l.7 9.5h8.6L13 4" />
+                        </svg>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <span
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 650,
+                              color: "var(--text)",
+                              letterSpacing: "-0.01em"
+                            }}
+                          >
+                            Cleanup Mode
+                          </span>
+                          <span style={{ fontSize: 12, color: "var(--text3)" }}>
+                            {messages.length} messages · {senderGroups.length} senders
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        className="cleanup-close"
+                        onClick={() => setCleanupMode(false)}
+                        style={{
+                          background: "#ff4d00",
+                          color: "#fff",
+                          border: "none",
+                          outline: "none",
+                          boxShadow: "none",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          padding: "7px 18px",
+                          cursor: "pointer"
+                        }}
                       >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6M14 11v6" />
-                        <path d="M9 6V4h6v2" />
-                      </svg>
-                      Cleanup Mode
+                        Done
+                      </button>
                     </div>
-                    <div className="cleanup-meta">
-                      {messages.length} messages · {senderGroups.length} senders
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "0 18px 12px"
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: "var(--text3)", marginRight: 10 }}>
+                        Sort by:
+                      </span>
+                      <span
+                        className="cleanup-sort-option"
+                        style={{
+                          fontSize: 12,
+                          cursor: "pointer",
+                          marginRight: 14,
+                          fontWeight: cleanupSort === "date" ? 600 : 400,
+                          color: cleanupSort === "date" ? "var(--text)" : "var(--text3)"
+                        }}
+                        onClick={() => setCleanupSort("date")}
+                      >
+                        Date
+                      </span>
+                      <span
+                        className="cleanup-sort-option"
+                        style={{
+                          fontSize: 12,
+                          cursor: "pointer",
+                          marginRight: 14,
+                          fontWeight: cleanupSort === "count" ? 600 : 400,
+                          color: cleanupSort === "count" ? "var(--text)" : "var(--text3)"
+                        }}
+                        onClick={() => setCleanupSort("count")}
+                      >
+                        Msg Count
+                      </span>
+                      <span
+                        className="cleanup-sort-option"
+                        style={{
+                          fontSize: 12,
+                          cursor: "pointer",
+                          marginRight: 14,
+                          fontWeight: cleanupSort === "name" ? 600 : 400,
+                          color: cleanupSort === "name" ? "var(--text)" : "var(--text3)"
+                        }}
+                        onClick={() => setCleanupSort("name")}
+                      >
+                        Name
+                      </span>
                     </div>
-                    <button className="cleanup-close" onClick={() => setCleanupMode(false)}>
-                      Done
-                    </button>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "0 18px",
+                      height: 34,
+                      borderBottom: "0.5px solid var(--border)",
+                      background: "var(--surface2)"
+                    }}
+                  >
+                    <div style={{ width: 44 }} />
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.07em",
+                        textTransform: "uppercase",
+                        color: "var(--text3)",
+                        flex: 1
+                      }}
+                    >
+                      Sender
+                    </span>
                   </div>
 
                   <div className="cleanup-list">
-                    {senderGroups.map((group) => {
+                    {sortedSenderGroups.map((group, groupIndex) => {
                       const oldest = [...group.messages].sort(
                         (left, right) =>
                           new Date(left.date).getTime() - new Date(right.date).getTime()
@@ -17275,11 +17855,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       );
 
                       return (
-                        <div key={group.name} className="cleanup-row-wrap">
+                        <div
+                          key={group.name}
+                          className={`cleanup-row-wrap ${
+                            cleanupFlashSender === group.name ? "survivor-flash" : ""
+                          }`}
+                        >
                           <div
                             className={`cleanup-row ${
                               cleanupExpandedSender === group.name ? "expanded" : ""
                             }`}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              padding: "0 18px",
+                              height: 56,
+                              borderBottom:
+                                groupIndex === sortedSenderGroups.length - 1
+                                  ? "none"
+                                  : "0.5px solid var(--border)"
+                            }}
                             onClick={() => {
                               setCleanupExpandedMsg(null);
                               setCleanupExpandedSender(
@@ -17289,16 +17884,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           >
                             <div
                               className="cleanup-row-avatar"
-                              style={{ background: group.color }}
+                              style={{
+                                width: 34,
+                                height: 34,
+                                minWidth: 34,
+                                borderRadius: "50%",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                                marginRight: 10,
+                                background: getPriorityAvatarPalette(group.name).background,
+                                color: getPriorityAvatarPalette(group.name).color
+                              }}
                             >
                               {getSenderInitials(group.name)}
                             </div>
-                            <div className="cleanup-row-info">
+                            <div className="cleanup-row-info" style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                               <div className="cleanup-row-name">
                                 {displaySender(group.name)}
                               </div>
                               <div className="cleanup-row-meta">
-                                {group.messages.length} messages
                                 {group.unread > 0 ? (
                                   <span className="cleanup-unread">
                                     {group.unread} unread
@@ -17314,102 +17922,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   : "—"}
                               </div>
                             </div>
-                            <div
-                              className="cleanup-row-actions"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <div
-                                className="tb-sort-wrap cleanup-sort-wrap"
-                                ref={cleanupSortMenuSender === group.name ? cleanupSortMenuRef : null}
-                              >
-                                <button
-                                  className={`cleanup-action-btn cleanup-action-btn-sort ${
-                                    cleanupSortMenuSender === group.name ? "cleanup-action-btn-active" : ""
-                                  }`}
-                                  title={sortActionTitle}
-                                  onClick={() =>
-                                    setCleanupSortMenuSender((current) =>
-                                      current === group.name ? null : group.name
-                                    )
-                                  }
-                                >
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <path d="M3 7h12" />
-                                    <path d="M3 12h18" />
-                                    <path d="M3 17h10" />
-                                    <path d="m17 5 4 4-4 4" />
-                                  </svg>
-                                  Sort
-                                </button>
-                                {cleanupSortMenuSender === group.name ? (
-                                  <div
-                                    className="tb-sort-menu cleanup-sort-menu"
-                                    onClick={(event) => event.stopPropagation()}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                  >
-                                    <div className="action-menu-header">
-                                      <div className="action-menu-title">Quick Sort</div>
-                                      <div className="action-menu-sub">
-                                        Fast-file this sender into your built-in organization folders.
-                                      </div>
-                                    </div>
-                                    {SORT_FOLDER_PRESETS.map((preset) => (
-                                      <button
-                                        key={`${group.name}-${preset.key}`}
-                                        className="tb-sort-item"
-                                        title={preset.tooltip}
-                                        onClick={() => {
-                                          void handleCleanupSortToFolder(
-                                            group.name,
-                                            group.messages,
-                                            preset
-                                          );
-                                        }}
-                                      >
-                                        <span className="tb-sort-item-label">
-                                          <span
-                                            className={`sort-folder-glyph sort-folder-glyph-${preset.tone}`}
-                                          >
-                                            {renderSortFolderGlyph(preset)}
-                                          </span>
-                                          <span>{preset.label}</span>
-                                        </span>
-                                        <span className="tb-sort-item-sub">{preset.description}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
+                            <div className="cleanup-row-actions" onClick={(event) => event.stopPropagation()}>
                               <button
                                 className="cleanup-action-btn"
-                                onClick={() =>
+                                onClick={() => {
+                                  setCleanupFlashSender(group.name);
+                                  if (cleanupFlashTimeoutRef.current !== null) {
+                                    window.clearTimeout(cleanupFlashTimeoutRef.current);
+                                  }
+                                  cleanupFlashTimeoutRef.current = window.setTimeout(() => {
+                                    setCleanupFlashSender((current) =>
+                                      current === group.name ? null : current
+                                    );
+                                    cleanupFlashTimeoutRef.current = null;
+                                  }, 650);
                                   openAutoFilterEditor({
                                     name: group.messages[0]?.from ?? group.name,
                                     email: group.messages[0]?.fromAddress ?? ""
-                                  })
-                                }
+                                  });
+                                }}
                               >
                                 <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 14 14"
                                   fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
+                                  style={{ flexShrink: 0 }}
                                 >
-                                  <circle cx="12" cy="12" r="10" />
-                                  <polyline points="12 6 12 12 16 14" />
+                                  <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" />
+                                  <path d="M7 4v3.5l2 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
                                 </svg>
                                 Keep Recent
                               </button>
@@ -17418,38 +17959,46 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 onClick={() => setDeleteTarget(group.messages[0])}
                               >
                                 <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 14 14"
                                   fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
+                                  style={{ flexShrink: 0 }}
                                 >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                  <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                                 Delete All
                               </button>
                             </div>
                             <div className="cleanup-row-right">
                               <span className="cleanup-row-count">{group.messages.length}</span>
-                              <svg
-                                className={`cleanup-chevron ${
-                                  cleanupExpandedSender === group.name ? "open" : ""
-                                }`}
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
+                              <span
+                                className="cleanup-chevron"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setCleanupExpandedMsg(null);
+                                  setCleanupExpandedSender(
+                                    cleanupExpandedSender === group.name ? null : group.name
+                                  );
+                                }}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  cursor: "pointer",
+                                  color: "var(--text3)",
+                                  lineHeight: 1,
+                                  transform:
+                                    cleanupExpandedSender === group.name
+                                      ? "rotate(180deg)"
+                                      : "rotate(0deg)",
+                                  transition: "transform 0.15s"
+                                }}
                               >
-                                <polyline points="6 9 12 15 18 9" />
-                              </svg>
+                                <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                                  <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </span>
                             </div>
                           </div>
 
@@ -18876,41 +19425,100 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <div className="settings-section">
                   <div className="settings-section-label">Sidebar</div>
 
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <div className="settings-row-title">Density</div>
-                      <div className="settings-row-sub">
-                        Controls font size and spacing of folders and prioritized
-                        senders
+                  <div className="settings-card-group">
+                    <div className="settings-row settings-card-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Density</div>
+                        <div className="settings-row-sub">
+                          Controls font size and spacing of folders and prioritized
+                          senders
+                        </div>
+                      </div>
+                      <div className="settings-size-picker">
+                        {(["small", "medium", "large"] as const).map((size) => (
+                          <button
+                            key={size}
+                            className={`settings-size-btn ${
+                              sidebarSize === size ? "active" : ""
+                            }`}
+                            onClick={() => setSidebarSize(size)}
+                          >
+                            <span
+                              className="settings-size-icon"
+                              style={{
+                                fontSize:
+                                  size === "small"
+                                    ? "12px"
+                                    : size === "medium"
+                                      ? "15px"
+                                      : "18px"
+                              }}
+                            >
+                              A
+                            </span>
+                            <span className="settings-size-label">
+                              {size.charAt(0).toUpperCase() + size.slice(1)}
+                            </span>
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <div className="settings-size-picker">
-                      {(["small", "medium", "large"] as const).map((size) => (
-                        <button
-                          key={size}
-                          className={`settings-size-btn ${
-                            sidebarSize === size ? "active" : ""
-                          }`}
-                          onClick={() => setSidebarSize(size)}
-                        >
-                          <span
-                            className="settings-size-icon"
-                            style={{
-                              fontSize:
-                                size === "small"
-                                  ? "11px"
-                                  : size === "medium"
-                                    ? "14px"
-                                    : "17px"
-                            }}
-                          >
-                            A
-                          </span>
-                          <span className="settings-size-label">
-                            {size.charAt(0).toUpperCase() + size.slice(1)}
-                          </span>
-                        </button>
-                      ))}
+                    <div className="settings-row settings-card-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Theme color</div>
+                        <div className="settings-row-sub">
+                          Choose the accent color used across the app interface
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          flexWrap: "wrap"
+                        }}
+                      >
+                        {([
+                          { key: "orange", label: "Orange", color: "#ff4d00" },
+                          { key: "blue", label: "Blue", color: "#0a84ff" },
+                          { key: "green", label: "Green", color: "#34c759" },
+                          { key: "purple", label: "Purple", color: "#8b5cf6" }
+                        ] as const).map((themeOption) => {
+                          const active = accentTheme === themeOption.key;
+                          return (
+                            <button
+                              key={themeOption.key}
+                              type="button"
+                              onClick={() => setAccentTheme(themeOption.key)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: active
+                                  ? "1px solid var(--accent)"
+                                  : "0.5px solid var(--border)",
+                                background: active ? "var(--accent-soft)" : "var(--surface3)",
+                                borderRadius: 8,
+                                padding: "5px 9px",
+                                fontSize: 12,
+                                fontWeight: active ? 600 : 500,
+                                color: "var(--text2)"
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  minWidth: 10,
+                                  borderRadius: "50%",
+                                  background: themeOption.color
+                                }}
+                              />
+                              <span>{themeOption.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -18918,55 +19526,60 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <div className="settings-section">
                   <div className="settings-section-label">Notifications</div>
 
-                  {notifPlatform.canWebNotify ? (
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <div className="settings-row-title">New email alerts</div>
-                        <div className="settings-row-sub">
-                          {notifPermission === "granted"
-                            ? "OS notifications enabled — you'll see alerts when new mail arrives"
-                            : notifPermission === "denied"
-                              ? "Blocked in browser settings — open Safari \u203a Settings for this website to re-enable"
-                              : "Get an OS-level alert when new mail arrives, even if the tab is in the background"}
+                  <div className="settings-card-group">
+                    {notifPlatform.canWebNotify ? (
+                      <div className="settings-row settings-card-row">
+                        <div className="settings-row-info">
+                          <div className="settings-row-title">New email alerts</div>
+                          <div className="settings-row-sub">
+                            {notifPermission === "granted"
+                              ? "OS notifications enabled — you'll see alerts when new mail arrives"
+                              : notifPermission === "denied"
+                                ? "Blocked in browser settings — open Safari \u203a Settings for this website to re-enable"
+                                : "Get an OS-level alert when new mail arrives, even if the tab is in the background"}
+                          </div>
+                        </div>
+                        {notifPermission === "default" ? (
+                          <button
+                            className="settings-notify-btn"
+                            onClick={() => {
+                              void requestNotificationPermission();
+                            }}
+                          >
+                            Enable
+                          </button>
+                        ) : notifPermission === "granted" ? (
+                          <span className="settings-notify-status on">● On</span>
+                        ) : (
+                          <span className="settings-notify-status off">Blocked</span>
+                        )}
+                      </div>
+                    ) : notifPlatform.isIosSafariTab ? (
+                      <div className="settings-row settings-card-row">
+                        <div className="settings-row-info">
+                          <div className="settings-row-title">New email alerts</div>
+                          <div className="settings-row-sub">
+                            To receive notifications on iOS, add MaxiMail to your Home
+                            Screen: tap the Share button in Safari, then &quot;Add to Home
+                            Screen&quot;. Open the installed app to enable alerts.
+                          </div>
                         </div>
                       </div>
-                      {notifPermission === "default" ? (
-                        <button
-                          className="settings-notify-btn"
-                          onClick={() => {
-                            void requestNotificationPermission();
-                          }}
-                        >
-                          Enable
-                        </button>
-                      ) : notifPermission === "granted" ? (
-                        <span className="settings-notify-status on">● On</span>
-                      ) : (
-                        <span className="settings-notify-status off">Blocked</span>
-                      )}
-                    </div>
-                  ) : notifPlatform.isIosSafariTab ? (
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <div className="settings-row-title">New email alerts</div>
-                        <div className="settings-row-sub">
-                          To receive notifications on iOS, add MaxiMail to your Home
-                          Screen: tap the Share button in Safari, then &quot;Add to Home
-                          Screen&quot;. Open the installed app to enable alerts.
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                    ) : null}
 
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <div className="settings-row-title">Tab badge</div>
-                      <div className="settings-row-sub">
-                        Show unread count in the browser tab title — visible when
-                        MaxiMail is in the background
+                    <div className="settings-row settings-card-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Tab badge</div>
+                        <div className="settings-row-sub">
+                          Show unread count in the browser tab title — visible when
+                          MaxiMail is in the background
+                        </div>
                       </div>
+                      <span className="settings-always-on">
+                        <span className="settings-always-on-dot" />
+                        <span>Always on</span>
+                      </span>
                     </div>
-                    <span className="settings-notify-status on">● Always on</span>
                   </div>
                 </div>
               </div>
@@ -19044,9 +19657,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             >
                               <div
                                 className="settings-account-avatar"
-                                style={{ background: getAvatarColor(account.email) }}
+                                style={{
+                                  background:
+                                    getPriorityAvatarPalette(account.label || account.email)
+                                      .background,
+                                  color:
+                                    getPriorityAvatarPalette(account.label || account.email).color
+                                }}
                               >
-                                {account.email[0]?.toUpperCase() ?? "?"}
+                                {getSenderInitials(account.label || account.email)}
                               </div>
                               <div className="settings-account-info">
                                 <div className="settings-account-label">
@@ -19343,247 +19962,686 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="settings-body">
                 {(() => {
                   const hasStoredAiKey = Boolean(aiSettings?.configured);
-                  const hasPendingAiKey = aiApiKeyInput.trim().length > 0;
-                  const showSaveAiAction = !hasStoredAiKey || hasPendingAiKey;
-                  const showRemoveAiAction = hasStoredAiKey && !hasPendingAiKey;
-                  const canTestAiSettings =
-                    !aiSettingsSaving &&
-                    !aiSettingsTesting &&
-                    !aiSettingsRemoving &&
-                    (hasStoredAiKey || hasPendingAiKey);
                   const hasStoredTavilyKey = Boolean(tavilySettings?.configured);
-                  const hasPendingTavilyKey = tavilyApiKeyInput.trim().length > 0;
-                  const showSaveTavilyAction = !hasStoredTavilyKey || hasPendingTavilyKey;
-                  const showRemoveTavilyAction = hasStoredTavilyKey && !hasPendingTavilyKey;
+                  const openAiOwnerLabel = aiSettings?.ownerLabel ?? "Current account";
+                  const tavilyOwnerLabel = tavilySettings?.ownerLabel ?? "Current account";
+                  const openAiShowExpanded = replacingOpenAI;
+                  const tavilyShowExpanded = replacingTavily;
 
                   return (
-                <>
-                <div className="settings-section">
-                  <div className="settings-section-header">
-                    <div className="settings-section-label">AI Writing Assistant</div>
-                    <span
-                      className={`settings-ai-status-pill ${
-                        aiSettings?.status === "connected"
-                          ? "connected"
-                          : aiSettings?.status === "invalid"
-                            ? "invalid"
-                            : ""
-                      }`}
-                    >
-                      {getAiSettingsStatusLabel(aiSettings?.status ?? "not_configured")}
-                    </span>
-                  </div>
-                  <div className="settings-section-subtle settings-ai-section-subtle">
-                    Bring your own OpenAI API key. This is not a ChatGPT login, and the
-                    saved key is used only for this owner&apos;s composer rewrite requests.
-                  </div>
-
-                  <div className="settings-field-group settings-ai-field-group">
-                    <div className="settings-row settings-ai-summary-row">
-                      <div className="settings-row-info">
-                        <div className="settings-row-title">
-                          {aiSettings?.ownerLabel ?? "Current owner"}
-                        </div>
-                        <div className="settings-row-sub">
-                          {aiSettings?.status === "connected"
-                            ? aiSettings.lastValidatedAt
-                              ? `Connected and last validated ${new Date(
-                                  aiSettings.lastValidatedAt
-                                ).toLocaleString()}.`
-                              : "Connected."
-                            : aiSettings?.status === "invalid"
-                              ? aiSettings.lastError ||
-                                "The saved key needs attention before rewrite requests can use it."
-                          : "No OpenAI API key is saved yet."}
-                        </div>
-                      </div>
-                    </div>
-
-                    {aiSettings?.configured ? (
-                      aiAvailabilityLoading && !isAiAvailabilityFresh(aiAvailabilitySummary) ? (
-                        <div className="settings-ai-action-status">
-                          Checking AI rewrite availability…
-                        </div>
-                      ) : aiAvailabilitySummary ? (
+                    <>
+                      <div style={{ marginBottom: 20 }}>
                         <div
-                          className={`settings-ai-action-status ${
-                            isAiAvailabilityUnavailable(aiAvailabilitySummary)
-                              ? "error"
-                              : aiAvailabilitySummary.status === "available"
-                                ? "success"
-                                : ""
-                          }`}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            marginBottom: 8
+                          }}
                         >
-                          {isAiAvailabilityUnavailable(aiAvailabilitySummary)
-                            ? `API key saved, but unavailable right now. ${getAiAvailabilityMessage(
-                                aiAvailabilitySummary
-                              )}`
-                            : `AI rewrite availability: ${getAiAvailabilityStatusLabel(
-                                aiAvailabilitySummary.status
-                              )}.`}
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              color: "var(--text3)"
+                            }}
+                          >
+                            AI Writing Assistant
+                          </span>
+                          <span
+                            style={{
+                              background: hasStoredAiKey
+                                ? "rgba(52,199,89,0.13)"
+                                : "var(--surface3)",
+                              color: hasStoredAiKey ? "#1a7f37" : "var(--text3)",
+                              fontSize: 11,
+                              fontWeight: 500,
+                              borderRadius: 6,
+                              padding: "2px 9px"
+                            }}
+                          >
+                            {hasStoredAiKey ? "Connected" : "Not connected"}
+                          </span>
                         </div>
-                      ) : null
-                    ) : null}
 
-                    <div className="settings-field">
-                      <label>
-                        {aiSettings?.configured ? "Replace OpenAI API key" : "OpenAI API key"}
-                      </label>
-                      <input
-                        type="password"
-                        value={aiApiKeyInput}
-                        onChange={(event) => {
-                          setAiApiKeyInput(event.target.value);
-                          setAiSettingsError(null);
-                          setAiSettingsSuccess(null);
-                        }}
-                        placeholder="sk-..."
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <div className="settings-field-hint">
-                        {aiSettings?.configured
-                          ? "A key is already stored securely. Enter a new one only when you want to replace it."
-                          : "Paste an OpenAI API key here to enable the AI Writing Assistant."}
-                      </div>
-                    </div>
+                        {!hasStoredAiKey && !openAiShowExpanded ? (
+                          <div
+                            style={{
+                              background: "var(--surface2)",
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              border: "0.5px solid var(--border)"
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                padding: "13px 14px"
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 34,
+                                  height: 34,
+                                  minWidth: 34,
+                                  borderRadius: "50%",
+                                  background: "var(--surface3)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center"
+                                }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                  <path
+                                    d="M8 4v8M4 8h8"
+                                    stroke="var(--text3)"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  style={{ fontSize: 13, fontWeight: 500, color: "var(--text2)" }}
+                                >
+                                  No API key connected
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: "var(--text3)",
+                                    marginTop: 2
+                                  }}
+                                >
+                                  Add a key to enable AI rewrite
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  color: "#fff",
+                                  background: "#0a84ff",
+                                  border: "none",
+                                  borderRadius: 7,
+                                  padding: "5px 12px",
+                                  cursor: "pointer"
+                                }}
+                                onClick={() => setReplacingOpenAI(true)}
+                              >
+                                Add key
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              background: "var(--surface2)",
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              border: "0.5px solid var(--border)"
+                            }}
+                          >
+                            {hasStoredAiKey ? (
+                              <>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 12,
+                                    padding: "13px 14px"
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: 34,
+                                      height: 34,
+                                      minWidth: 34,
+                                      borderRadius: "50%",
+                                      background: "#e8f4e8",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center"
+                                    }}
+                                  >
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                      <path
+                                        d="M3.5 8.5l3 3 6-6"
+                                        stroke="#2d7a3a"
+                                        strokeWidth="1.8"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: 500,
+                                        color: "var(--text)"
+                                      }}
+                                    >
+                                      OpenAI API key
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 12,
+                                        color: "var(--text3)",
+                                        marginTop: 2
+                                      }}
+                                    >
+                                      {openAiOwnerLabel} · stored securely
+                                    </div>
+                                  </div>
+                                  {openAiShowExpanded ? (
+                                    <button
+                                      type="button"
+                                      style={{
+                                        fontSize: 12,
+                                        color: "var(--text3)",
+                                        background: "transparent",
+                                        border: "none",
+                                        padding: "5px 4px",
+                                        cursor: "pointer",
+                                        flexShrink: 0
+                                      }}
+                                      onClick={() => setReplacingOpenAI(false)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      style={{
+                                        fontSize: 12,
+                                        color: "var(--text2)",
+                                        background: "var(--color-background-primary)",
+                                        border: "0.5px solid var(--border)",
+                                        borderRadius: 7,
+                                        padding: "5px 12px",
+                                        cursor: "pointer",
+                                        flexShrink: 0
+                                      }}
+                                      onClick={() => setReplacingOpenAI(true)}
+                                    >
+                                      Replace
+                                    </button>
+                                  )}
+                                </div>
+                                {!openAiShowExpanded ? (
+                                  <div
+                                    style={{
+                                      borderTop: "0.5px solid var(--border)",
+                                      padding: "9px 14px",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: "50%",
+                                        background: "#34c759",
+                                        minWidth: 6
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 12, color: "var(--text3)" }}>
+                                      AI rewrite available
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
 
-                    <div className="settings-ai-actions">
-                      {showSaveAiAction ? (
-                        <button
-                          className="ghostButton"
-                          type="button"
-                          disabled={aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving}
-                          onClick={() => {
-                            void saveAiSettingsKey();
+                            {openAiShowExpanded ? (
+                              <div
+                                style={{
+                                  borderTop: hasStoredAiKey ? "0.5px solid var(--border)" : "none",
+                                  padding: "12px 14px",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 10
+                                }}
+                              >
+                                <p
+                                  style={{
+                                    fontSize: 12,
+                                    color: "var(--text3)",
+                                    margin: "0 0 2px"
+                                  }}
+                                >
+                                  Enter a new key to replace the existing one
+                                </p>
+                                <input
+                                  type="password"
+                                  value={aiApiKeyInput}
+                                  onChange={(event) => {
+                                    setAiApiKeyInput(event.target.value);
+                                    setAiSettingsError(null);
+                                    setAiSettingsSuccess(null);
+                                  }}
+                                  placeholder="sk-..."
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  style={{
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                    background: "var(--color-background-primary)",
+                                    border: "0.5px solid var(--border)",
+                                    borderRadius: 8,
+                                    fontSize: 13,
+                                    padding: "9px 12px",
+                                    outline: "none"
+                                  }}
+                                />
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between"
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving
+                                    }
+                                    style={{
+                                      fontSize: 12,
+                                      color: "#d0230f",
+                                      background: "transparent",
+                                      border: "none",
+                                      padding: 0,
+                                      cursor: "pointer"
+                                    }}
+                                    onClick={() => {
+                                      void removeAiSettingsKey();
+                                    }}
+                                  >
+                                    {aiSettingsRemoving ? "Removing..." : "Remove key"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving
+                                    }
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 500,
+                                      color: "#fff",
+                                      background: "#0a84ff",
+                                      border: "none",
+                                      borderRadius: 8,
+                                      padding: "7px 18px",
+                                      cursor: "pointer"
+                                    }}
+                                    onClick={() => {
+                                      void saveAiSettingsKey();
+                                    }}
+                                  >
+                                    {aiSettingsSaving ? "Saving..." : "Save"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {aiSettingsError ? (
+                          <div className="settings-ai-action-status error">{aiSettingsError}</div>
+                        ) : null}
+                        {aiSettingsSuccess ? (
+                          <div className="settings-ai-action-status success">{aiSettingsSuccess}</div>
+                        ) : null}
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text3)",
+                            margin: "7px 2px 0",
+                            lineHeight: 1.55
                           }}
                         >
-                          {aiSettingsSaving ? "Saving…" : "Save Key"}
-                        </button>
-                      ) : null}
-                      <button
-                        className="ghostButton"
-                        type="button"
-                        disabled={!canTestAiSettings}
-                        onClick={() => {
-                          void testAiSettingsKey();
-                        }}
-                      >
-                        {aiSettingsTesting ? "Testing…" : "Test Connection"}
-                      </button>
-                      {showRemoveAiAction ? (
-                        <button
-                          className="settings-ai-remove-btn"
-                          type="button"
-                          disabled={aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving}
-                          onClick={() => {
-                            void removeAiSettingsKey();
-                          }}
-                        >
-                          {aiSettingsRemoving ? "Removing…" : "Remove Key"}
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {aiSettingsError ? (
-                      <div className="settings-ai-action-status error">{aiSettingsError}</div>
-                    ) : null}
-                    {aiSettingsSuccess ? (
-                      <div className="settings-ai-action-status success">{aiSettingsSuccess}</div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="settings-section">
-                  <div className="settings-section-header">
-                    <div className="settings-section-label">QuickFact Source Key (Tavily)</div>
-                    <span
-                      className={`settings-ai-status-pill ${
-                        tavilySettings?.configured ? "connected" : ""
-                      }`}
-                    >
-                      {tavilySettings?.configured ? "Connected" : "Not configured"}
-                    </span>
-                  </div>
-                  <div className="settings-section-subtle settings-ai-section-subtle">
-                    Saved securely for this owner and used by QuickFact server-side retrieval.
-                  </div>
-
-                  <div className="settings-field-group settings-ai-field-group">
-                    <div className="settings-row settings-ai-summary-row">
-                      <div className="settings-row-info">
-                        <div className="settings-row-title">
-                          {tavilySettings?.ownerLabel ?? "Current owner"}
+                          Bring your own OpenAI API key. Not a ChatGPT login — used only for
+                          composer rewrite requests in this account.
                         </div>
-                        <div className="settings-row-sub">
-                          {tavilySettingsLoading
-                            ? "Loading Tavily key status…"
-                            : tavilySettings?.configured
-                              ? "A Tavily API key is stored for QuickFact."
-                              : "No Tavily API key is saved yet."}
+                      </div>
+
+                      <div style={{ marginBottom: 20 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            marginBottom: 8
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: "var(--text3)"
+                              }}
+                            >
+                              QuickFact
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "var(--text3)",
+                                fontWeight: 400
+                              }}
+                            >
+                              via Tavily
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              background: hasStoredTavilyKey
+                                ? "rgba(52,199,89,0.13)"
+                                : "var(--surface3)",
+                              color: hasStoredTavilyKey ? "#1a7f37" : "var(--text3)",
+                              fontSize: 11,
+                              fontWeight: 500,
+                              borderRadius: 6,
+                              padding: "2px 9px"
+                            }}
+                          >
+                            {hasStoredTavilyKey ? "Connected" : "Not connected"}
+                          </span>
+                        </div>
+
+                        {!hasStoredTavilyKey && !tavilyShowExpanded ? (
+                          <div
+                            style={{
+                              background: "var(--surface2)",
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              border: "0.5px solid var(--border)"
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                padding: "13px 14px"
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 34,
+                                  height: 34,
+                                  minWidth: 34,
+                                  borderRadius: "50%",
+                                  background: "var(--surface3)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center"
+                                }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                  <path
+                                    d="M8 4v8M4 8h8"
+                                    stroke="var(--text3)"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  style={{ fontSize: 13, fontWeight: 500, color: "var(--text2)" }}
+                                >
+                                  No API key connected
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: "var(--text3)",
+                                    marginTop: 2
+                                  }}
+                                >
+                                  Add a key to enable QuickFact
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 500,
+                                  color: "#fff",
+                                  background: "#0a84ff",
+                                  border: "none",
+                                  borderRadius: 7,
+                                  padding: "5px 12px",
+                                  cursor: "pointer"
+                                }}
+                                onClick={() => setReplacingTavily(true)}
+                              >
+                                Add key
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              background: "var(--surface2)",
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              border: "0.5px solid var(--border)"
+                            }}
+                          >
+                            {hasStoredTavilyKey ? (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 12,
+                                  padding: "13px 14px"
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    minWidth: 34,
+                                    borderRadius: "50%",
+                                    background: "#e8f4e8",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center"
+                                  }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <path
+                                      d="M3.5 8.5l3 3 6-6"
+                                      stroke="#2d7a3a"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 500,
+                                      color: "var(--text)"
+                                    }}
+                                  >
+                                    Tavily API key
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: 12,
+                                      color: "var(--text3)",
+                                      marginTop: 2
+                                    }}
+                                  >
+                                    {tavilyOwnerLabel} · stored securely
+                                  </div>
+                                </div>
+                                {tavilyShowExpanded ? (
+                                  <button
+                                    type="button"
+                                    style={{
+                                      fontSize: 12,
+                                      color: "var(--text3)",
+                                      background: "transparent",
+                                      border: "none",
+                                      padding: "5px 4px",
+                                      cursor: "pointer",
+                                      flexShrink: 0
+                                    }}
+                                    onClick={() => setReplacingTavily(false)}
+                                  >
+                                    Cancel
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    style={{
+                                      fontSize: 12,
+                                      color: "var(--text2)",
+                                      background: "var(--color-background-primary)",
+                                      border: "0.5px solid var(--border)",
+                                      borderRadius: 7,
+                                      padding: "5px 12px",
+                                      cursor: "pointer",
+                                      flexShrink: 0
+                                    }}
+                                    onClick={() => setReplacingTavily(true)}
+                                  >
+                                    Replace
+                                  </button>
+                                )}
+                              </div>
+                            ) : null}
+                            {tavilyShowExpanded ? (
+                              <div
+                                style={{
+                                  borderTop: hasStoredTavilyKey
+                                    ? "0.5px solid var(--border)"
+                                    : "none",
+                                  padding: "12px 14px",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 10
+                                }}
+                              >
+                                <p
+                                  style={{
+                                    fontSize: 12,
+                                    color: "var(--text3)",
+                                    margin: "0 0 2px"
+                                  }}
+                                >
+                                  Enter a new key to replace the existing one
+                                </p>
+                                <input
+                                  type="password"
+                                  value={tavilyApiKeyInput}
+                                  onChange={(event) => {
+                                    setTavilyApiKeyInput(event.target.value);
+                                    setTavilySettingsError(null);
+                                    setTavilySettingsSuccess(null);
+                                  }}
+                                  placeholder="tvly-..."
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  style={{
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                    background: "var(--color-background-primary)",
+                                    border: "0.5px solid var(--border)",
+                                    borderRadius: 8,
+                                    fontSize: 13,
+                                    padding: "9px 12px",
+                                    outline: "none"
+                                  }}
+                                />
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between"
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    disabled={tavilySettingsSaving || tavilySettingsRemoving}
+                                    style={{
+                                      fontSize: 12,
+                                      color: "#d0230f",
+                                      background: "transparent",
+                                      border: "none",
+                                      padding: 0,
+                                      cursor: "pointer"
+                                    }}
+                                    onClick={() => {
+                                      void removeTavilySettingsKey();
+                                    }}
+                                  >
+                                    {tavilySettingsRemoving ? "Removing..." : "Remove key"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={tavilySettingsSaving || tavilySettingsRemoving}
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 500,
+                                      color: "#fff",
+                                      background: "#0a84ff",
+                                      border: "none",
+                                      borderRadius: 8,
+                                      padding: "7px 18px",
+                                      cursor: "pointer"
+                                    }}
+                                    onClick={() => {
+                                      void saveTavilySettingsKey();
+                                    }}
+                                  >
+                                    {tavilySettingsSaving ? "Saving..." : "Save"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {tavilySettingsError ? (
+                          <div className="settings-ai-action-status error">{tavilySettingsError}</div>
+                        ) : null}
+                        {tavilySettingsSuccess ? (
+                          <div className="settings-ai-action-status success">
+                            {tavilySettingsSuccess}
+                          </div>
+                        ) : null}
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text3)",
+                            margin: "7px 2px 0",
+                            lineHeight: 1.55
+                          }}
+                        >
+                          QuickFact retrieves context server-side using your Tavily key. Used only
+                          within this account.
                         </div>
                       </div>
-                    </div>
-
-                    <div className="settings-field">
-                      <label>
-                        {tavilySettings?.configured ? "Replace Tavily API key" : "Tavily API key"}
-                      </label>
-                      <input
-                        type="password"
-                        value={tavilyApiKeyInput}
-                        onChange={(event) => {
-                          setTavilyApiKeyInput(event.target.value);
-                          setTavilySettingsError(null);
-                          setTavilySettingsSuccess(null);
-                        }}
-                        placeholder="tvly-..."
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <div className="settings-field-hint">
-                        {tavilySettings?.configured
-                          ? "A key is already stored securely. Enter a new one only when you want to replace it."
-                          : "Paste a Tavily API key here to enable QuickFact retrieval."}
-                      </div>
-                    </div>
-
-                    <div className="settings-ai-actions">
-                      {showSaveTavilyAction ? (
-                        <button
-                          className="ghostButton"
-                          type="button"
-                          disabled={tavilySettingsSaving || tavilySettingsRemoving}
-                          onClick={() => {
-                            void saveTavilySettingsKey();
-                          }}
-                        >
-                          {tavilySettingsSaving ? "Saving…" : "Save Key"}
-                        </button>
-                      ) : null}
-                      {showRemoveTavilyAction ? (
-                        <button
-                          className="settings-ai-remove-btn"
-                          type="button"
-                          disabled={tavilySettingsSaving || tavilySettingsRemoving}
-                          onClick={() => {
-                            void removeTavilySettingsKey();
-                          }}
-                        >
-                          {tavilySettingsRemoving ? "Removing…" : "Remove Key"}
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {tavilySettingsError ? (
-                      <div className="settings-ai-action-status error">{tavilySettingsError}</div>
-                    ) : null}
-                    {tavilySettingsSuccess ? (
-                      <div className="settings-ai-action-status success">{tavilySettingsSuccess}</div>
-                    ) : null}
-                  </div>
-                </div>
-                </>
+                    </>
                   );
                 })()}
               </div>
@@ -19629,40 +20687,82 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     </div>
                   </div>
                   <div className="sort-settings-account-list">
-                    {sortFolderSettingsGroups.map(({ account, presets }) => (
-                      <div key={account.id} className="sort-settings-account-card">
+                    {sortFolderSettingsGroups.map(({ account, presets }) => {
+                      const isExpanded = sortSettingsExpandedAccounts[account.id] ?? false;
+
+                      return (
+                      <div
+                        key={account.id}
+                        className={`sort-settings-account-card ${isExpanded ? "expanded" : ""}`}
+                      >
                         <div className="sort-settings-account-header">
-                          <div className="sort-settings-account-label">
-                            {account.label || account.email}
-                          </div>
-                          <div className="sort-settings-account-email">{account.email}</div>
-                        </div>
-                        <div className="sort-settings-preset-list">
-                          {presets.map(({ preset, exists }) => (
-                            <div key={preset.key} className="sort-settings-preset-row">
-                              <div className="sort-settings-preset-copy">
-                                <div className="sort-settings-preset-label">
-                                  <span
-                                    className={`sort-folder-glyph sort-folder-glyph-${preset.tone}`}
-                                  >
-                                    {renderSortFolderGlyph(preset)}
-                                  </span>
-                                  <span>{preset.label}</span>
-                                </div>
-                                <div className="sort-settings-preset-sub">{preset.description}</div>
-                              </div>
-                              <span
-                                className={`sort-settings-preset-status ${
-                                  exists ? "active" : ""
-                                }`}
-                              >
-                                {exists ? "In use" : "Not used yet"}
-                              </span>
+                          <div className="sort-settings-account-header-main">
+                            <div className="sort-settings-account-label">
+                              {account.label || account.email}
                             </div>
-                          ))}
+                            <div className="sort-settings-account-email">{account.email}</div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`sort-settings-account-toggle ${
+                              isExpanded ? "expanded" : ""
+                            }`}
+                            aria-label={
+                              isExpanded
+                                ? `Collapse ${account.label || account.email}`
+                                : `Expand ${account.label || account.email}`
+                            }
+                            aria-expanded={isExpanded}
+                            onClick={() => {
+                              setSortSettingsExpandedAccounts((current) => ({
+                                ...current,
+                                [account.id]: !isExpanded
+                              }));
+                            }}
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="9 6 15 12 9 18" />
+                            </svg>
+                          </button>
                         </div>
+                        {isExpanded ? (
+                          <div className="sort-settings-preset-list">
+                            {presets.map(({ preset, exists }) => (
+                              <div key={preset.key} className="sort-settings-preset-row">
+                                <div className="sort-settings-preset-copy">
+                                  <div className="sort-settings-preset-label">
+                                    <span
+                                      className={`sort-folder-glyph sort-folder-glyph-${preset.tone}`}
+                                    >
+                                      {renderSortFolderGlyph(preset)}
+                                    </span>
+                                    <span>{preset.label}</span>
+                                  </div>
+                                  <div className="sort-settings-preset-sub">{preset.description}</div>
+                                </div>
+                                <span
+                                  className={`sort-settings-preset-status ${
+                                    exists ? "active" : ""
+                                  }`}
+                                >
+                                  {exists ? "In use" : "Not used yet"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
               </div>
@@ -19712,7 +20812,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <div key={rule.senderEmail || rule.senderName} className="settings-rule-row">
                           <div
                             className="settings-rule-avatar"
-                            style={{ background: getAvatarColor(rule.senderName) }}
+                            style={{
+                              background: getPriorityAvatarPalette(
+                                rule.senderName || rule.senderEmail
+                              ).background,
+                              color: getPriorityAvatarPalette(
+                                rule.senderName || rule.senderEmail
+                              ).color
+                            }}
                           >
                             {getSenderInitials(rule.senderName)}
                           </div>
@@ -20432,15 +21539,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   onChange={(event) => setComposeSubject(event.target.value)}
                   placeholder="Subject"
                 />
-                {composeSubject.length > 70 ? (
-                  <span
-                    className={`subject-length-warning ${
-                      composeSubject.length > 90 ? "danger" : ""
-                    }`}
-                  >
-                    {composeSubject.length}
-                  </span>
-                ) : null}
               </div>
 
               <div className="compose-row compose-row-meta">
@@ -20497,8 +21595,62 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     />
                   </label>
                 ) : null}
-                {primaryToolbarCommands.map((command, index) =>
-                  renderComposeToolbarCommand(command, index, primaryToolbarCommands)
+                {primaryFontToolbarCommands.map((command, index) =>
+                  renderComposeToolbarCommand(command, index, primaryFontToolbarCommands)
+                )}
+                <div className="compose-toolbar-spacer" />
+                <button
+                  type="button"
+                  className={`fmt-btn toolbar-expand-btn ${
+                    composeToolbarPreferences.mode === "expanded" ? "fmt-btn-active" : ""
+                  }`}
+                  title={
+                    composeToolbarPreferences.mode === "expanded"
+                      ? "Collapse toolbar"
+                      : "Expand toolbar"
+                  }
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setComposeToolbarOverflowOpen(false);
+                    setComposeToolbarOverflowPosition(null);
+                    handleComposeToolbarModeChange(
+                      composeToolbarPreferences.mode === "expanded"
+                        ? "compact"
+                        : "expanded"
+                    );
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline
+                      points={
+                        composeToolbarPreferences.mode === "expanded"
+                          ? "6 15 12 9 18 15"
+                          : "6 9 12 15 18 9"
+                      }
+                    />
+                  </svg>
+                </button>
+              </div>
+              {composeToolbarPreferences.mode === "expanded" &&
+              secondaryToolbarCommands.length > 0 ? (
+                <div className="compose-fmt-row compose-fmt-row-secondary">
+                  {secondaryToolbarCommands.map((command, index) =>
+                    renderComposeToolbarCommand(command, index, secondaryToolbarCommands)
+                  )}
+                </div>
+              ) : null}
+              <div className="compose-fmt-row compose-fmt-row-ai">
+                {primaryAiToolbarCommands.map((command, index) =>
+                  renderComposeToolbarCommand(command, index, primaryAiToolbarCommands)
                 )}
                 <div className="compose-toolbar-quickfact" ref={composeQuickInsertRef}>
                   <button
@@ -20562,56 +21714,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </svg>
                   <span className="fmt-btn-text">Polish</span>
                 </button>
-                <div className="compose-toolbar-spacer" />
-                <button
-                  type="button"
-                  className={`fmt-btn toolbar-expand-btn ${
-                    composeToolbarPreferences.mode === "expanded" ? "fmt-btn-active" : ""
-                  }`}
-                  title={
-                    composeToolbarPreferences.mode === "expanded"
-                      ? "Collapse toolbar"
-                      : "Expand toolbar"
-                  }
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    setComposeToolbarOverflowOpen(false);
-                    setComposeToolbarOverflowPosition(null);
-                    handleComposeToolbarModeChange(
-                      composeToolbarPreferences.mode === "expanded"
-                        ? "compact"
-                        : "expanded"
-                    );
-                  }}
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline
-                      points={
-                        composeToolbarPreferences.mode === "expanded"
-                          ? "6 15 12 9 18 15"
-                          : "6 9 12 15 18 9"
-                      }
-                    />
-                  </svg>
-                </button>
               </div>
-              {composeToolbarPreferences.mode === "expanded" &&
-              secondaryToolbarCommands.length > 0 ? (
-                <div className="compose-fmt-row compose-fmt-row-secondary">
-                  {secondaryToolbarCommands.map((command, index) =>
-                    renderComposeToolbarCommand(command, index, secondaryToolbarCommands)
-                  )}
-                </div>
-              ) : null}
               {composeToolbarCustomizationEnabled ? (
                 <div className="compose-toolbar-customize" ref={composeToolbarMenuRef}>
                   <button
@@ -20777,12 +21880,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       }}
                     >
                       <div className="compose-quickfact-input-wrap">
-                        <input
+                        <textarea
                           ref={composeQuickFactInputRef}
                           className="compose-quickfact-input"
-                          type="text"
+                          rows={1}
                           value={composeQuickFact.query}
                           placeholder="What fact do you need?"
+                          onInput={autoResizeComposeQuickFactInput}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                              event.preventDefault();
+                              void submitComposeQuickFactQuery();
+                            }
+                          }}
                           onChange={(event) =>
                             setComposeQuickFact((state) => ({
                               ...state,
@@ -22622,13 +23732,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             document.body
           )
         : null}
-
-      {showPreviewBranchBadge ? (
-        <div className="preview-branch-badge" aria-label={`Preview branch ${previewBranchName}`}>
-          <span className="preview-branch-glyph">⑂</span>
-          <span>{previewBranchName}</span>
-        </div>
-      ) : null}
 
       <div className="toast-container">
         {toasts.map((toast) => (

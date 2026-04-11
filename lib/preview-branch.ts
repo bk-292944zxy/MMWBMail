@@ -1,5 +1,3 @@
-const MAIN_BRANCH_NAMES = new Set(["main", "master"]);
-
 function normalizeBranchName(value: string | undefined) {
   return (value ?? "").trim();
 }
@@ -15,10 +13,5 @@ export function shouldShowPreviewBranchBadge() {
   }
 
   const branchName = getPreviewBranchName();
-
-  if (!branchName) {
-    return false;
-  }
-
-  return !MAIN_BRANCH_NAMES.has(branchName.toLowerCase());
+  return Boolean(branchName);
 }
