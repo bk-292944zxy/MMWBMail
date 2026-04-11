@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { QuickFactRequest, QuickFactResponse } from "@/lib/quickfact";
-import { fetchQuickFactsFromTavily } from "@/lib/tavily-quickfact";
+import { runQuickFactPipeline } from "@/lib/quickfact-pipeline";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "What fact do you need?", results: [] }, { status: 400 });
     }
 
-    const response = await fetchQuickFactsFromTavily(query);
+    const response = await runQuickFactPipeline(query);
     return NextResponse.json(response satisfies QuickFactResponse);
   } catch {
     return NextResponse.json({
