@@ -167,6 +167,7 @@ import type { AiTransformType } from "@/lib/ai-rewrite";
 import type { QuickFactFallback, QuickFactResult } from "@/lib/quickfact";
 import { formatQuickFactForInsert } from "@/lib/quickfact";
 import { fetchQuickFacts } from "@/lib/quickfact-client";
+import { getPreviewBranchName, shouldShowPreviewBranchBadge } from "@/lib/preview-branch";
 import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
@@ -217,6 +218,9 @@ type SenderFilterScope = "general" | "prioritized";
 type ScrollBridgedFrame = HTMLIFrameElement & {
   __mmwbmailScrollCleanup?: () => void;
 };
+
+const previewBranchName = getPreviewBranchName();
+const showPreviewBranchBadge = shouldShowPreviewBranchBadge() && Boolean(previewBranchName);
 
 type LightboxBridgedFrame = HTMLIFrameElement & {
   __mmwbmailLightboxCleanup?: () => void;
@@ -22069,6 +22073,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             document.body
           )
         : null}
+
+      {showPreviewBranchBadge ? (
+        <div className="preview-branch-badge" aria-label={`Preview branch ${previewBranchName}`}>
+          <span className="preview-branch-glyph">⑂</span>
+          <span>{previewBranchName}</span>
+        </div>
+      ) : null}
 
       <div className="toast-container">
         {toasts.map((toast) => (

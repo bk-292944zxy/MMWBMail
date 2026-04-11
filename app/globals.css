@@ -3033,6 +3033,31 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: center !important;
 }
 
+.preview-branch-badge {
+  position: fixed !important;
+  right: 14px !important;
+  bottom: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 8px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(60, 60, 67, 0.16) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: rgba(38, 40, 46, 0.78) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  z-index: 9998 !important;
+  pointer-events: none !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.preview-branch-glyph {
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
 .toast {
   display: flex !important;
   align-items: center !important;
