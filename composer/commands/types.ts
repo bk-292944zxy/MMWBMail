@@ -22,6 +22,7 @@ export type ComposerCommandId =
   | "clear_formatting"
   | "rewrite_for_outcome"
   | "attach_file"
+  | "create_calendar_event"
   | "insert_image"
   | "insert_signature"
   | "insert_thanks"

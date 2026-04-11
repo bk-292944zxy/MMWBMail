@@ -37,6 +37,11 @@ import { COMPOSER_COMMANDS } from "@/composer/commands/registry";
 import type { ComposerCommand, ComposerCommandId } from "@/composer/commands/types";
 import { buildComposerCommandContext } from "@/composer/context/build-command-context";
 import {
+  findComposeEventAttachmentIndex,
+  upsertComposeEventAttachment
+} from "@/composer/events/attachment";
+import { ComposeEventBuilder } from "@/composer/events/compose-event-builder";
+import {
   getComposeAccountForIdentity,
   resolveComposeIdentityState,
   resolveSendIdentityForSession
@@ -66,6 +71,11 @@ import type {
   DraftSnapshotInput,
   StoredComposerDraft
 } from "@/composer/drafts/draft-types";
+import type {
+  ComposeEventAttachmentState,
+  ComposeEventFormState,
+  GeneratedEventAsset
+} from "@/composer/events/types";
 import {
   loadComposerToolbarPreferences,
   moveToolbarCommand,
@@ -707,6 +717,60 @@ function isInlineViewerMedia(item: ReceivedMessageMedia) {
   return item.role === "inline-image" && item.viewerEligible;
 }
 
+function isViewerFileAttachment(item: ReceivedMessageMedia) {
+  return (
+    item.contentDisposition === "attachment" ||
+    item.role === "attachment" ||
+    item.role === "image-attachment"
+  );
+}
+
+function getAttachmentFileCategory(item: ReceivedMessageMedia) {
+  const contentType = item.contentType.toLowerCase();
+  const filename = item.filename.toLowerCase();
+
+  if (contentType.includes("pdf") || filename.endsWith(".pdf")) {
+    return { icon: "PDF", label: "PDF" };
+  }
+
+  if (
+    contentType.includes("word") ||
+    contentType.includes("officedocument.wordprocessingml") ||
+    /\.(doc|docx)$/.test(filename)
+  ) {
+    return { icon: "DOC", label: "Document" };
+  }
+
+  if (
+    contentType.includes("spreadsheet") ||
+    contentType.includes("excel") ||
+    /\.(xls|xlsx|csv)$/.test(filename)
+  ) {
+    return { icon: "XLS", label: "Spreadsheet" };
+  }
+
+  if (
+    contentType.startsWith("image/") ||
+    /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg)$/.test(filename)
+  ) {
+    return { icon: "IMG", label: "Image" };
+  }
+
+  if (
+    contentType.includes("zip") ||
+    contentType.includes("compressed") ||
+    /\.(zip|rar|7z|tar|gz)$/.test(filename)
+  ) {
+    return { icon: "ZIP", label: "Archive" };
+  }
+
+  if (contentType.includes("calendar") || filename.endsWith(".ics")) {
+    return { icon: "ICS", label: "Calendar" };
+  }
+
+  return { icon: "FILE", label: "File" };
+}
+
 function stampMessageAccount<T extends MailSummary>(message: T, accountId?: string | null): T {
   if (!accountId || message.accountId === accountId) {
     return message;
@@ -877,6 +941,8 @@ function getAccountMailboxDisclosureTargets(
     mailboxTargets.find((target) => target.mailboxNode.systemKey === "spam") ??
     mailboxTargets.find((target) => isSpamLikeMailboxTarget(target)) ??
     null;
+  const trashTarget =
+    mailboxTargets.find((target) => target.mailboxNode.systemKey === "trash") ?? null;
   const workingTargets = mailboxTargets.filter((target) => !isHistoricalMailboxTarget(target));
   const historicalTargets = mailboxTargets.filter((target) => isHistoricalMailboxTarget(target));
   const activeBuiltInSortTargets = mailboxTargets.filter((target) =>
@@ -908,6 +974,9 @@ function getAccountMailboxDisclosureTargets(
     const primaryTargets = essentialTargets.length > 0 ? [...essentialTargets] : mailboxTargets.slice(0, 1);
     if (spamTarget) {
       primaryTargets.push(spamTarget);
+    }
+    if (trashTarget) {
+      primaryTargets.push(trashTarget);
     }
     if (input.includeActiveSortFoldersInCollapsed) {
       primaryTargets.push(...activeBuiltInSortTargets);
@@ -1651,7 +1720,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T & { error?: s
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
-  let timeoutId: number | null = null;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
 
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = globalThis.setTimeout(() => {
@@ -1709,7 +1778,14 @@ type AiAvailabilitySummary = {
   message: string | null;
 };
 
+type TavilySettingsSummary = {
+  ownerLabel: string;
+  provider: "tavily";
+  configured: boolean;
+};
+
 const AI_AVAILABILITY_FRESH_MS = 5 * 60 * 1000;
+const PREVIEW_BRANCH_NAME = (process.env.NEXT_PUBLIC_GIT_BRANCH ?? "").trim();
 
 function getAiSettingsStatusLabel(status: AiSettingsSummary["status"]) {
   switch (status) {
@@ -1981,8 +2057,9 @@ const COMPACT_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
   "italic",
   "underline",
   "link",
-  "rewrite_for_outcome",
   "attach_file",
+  "create_calendar_event",
+  "rewrite_for_outcome",
   "insert_image"
 ];
 
@@ -2127,6 +2204,17 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
+      );
+    case "calendar":
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M8 2v4" />
+          <path d="M16 2v4" />
+          <path d="M3 10h18" />
+          <path d="M12 13v5" />
+          <path d="M9.5 15.5h5" />
         </svg>
       );
     case "image":
@@ -2320,7 +2408,7 @@ function buildPrintDocument(
   const titleSource = messages[messages.length - 1] ?? messages[0];
   const title = titleSource
     ? `${displaySender(titleSource.from)} - ${titleSource.subject} - ${titleSource.date}`
-    : "Maximail";
+    : "MaxiMail";
 
   const blocks = messages
     .map((message, index) => {
@@ -2390,14 +2478,14 @@ function getComposeMinWidth() {
 
 function getComposeMaxWidth() {
   if (typeof window === "undefined") {
-    return 560;
+    return 624;
   }
 
   return Math.max(getComposeMinWidth(), Math.floor(window.innerWidth * 0.7));
 }
 
 function getInitialComposeWidth() {
-  return typeof window !== "undefined" ? Math.min(717, getComposeMaxWidth()) : 717;
+  return typeof window !== "undefined" ? Math.min(624, getComposeMaxWidth()) : 624;
 }
 
 function getDefaultComposePos(height: number, width = getInitialComposeWidth()) {
@@ -3105,7 +3193,30 @@ function SwipeRow({
                   </button>
                 ) : null}
               </div>
-              <span className="row-date">{formatTimestamp(message.date)}</span>
+              <span className="row-meta">
+                {message.hasAttachments ? (
+                  <span
+                    className="mail-list-attachment-indicator"
+                    aria-label="Message has attachments"
+                    title="Has attachment"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+                    </svg>
+                  </span>
+                ) : null}
+                <span className="row-date">{formatTimestamp(message.date)}</span>
+              </span>
             </div>
             <div className="row-subject">
               {isSentFolder ? <span className="row-to-label">To:</span> : null}
@@ -3416,6 +3527,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [composeBccList, setComposeBccList] = useState<string[]>([]);
   const [composeReplyTo, setComposeReplyTo] = useState("");
   const [composeAttachments, setComposeAttachments] = useState<File[]>([]);
+  const [composeEventBuilderOpen, setComposeEventBuilderOpen] = useState(false);
+  const [composeEvent, setComposeEvent] = useState<ComposeEventFormState | null>(null);
+  const [composeEventAttachment, setComposeEventAttachment] =
+    useState<ComposeEventAttachmentState | null>(null);
   const [composeWordCount, setComposeWordCount] = useState({ words: 0, chars: 0 });
   const [composeDragOver, setComposeDragOver] = useState(false);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
@@ -3495,6 +3610,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [signature, setSignature] = useState("— Ben");
   const [signatureDefinitions, setSignatureDefinitions] = useState<ComposeSignatureDefinition[]>([]);
   const [presetDefinitions, setPresetDefinitions] = useState<ComposePresetDefinition[]>([]);
+  const [sidebarHeroCollapsed, setSidebarHeroCollapsed] = useState(false);
+  const sidebarHeroCollapseWheelProgressRef = useRef(0);
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
@@ -3523,6 +3640,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     left: number;
   } | null>(null);
   const [expandedMessageSourceUid, setExpandedMessageSourceUid] = useState<number | null>(null);
+  const [expandedAttachmentSections, setExpandedAttachmentSections] = useState<Set<number>>(
+    () => new Set()
+  );
   const [senderFilter, setSenderFilter] = useState<string | null>(null);
   const [senderFilterScope, setSenderFilterScope] = useState<SenderFilterScope | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
@@ -3561,6 +3681,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [aiApiKeyInput, setAiApiKeyInput] = useState("");
   const [aiSettingsError, setAiSettingsError] = useState<string | null>(null);
   const [aiSettingsSuccess, setAiSettingsSuccess] = useState<string | null>(null);
+  const [tavilySettings, setTavilySettings] = useState<TavilySettingsSummary | null>(null);
+  const [tavilySettingsLoading, setTavilySettingsLoading] = useState(false);
+  const [tavilySettingsSaving, setTavilySettingsSaving] = useState(false);
+  const [tavilySettingsRemoving, setTavilySettingsRemoving] = useState(false);
+  const [tavilyApiKeyInput, setTavilyApiKeyInput] = useState("");
+  const [tavilySettingsError, setTavilySettingsError] = useState<string | null>(null);
+  const [tavilySettingsSuccess, setTavilySettingsSuccess] = useState<string | null>(null);
   const [aiAvailabilitySummary, setAiAvailabilitySummary] = useState<AiAvailabilitySummary | null>(
     null
   );
@@ -4264,6 +4391,58 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const fileAttachments = composeAttachments.filter(
     (file) => !file.type.startsWith("image/")
   );
+  const clearComposeEventState = useCallback(() => {
+    setComposeEventBuilderOpen(false);
+    setComposeEvent(null);
+    setComposeEventAttachment(null);
+  }, []);
+  const openComposeEventBuilder = useCallback(() => {
+    setComposeMinimized(false);
+    setComposeEventBuilderOpen(true);
+  }, []);
+  const closeComposeEventBuilder = useCallback(() => {
+    setComposeEventBuilderOpen(false);
+  }, []);
+  const handleComposeEventCreate = useCallback(
+    async ({
+      form,
+      asset
+    }: {
+      form: ComposeEventFormState;
+      asset: GeneratedEventAsset;
+    }) => {
+      const nextAttachmentId =
+        composeEventAttachment?.attachmentId ?? `compose-event-${asset.eventId}`;
+      const nextFile = new File([asset.icsText], asset.fileName, {
+        type: asset.mimeType
+      });
+
+      composeAttachmentIdsRef.current.set(nextFile, nextAttachmentId);
+      composeAttachmentDataUrlCacheRef.current.delete(nextFile);
+
+      setComposeAttachments((current) => {
+        const replaceIndex = findComposeEventAttachmentIndex(
+          current,
+          composeEventAttachment,
+          composeAttachmentIdsRef.current
+        );
+        if (replaceIndex >= 0 && replaceIndex < current.length) {
+          const previousFile = current[replaceIndex];
+          composeAttachmentIdsRef.current.delete(previousFile);
+          composeAttachmentDataUrlCacheRef.current.delete(previousFile);
+        }
+        return upsertComposeEventAttachment(current, nextFile, replaceIndex);
+      });
+      setComposeEvent(form);
+      setComposeEventAttachment({
+        eventId: asset.eventId,
+        attachmentId: nextAttachmentId,
+        fileName: asset.fileName
+      });
+      setStatus("Calendar invite attached.");
+    },
+    [composeEventAttachment]
+  );
   const senderSuggestions = useMemo(() => {
     const messageSuggestions: string[] = [];
 
@@ -4305,10 +4484,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       const totalUnread = nextMessages.filter((message) => !message.seen).length;
       document.title = document.hasFocus()
-        ? "Maximail"
+        ? "MaxiMail"
         : totalUnread > 0
-          ? `(${totalUnread}) Maximail`
-          : "Maximail";
+          ? `(${totalUnread}) MaxiMail`
+          : "MaxiMail";
 
       if (!notifPlatform.canBadge || typeof navigator === "undefined") {
         return;
@@ -4393,7 +4572,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setNotifPermission(result);
       if (result === "granted") {
         showToast("Notifications enabled", "success");
-        new Notification("Maximail notifications are on", {
+        new Notification("MaxiMail notifications are on", {
           body: "You'll be notified when new mail arrives.",
           icon: "/icon-192.png",
           tag: "maximail-permission-confirmed"
@@ -4980,6 +5159,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeContentState: activeComposeSession.content,
         composeIntent: activeComposeSession.intent,
         sourceMessageMeta: activeComposeSession.sourceMessageMeta,
+        composeEvent,
+        composeEventAttachment,
         subject: activeComposeSession.subject,
         to: activeComposeSession.recipients.to,
         cc: activeComposeSession.recipients.cc,
@@ -4996,6 +5177,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     [
       composeAttachments,
       activeComposeSession,
+      composeEvent,
+      composeEventAttachment,
       composePlainText,
       createDraftIdentitySnapshot,
       getComposeAttachmentState,
@@ -5013,13 +5196,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeContentState(null);
     setComposeIntent({ kind: "new" });
     setComposeSourceMessageMeta(null);
+    clearComposeEventState();
     setComposeDraftStatus("idle");
     setComposeDraftSavedAt(null);
     setComposeDraftError(null);
     composeLocalRevisionRef.current = 0;
     composeLastSavedRevisionRef.current = 0;
     autosaveServiceRef.current?.cancel();
-  }, []);
+  }, [clearComposeEventState]);
 
   const handleBlockedSenderSelection = useCallback(
     (sender: string, event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -5129,6 +5313,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     closeAccountForm();
   }, [accountFormMode, accounts.length, settingsOpen, settingsTab]);
 
+  const previewBadgeLabel =
+    process.env.NODE_ENV === "development" &&
+    PREVIEW_BRANCH_NAME.length > 0 &&
+    PREVIEW_BRANCH_NAME !== "main"
+      ? PREVIEW_BRANCH_NAME
+      : null;
+
   useEffect(() => {
     if (!settingsOpen || settingsTab !== "ai") {
       return;
@@ -5136,7 +5327,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     setAiSettingsError(null);
     setAiSettingsSuccess(null);
+    setTavilySettingsError(null);
+    setTavilySettingsSuccess(null);
     void loadAiSettings();
+    void loadTavilySettings();
   }, [settingsOpen, settingsTab]);
 
   useEffect(() => {
@@ -6542,7 +6736,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           };
           void badgeNavigator.clearAppBadge?.().catch(() => {});
         }
-        document.title = "Maximail";
+        document.title = "MaxiMail";
         if (notifPlatform.canWebNotify) {
           setNotifPermission(Notification.permission);
         }
@@ -6686,8 +6880,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     if (authFailure) {
       return accountWillBeRemoved
-        ? "Maximail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again. The account was not added."
-        : "Maximail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again.";
+        ? "MaxiMail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again. The account was not added."
+        : "MaxiMail couldn't sign in to that account. Check the email address, password, and incoming/outgoing server settings, then try again.";
     }
 
     return accountWillBeRemoved ? `${rawMessage} The account was not added.` : rawMessage;
@@ -6697,7 +6891,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const rawMessage =
       error instanceof Error && error.message.trim()
         ? error.message.trim()
-        : "Maximail couldn't remove that account right now.";
+        : "MaxiMail couldn't remove that account right now.";
     const normalized = rawMessage.toLowerCase();
 
     if (
@@ -6708,7 +6902,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     if (normalized.includes("foreign key") || normalized.includes("constraint")) {
-      return "Maximail couldn't finish removing that account because some saved mailbox data is still linked to it. Try again.";
+      return "MaxiMail couldn't finish removing that account because some saved mailbox data is still linked to it. Try again.";
     }
 
     return rawMessage;
@@ -7106,7 +7300,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               };
             } else {
               const notification = new Notification(
-                `Maximail — ${newlyArrived.length} new messages`,
+                `MaxiMail — ${newlyArrived.length} new messages`,
                 {
                   body: newlyArrived
                     .slice(0, 3)
@@ -9678,6 +9872,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeBccList(recipients.bcc);
     setComposeReplyTo(session.identity?.replyTo ?? session.replyTo);
     setComposeAttachments(restoredFiles);
+    setComposeEvent(restoredDraft?.composeEvent ?? null);
+    setComposeEventAttachment(restoredDraft?.composeEventAttachment ?? null);
+    setComposeEventBuilderOpen(false);
     setComposeSubject(session.subject);
     setComposeBody(session.textBody);
     setSignature(session.signature);
@@ -10550,6 +10747,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   }
 
+  async function loadTavilySettings() {
+    setTavilySettingsLoading(true);
+
+    try {
+      const settings = await getJson<TavilySettingsSummary>("/api/quickfact/settings");
+      setTavilySettings(settings);
+    } catch (error) {
+      setTavilySettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load QuickFact settings."
+      );
+    } finally {
+      setTavilySettingsLoading(false);
+    }
+  }
+
   async function loadAiAvailability(force = false) {
     if (!force && isAiAvailabilityFresh(aiAvailabilitySummary)) {
       return aiAvailabilitySummary;
@@ -10681,8 +10895,66 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   }
 
+  async function saveTavilySettingsKey() {
+    if (!tavilyApiKeyInput.trim()) {
+      setTavilySettingsError("Paste a Tavily API key to save it.");
+      setTavilySettingsSuccess(null);
+      return;
+    }
+
+    setTavilySettingsSaving(true);
+    setTavilySettingsError(null);
+    setTavilySettingsSuccess(null);
+
+    try {
+      const settings = await withTimeout(
+        putJson<TavilySettingsSummary>("/api/quickfact/settings", {
+          apiKey: tavilyApiKeyInput
+        }),
+        7000,
+        "Saving the Tavily API key took too long. Try again."
+      );
+      setTavilySettings(settings);
+      setTavilyApiKeyInput("");
+      setTavilySettingsSuccess("Saved.");
+    } catch (error) {
+      setTavilySettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the Tavily API key."
+      );
+    } finally {
+      setTavilySettingsSaving(false);
+    }
+  }
+
+  async function removeTavilySettingsKey() {
+    if (!window.confirm("Remove the saved Tavily API key? QuickFact answers will be disabled until you add a new one.")) {
+      return;
+    }
+
+    setTavilySettingsRemoving(true);
+    setTavilySettingsError(null);
+    setTavilySettingsSuccess(null);
+
+    try {
+      const settings = await deleteJson<TavilySettingsSummary>("/api/quickfact/settings");
+      setTavilySettings(settings);
+      setTavilyApiKeyInput("");
+      setTavilySettingsSuccess("Removed.");
+    } catch (error) {
+      setTavilySettingsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove the Tavily API key."
+      );
+    } finally {
+      setTavilySettingsRemoving(false);
+    }
+  }
+
   async function deleteConfiguredAccount(account: MailAccountSummary) {
-    if (!window.confirm(`Delete ${account.email}? This removes the saved account from Maximail.`)) {
+    if (!window.confirm(`Delete ${account.email}? This removes the saved account from MaxiMail.`)) {
       return;
     }
 
@@ -10723,7 +10995,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           (await loadPersistedAccounts(result.nextAccountId ?? undefined)) ?? optimisticNextAccount;
       } catch (error) {
         setAccountFormSuccess(
-          `${account.email} was removed, but Maximail couldn't fully refresh the account list yet.`
+          `${account.email} was removed, but MaxiMail couldn't fully refresh the account list yet.`
         );
         setStatus(
           error instanceof Error
@@ -10745,7 +11017,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             setActiveAccountId(nextAccount.id);
             applyAccountToConnection(nextAccount, nextAccount.defaultFolder || "INBOX");
             setAccountFormSuccess(
-              `${account.email} was removed. ${nextAccount.email} is now selected, but Maximail couldn't fully load it yet.`
+              `${account.email} was removed. ${nextAccount.email} is now selected, but MaxiMail couldn't fully load it yet.`
             );
             setStatus(
               error instanceof Error
@@ -10885,10 +11157,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           setSelectedImg(null);
           setImgRect(null);
         }
+
+        const indexedFile = typeof index === "number" ? composeAttachments[index] : null;
+        const shouldClearComposeEventAttachment = Boolean(
+          composeEventAttachment &&
+            ((attachmentId && composeEventAttachment.attachmentId === attachmentId) ||
+              (filename && composeEventAttachment.fileName === filename) ||
+              (indexedFile &&
+                (composeAttachmentIdsRef.current.get(indexedFile) ===
+                  composeEventAttachment.attachmentId ||
+                  indexedFile.name === composeEventAttachment.fileName)) ||
+              (file &&
+                (composeAttachmentIdsRef.current.get(file) === composeEventAttachment.attachmentId ||
+                  file.name === composeEventAttachment.fileName)))
+        );
+
+        if (shouldClearComposeEventAttachment) {
+          setComposeEvent(null);
+          setComposeEventAttachment(null);
+        }
       },
       getAttachmentState: (draftId) => getComposeAttachmentState(draftId)
     }),
-    [getComposeAttachmentState, selectedImg]
+    [composeAttachments, composeEventAttachment, getComposeAttachmentState, selectedImg]
   );
   const composePhotoService: ComposePhotoService = useMemo(
     () => createComposePhotoService(composeAttachmentAdapter),
@@ -10979,6 +11270,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           attachmentService: composeAttachmentService,
           photoService: composePhotoService
         },
+        events: {
+          openComposeEventBuilder
+        },
         content: {
           activeSignatureLabel: composeActiveSignatureLabel,
           activeSignatureText: signature,
@@ -10995,6 +11289,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeAttachmentService,
       composeCapabilityFlags,
       composeEditorAdapter,
+      openComposeEventBuilder,
       composePhotoService,
       composeSessionAccountId,
       composeSelectionState,
@@ -11846,6 +12141,223 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const showSidebarPane = !isMobileStackedMode || mobileStackedScreen === "mailboxes";
   const showInboxPane = !isMobileStackedMode || mobileStackedScreen === "messages";
   const showViewerPane = !isMobileStackedMode || mobileStackedScreen === "viewer";
+  const resolveHeaderAttachmentCount = (
+    message: Pick<MailSummary, "hasAttachments"> & Partial<Pick<MailDetail, "media">>
+  ) => {
+    if (!message.hasAttachments || !Array.isArray(message.media)) {
+      return null;
+    }
+
+    const count = message.media.filter(
+      (item) =>
+        item.contentDisposition === "attachment" ||
+        item.role === "attachment" ||
+        item.role === "image-attachment"
+    ).length;
+
+    return count > 0 ? count : null;
+  };
+  const renderHeaderAttachmentIndicator = (
+    message: Pick<MailSummary, "hasAttachments"> & Partial<Pick<MailDetail, "media">>
+  ) => {
+    if (!message.hasAttachments) {
+      return null;
+    }
+
+    const attachmentCount = resolveHeaderAttachmentCount(message);
+
+    return (
+      <div className="email-attachment-indicator" aria-label="Message has attachments">
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+        </svg>
+        {attachmentCount ? (
+          <span className="email-attachment-indicator-count">{attachmentCount}</span>
+        ) : null}
+      </div>
+    );
+  };
+  async function hydrateMessageAttachments(
+    message: Pick<MailSummary, "uid" | "hasAttachments" | "accountId">
+  ) {
+    const resolvedAccountId = message.accountId ?? activeAccountId;
+    if (!resolvedAccountId || !message.hasAttachments) {
+      return;
+    }
+
+    try {
+      const response = await getJson<{ message: MailDetail }>(
+        `/api/accounts/${resolvedAccountId}/messages/${message.uid}?folder=${encodeURIComponent(
+          currentFolderPath
+        )}`
+      );
+      const refreshed = stampMessageAccount(response.message, resolvedAccountId);
+      setSelectedMessage((current) =>
+        current && current.uid === refreshed.uid ? refreshed : current
+      );
+    } catch {
+      // Keep the current section state if attachment hydration fails.
+    }
+  }
+
+  const renderMessageAttachmentSection = (
+    message: Pick<MailSummary, "uid" | "hasAttachments" | "accountId"> &
+      Partial<Pick<MailDetail, "media">>
+  ) => {
+    if (!message.hasAttachments) {
+      return null;
+    }
+
+    const mediaItems = Array.isArray(message.media) ? message.media : [];
+    const attachments = mediaItems.filter(isViewerFileAttachment);
+    const isExpanded = expandedAttachmentSections.has(message.uid);
+    const primaryAttachmentName = attachments[0]?.filename ?? null;
+    const additionalAttachmentCount = attachments.length > 1 ? attachments.length - 1 : 0;
+
+    return (
+      <section
+        className="viewer-attachment-section"
+        aria-label="Attachments"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className={`viewer-attachment-toggle ${isExpanded ? "expanded" : ""}`}
+          onClick={() => {
+            const nextExpanded = !isExpanded;
+            setExpandedAttachmentSections((current) => {
+              const next = new Set(current);
+              if (nextExpanded) {
+                next.add(message.uid);
+              } else {
+                next.delete(message.uid);
+              }
+              return next;
+            });
+
+            if (nextExpanded && attachments.length === 0) {
+              void hydrateMessageAttachments(message);
+            }
+          }}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? "Collapse attachments" : "Expand attachments"}
+        >
+          <span className="viewer-attachment-section-header viewer-attachment-summary">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+            </svg>
+            <span className="viewer-attachment-summary-label">Attachments</span>
+            {attachments.length > 0 ? (
+              <span className="viewer-attachment-summary-count">({attachments.length})</span>
+            ) : null}
+            {primaryAttachmentName ? (
+              <span
+                className="viewer-attachment-summary-name"
+                title={primaryAttachmentName}
+              >
+                {primaryAttachmentName}
+              </span>
+            ) : (
+              <span className="viewer-attachment-summary-name viewer-attachment-summary-name-empty">
+                Attachments detected
+              </span>
+            )}
+            {additionalAttachmentCount > 0 ? (
+              <span className="viewer-attachment-summary-more">+{additionalAttachmentCount}</span>
+            ) : null}
+            {attachments.length === 0 ? (
+              <span className="viewer-attachment-summary-state">loading…</span>
+            ) : null}
+          </span>
+          <span className="viewer-attachment-chevron-wrap">
+            <span className="viewer-attachment-chevron" aria-hidden="true">
+              ▾
+            </span>
+          </span>
+        </button>
+        {isExpanded ? (
+          attachments.length > 0 ? (
+            <div className="viewer-attachment-list">
+              {attachments.map((item) => {
+                const category = getAttachmentFileCategory(item);
+                const openHref = item.sourceUrl || item.saveUrl;
+                const downloadHref = item.saveUrl || item.sourceUrl;
+
+                return (
+                  <div key={item.id} className="viewer-attachment-item">
+                    <div className="viewer-attachment-icon" aria-hidden="true">
+                      {category.icon}
+                    </div>
+                    <div className="viewer-attachment-meta">
+                      <div className="viewer-attachment-name" title={item.filename}>
+                        {item.filename}
+                      </div>
+                      <div className="viewer-attachment-type">
+                        {category.label}
+                        {item.contentType ? (
+                          <>
+                            <span className="viewer-attachment-meta-sep">·</span>
+                            <span className="viewer-attachment-mime">
+                              {item.contentType.split(";")[0]}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="viewer-attachment-actions">
+                      {openHref ? (
+                        <a
+                          className="viewer-attachment-link"
+                          href={openHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Open
+                        </a>
+                      ) : null}
+                      {downloadHref ? (
+                        <a
+                          className="viewer-attachment-link"
+                          href={downloadHref}
+                          download={item.filename}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Download
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="viewer-attachment-empty">Attachments detected for this message.</div>
+          )
+        ) : null}
+      </section>
+    );
+  };
   const orderedFolders = useMemo(() => {
     if (folderOrder.length === 0) {
       return orderFoldersByDefault(folders);
@@ -13722,11 +14234,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             className={`menubar-item ${openMenu === "app" ? "active" : ""}`}
             onMouseDown={() => setOpenMenu(openMenu === "app" ? null : "app")}
           >
-            Maximail
+            MaxiMail
           </div>
           {openMenu === "app" ? (
             <div className="menu-dropdown">
-              <div className="menu-item menu-item-disabled">About Maximail</div>
+              <div className="menu-item menu-item-disabled">About MaxiMail</div>
               <div className="menu-sep" />
               <div
                 className="menu-item"
@@ -13750,7 +14262,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </div>
               <div className="menu-sep" />
               <div className="menu-item menu-item-disabled">
-                Quit Maximail
+                Quit MaxiMail
                 <span className="menu-shortcut">⌘Q</span>
               </div>
             </div>
@@ -14123,25 +14635,43 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         <aside
           className={`rail sidebar ${showSidebarPane ? "" : "mobile-stacked-pane-hidden"}`}
           data-size={sidebarSize}
+          onWheelCapture={(event) => {
+            if (sidebarHeroCollapsed) {
+              return;
+            }
+
+            if (event.deltaY < -1) {
+              sidebarHeroCollapseWheelProgressRef.current += Math.abs(event.deltaY);
+              if (sidebarHeroCollapseWheelProgressRef.current >= 40) {
+                setSidebarHeroCollapsed(true);
+                sidebarHeroCollapseWheelProgressRef.current = 0;
+              }
+              return;
+            }
+
+            sidebarHeroCollapseWheelProgressRef.current = 0;
+          }}
         >
-          <div className="brand sidebar-brand">
-            <p className="eyebrow">Maximail</p>
-            <div className="sidebar-hero">
-              <div className="sidebar-hero-title">
-                This is what inbox control actually feels like.
+          <div className={`brand sidebar-brand ${sidebarHeroCollapsed ? "collapsed" : ""}`}>
+            <p className="eyebrow sidebar-brand-label">MaxiMail</p>
+            {!sidebarHeroCollapsed ? (
+              <div className="sidebar-hero">
+                <div className="sidebar-hero-title">
+                  This is what inbox control actually feels like.
+                </div>
+                <div className="sidebar-hero-sub">
+                  Pivot to any sender instantly, bulk-delete and block in one move,
+                  and sort through noise without ever losing your place.
+                </div>
               </div>
-              <div className="sidebar-hero-sub">
-                Pivot to any sender instantly, bulk-delete and block in one move,
-                and sort through noise without ever losing your place.
-              </div>
-            </div>
+            ) : null}
           </div>
 
           {shouldShowLightweightOnboarding ? (
             <div className="sidebar-onboarding" role="status" aria-live="polite">
               <div className="sidebar-onboarding-kicker">Welcome</div>
               <div className="sidebar-onboarding-title">
-                Maximail works a little differently.
+                MaxiMail works a little differently.
               </div>
               <div className="sidebar-onboarding-list">
                 <div className="sidebar-onboarding-item">
@@ -14313,7 +14843,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <div className="priority-name">{displaySender(sender.name)}</div>
                         <div className="priority-meta">
                           <span>{count} msgs</span>
-                          <span>{unread} unread</span>
+                          {unread > 0 ? <span>{unread} unread</span> : null}
                         </div>
                       </div>
                       {autoFilter ? (
@@ -14768,7 +15298,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               ) : null}
                             </span>
                           </div>
-                          {mailboxTarget.count !== null ? (
+                          {mailboxTarget.count !== null && mailboxTarget.count > 0 ? (
                             <span
                               className={`folder-row-count ${isMailboxActive ? "active" : ""}`}
                             >
@@ -15139,7 +15669,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </div>
               <strong>{senderStats.name}</strong>
               <span>{senderStats.total} msgs</span>
-              <span>{senderStats.unread} unread</span>
+              {senderStats.unread > 0 ? <span>{senderStats.unread} unread</span> : null}
               <span>{formatCompactMonthYearRange(senderStats.oldestDate, senderStats.newestDate)}</span>
             </div>
           ) : null}
@@ -15358,6 +15888,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               renderedConversationSummaries.map((conversation) => {
                 const latestMessage = conversation.latestMessage.raw;
                 const conversationMessages = conversations.byId.get(conversation.id)?.messages ?? [];
+                const conversationHasAttachments = conversationMessages.some(
+                  (message) => message.raw.hasAttachments
+                );
                 const isExpanded = conversationViewState.expandedConversationIds.has(
                   conversation.id
                 );
@@ -15567,8 +16100,31 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             ) : null}
                           </div>
 
-                          <span className="row-date">
-                            {formatTimestamp(conversation.latestDate)}
+                          <span className="row-meta">
+                            {conversationHasAttachments ? (
+                              <span
+                                className="mail-list-attachment-indicator"
+                                aria-label="Message has attachments"
+                                title="Has attachment"
+                              >
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+                                </svg>
+                              </span>
+                            ) : null}
+                            <span className="row-date">
+                              {formatTimestamp(conversation.latestDate)}
+                            </span>
                           </span>
                         </div>
 
@@ -15936,6 +16492,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 })
                               : ""}
                           </div>
+                          {renderHeaderAttachmentIndicator({
+                            hasAttachments: message.hasAttachments,
+                            media: detail?.media
+                          })}
                           <button
                             type="button"
                             className="thread-view-toggle"
@@ -16218,23 +16778,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       ) : null}
 
                       {isExpanded ? detail ? (
-                        <div className="thread-view-body">
-                          <iframe
-                            key={buildMessageBodyFrameKey(
-                              detail.uid,
-                              detail.emailBody,
-                              detail.text || detail.preview || detail.subject
-                            )}
-                            title={`Email body for ${message.subject}`}
-                            className="messageBodyFrame thread-view-frame"
-                            srcDoc={detail.emailBody}
-                            sandbox="allow-same-origin"
-                            style={{ width: "100%", height: "100%", border: "none" }}
-                            onLoad={(event) =>
-                              handleEmailFrameLoad(event.currentTarget, detail.media ?? [])
-                            }
-                          />
-                        </div>
+                        <>
+                          {renderMessageAttachmentSection(detail)}
+                          <div className="thread-view-body">
+                            <iframe
+                              key={buildMessageBodyFrameKey(
+                                detail.uid,
+                                detail.emailBody,
+                                detail.text || detail.preview || detail.subject
+                              )}
+                              title={`Email body for ${message.subject}`}
+                              className="messageBodyFrame thread-view-frame"
+                              srcDoc={detail.emailBody}
+                              sandbox="allow-same-origin"
+                              style={{ width: "100%", height: "100%", border: "none" }}
+                              onLoad={(event) =>
+                                handleEmailFrameLoad(event.currentTarget, detail.media ?? [])
+                              }
+                            />
+                          </div>
+                        </>
                       ) : (
                         <div className="thread-view-loading">Loading message…</div>
                       ) : (
@@ -16281,6 +16844,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         })
                       : ""}
                   </div>
+                  {renderHeaderAttachmentIndicator(selectedMessage)}
                 </div>
               </div>
 
@@ -16289,7 +16853,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               {renderPrintEmailHeader(selectedMessage, selectedMessage)}
 
               {!isMobileStackedMode ? (
-              <div className="email-toolbar">
+              <div
+                className={`email-toolbar ${
+                  selectedMessage.hasAttachments ? "email-toolbar-with-attachments" : ""
+                }`}
+              >
                 <button
                   className="tb-btn"
                   title="Reply"
@@ -16593,6 +17161,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   </span>
                 </div>
               ) : null}
+
+              {renderMessageAttachmentSection(selectedMessage)}
 
               <div className="messageBody">
                 <iframe
@@ -18164,11 +18734,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     }
 
                     const [, messageResponse] = await Promise.all([
-                      refreshFolderCounts(activeAccountId, {
+                      refreshFolderCounts(activeAccountId ?? undefined, {
                         sync: true,
-                        folderPaths: [currentFolderPath]
+                        folderPaths: currentFolderPath ? [currentFolderPath] : undefined
                       }),
-                      loadMessages(currentFolderPath, {
+                      loadMessages(currentFolderPath ?? undefined, {
                         force: true,
                         manageBusy: false
                       })
@@ -18366,7 +18936,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-row-info">
                         <div className="settings-row-title">New email alerts</div>
                         <div className="settings-row-sub">
-                          To receive notifications on iOS, add Maximail to your Home
+                          To receive notifications on iOS, add MaxiMail to your Home
                           Screen: tap the Share button in Safari, then &quot;Add to Home
                           Screen&quot;. Open the installed app to enable alerts.
                         </div>
@@ -18379,7 +18949,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-row-title">Tab badge</div>
                       <div className="settings-row-sub">
                         Show unread count in the browser tab title — visible when
-                        Maximail is in the background
+                        MaxiMail is in the background
                       </div>
                     </div>
                     <span className="settings-notify-status on">● Always on</span>
@@ -18767,8 +19337,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     !aiSettingsTesting &&
                     !aiSettingsRemoving &&
                     (hasStoredAiKey || hasPendingAiKey);
+                  const hasStoredTavilyKey = Boolean(tavilySettings?.configured);
+                  const hasPendingTavilyKey = tavilyApiKeyInput.trim().length > 0;
+                  const showSaveTavilyAction = !hasStoredTavilyKey || hasPendingTavilyKey;
+                  const showRemoveTavilyAction = hasStoredTavilyKey && !hasPendingTavilyKey;
 
                   return (
+                <>
                 <div className="settings-section">
                   <div className="settings-section-header">
                     <div className="settings-section-label">AI Writing Assistant</div>
@@ -18904,6 +19479,97 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     ) : null}
                   </div>
                 </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-header">
+                    <div className="settings-section-label">QuickFact Source Key (Tavily)</div>
+                    <span
+                      className={`settings-ai-status-pill ${
+                        tavilySettings?.configured ? "connected" : ""
+                      }`}
+                    >
+                      {tavilySettings?.configured ? "Connected" : "Not configured"}
+                    </span>
+                  </div>
+                  <div className="settings-section-subtle settings-ai-section-subtle">
+                    Saved securely for this owner and used by QuickFact server-side retrieval.
+                  </div>
+
+                  <div className="settings-field-group settings-ai-field-group">
+                    <div className="settings-row settings-ai-summary-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">
+                          {tavilySettings?.ownerLabel ?? "Current owner"}
+                        </div>
+                        <div className="settings-row-sub">
+                          {tavilySettingsLoading
+                            ? "Loading Tavily key status…"
+                            : tavilySettings?.configured
+                              ? "A Tavily API key is stored for QuickFact."
+                              : "No Tavily API key is saved yet."}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="settings-field">
+                      <label>
+                        {tavilySettings?.configured ? "Replace Tavily API key" : "Tavily API key"}
+                      </label>
+                      <input
+                        type="password"
+                        value={tavilyApiKeyInput}
+                        onChange={(event) => {
+                          setTavilyApiKeyInput(event.target.value);
+                          setTavilySettingsError(null);
+                          setTavilySettingsSuccess(null);
+                        }}
+                        placeholder="tvly-..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <div className="settings-field-hint">
+                        {tavilySettings?.configured
+                          ? "A key is already stored securely. Enter a new one only when you want to replace it."
+                          : "Paste a Tavily API key here to enable QuickFact retrieval."}
+                      </div>
+                    </div>
+
+                    <div className="settings-ai-actions">
+                      {showSaveTavilyAction ? (
+                        <button
+                          className="ghostButton"
+                          type="button"
+                          disabled={tavilySettingsSaving || tavilySettingsRemoving}
+                          onClick={() => {
+                            void saveTavilySettingsKey();
+                          }}
+                        >
+                          {tavilySettingsSaving ? "Saving…" : "Save Key"}
+                        </button>
+                      ) : null}
+                      {showRemoveTavilyAction ? (
+                        <button
+                          className="settings-ai-remove-btn"
+                          type="button"
+                          disabled={tavilySettingsSaving || tavilySettingsRemoving}
+                          onClick={() => {
+                            void removeTavilySettingsKey();
+                          }}
+                        >
+                          {tavilySettingsRemoving ? "Removing…" : "Remove Key"}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {tavilySettingsError ? (
+                      <div className="settings-ai-action-status error">{tavilySettingsError}</div>
+                    ) : null}
+                    {tavilySettingsSuccess ? (
+                      <div className="settings-ai-action-status success">{tavilySettingsSuccess}</div>
+                    ) : null}
+                  </div>
+                </div>
+                </>
                   );
                 })()}
               </div>
@@ -19320,6 +19986,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             );
           })()
         : null}
+
+      <ComposeEventBuilder
+        open={activeComposeSession.presentation.isOpen && composeEventBuilderOpen}
+        initialEvent={composeEvent}
+        onClose={closeComposeEventBuilder}
+        onCreate={({ form, asset }) => handleComposeEventCreate({ form, asset })}
+      />
 
       {activeComposeSession.presentation.isOpen ? (
         (() => {
@@ -20277,9 +20950,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           type="button"
                           className="compose-ai-close"
                           aria-label={
-                            composeAiType === "polish"
-                              ? "Close Polish"
-                              : "Close Elevate"
+                            "Close Elevate"
                           }
                           onClick={closeComposeAiPanel}
                         >
@@ -21931,6 +22602,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             document.body
           )
         : null}
+
+      {previewBadgeLabel ? (
+        <div
+          className="preview-branch-badge"
+          aria-label={`Preview branch ${previewBadgeLabel}`}
+        >
+          <span className="preview-branch-badge-icon" aria-hidden="true">
+            ⑂
+          </span>
+          <span className="preview-branch-badge-name">{previewBadgeLabel}</span>
+        </div>
+      ) : null}
 
       <div className="toast-container">
         {toasts.map((toast) => (
