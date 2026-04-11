@@ -2,11 +2,18 @@ import { getTavilyApiKey } from "@/lib/env";
 import type {
   QuickFactConfidence,
   QuickFactFallback,
-  QuickFactResponse,
   QuickFactResult
 } from "@/lib/quickfact";
 
-type TavilySearchResult = {
+export type QuickFactQueryType =
+  | "date"
+  | "count"
+  | "product"
+  | "market_fact"
+  | "role_or_name"
+  | "general_fact";
+
+export type TavilySearchResult = {
   title?: string;
   url?: string;
   content?: string;
@@ -20,7 +27,21 @@ type TavilySearchResponse = {
   results?: TavilySearchResult[];
 };
 
-const QUICKFACT_RESULT_LIMIT = 2;
+export type QuickFactRetrievalQuality = "strong" | "mixed" | "weak" | "empty";
+
+export type TavilyQuickFactBundle = {
+  query: string;
+  normalizedQuery: string;
+  queryType: QuickFactQueryType;
+  answer: string | null;
+  rawResults: TavilySearchResult[];
+  cleanResults: QuickFactResult[];
+  bestSource: TavilySearchResult | null;
+  retrievalQuality: QuickFactRetrievalQuality;
+  fallback?: QuickFactFallback;
+};
+
+const QUICKFACT_RESULT_LIMIT = 1;
 const QUICKFACT_MAX_RESULTS = 4;
 const QUICKFACT_EXCLUDED_DOMAINS = [
   "reddit.com",
@@ -120,6 +141,8 @@ const QUICKFACT_NOISE_PATTERNS = [
   /newsletter/i
 ];
 
+const QUICKFACT_TAVILY_TIMEOUT_MS = 7000;
+
 function normalizeQuickFactQuery(query: string) {
   return query.trim().replace(/\s+/g, " ");
 }
@@ -180,15 +203,7 @@ function splitSentences(text: string) {
     .filter(Boolean);
 }
 
-type QuickFactQueryType =
-  | "date"
-  | "count"
-  | "product"
-  | "market_fact"
-  | "role_or_name"
-  | "general_fact";
-
-function classifyQuickFactQuery(query: string): QuickFactQueryType {
+export function classifyQuickFactQuery(query: string): QuickFactQueryType {
   const normalized = query.toLowerCase();
 
   if (/\bwhen\b|\bwhat year\b|\bdate\b|\breleased\b|\bfounded\b|\bmerged\b|\bgo public\b/.test(normalized)) {
@@ -395,7 +410,7 @@ function normalizeResult(
   };
 }
 
-function buildQuickFactFallback(reason: QuickFactFallback["reason"]): QuickFactFallback {
+export function buildQuickFactFallback(reason: QuickFactFallback["reason"]): QuickFactFallback {
   switch (reason) {
     case "too_broad":
       return {
@@ -422,30 +437,78 @@ async function runTavilySearch(query: string, queryType: QuickFactQueryType, fal
       ? "advanced"
       : "basic";
 
-  const response = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getTavilyApiKey()}`
-    },
-    body: JSON.stringify({
-      query,
-      topic: "general",
-      search_depth: searchDepth,
-      max_results: maxResults,
-      include_answer: "basic",
-      include_raw_content: false,
-      include_images: false,
-      exclude_domains: QUICKFACT_EXCLUDED_DOMAINS
-    }),
-    cache: "no-store"
-  });
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), QUICKFACT_TAVILY_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error("QuickFact provider request failed.");
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getTavilyApiKey()}`
+      },
+      body: JSON.stringify({
+        query,
+        topic: "general",
+        search_depth: searchDepth,
+        max_results: maxResults,
+        include_answer: "basic",
+        include_raw_content: false,
+        include_images: false,
+        exclude_domains: QUICKFACT_EXCLUDED_DOMAINS
+      }),
+      cache: "no-store",
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("QuickFact provider request failed.");
+    }
+
+    return (await response.json().catch(() => null)) as TavilySearchResponse | null;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+function rankResults(payload: TavilySearchResponse | null) {
+  return (payload?.results ?? [])
+    .filter((result) => {
+      const domain = extractDomain(result.url ?? "");
+      return Boolean(result.url) && Boolean(domain) && !isExcludedDomain(domain);
+    })
+    .sort((left, right) => scoreSource(right) - scoreSource(left));
+}
+
+function chooseBestSource(results: TavilySearchResult[]) {
+  return results.find((result) => scoreSource(result) >= 0) ?? null;
+}
+
+function determineRetrievalQuality(bundle: {
+  rawResults: TavilySearchResult[];
+  cleanResults: QuickFactResult[];
+  answer: string | null;
+}): QuickFactRetrievalQuality {
+  const hasAnswerEvidence = Boolean(bundle.answer?.trim());
+
+  if (bundle.rawResults.length === 0 && !hasAnswerEvidence) {
+    return "empty";
   }
 
-  return (await response.json().catch(() => null)) as TavilySearchResponse | null;
+  if (bundle.cleanResults.length === 0) {
+    return hasAnswerEvidence ? "weak" : "empty";
+  }
+
+  const topClean = bundle.cleanResults[0];
+  const topRaw = bundle.rawResults[0];
+  const strongAnswer = Boolean(bundle.answer?.trim()) || topClean.answer.length <= 140;
+  const strongSource = topRaw ? scoreSource(topRaw) >= 0.7 && inferConfidence(topRaw) === "high" : false;
+
+  if (strongAnswer && strongSource && topClean.confidence === "high") {
+    return "strong";
+  }
+
+  return "mixed";
 }
 
 function extractFactsFromPayload(
@@ -453,9 +516,7 @@ function extractFactsFromPayload(
   query: string,
   queryType: QuickFactQueryType
 ) {
-  const rankedResults = (payload?.results ?? [])
-    .filter((result) => Boolean(result.url))
-    .sort((left, right) => scoreSource(right) - scoreSource(left));
+  const rankedResults = rankResults(payload);
 
   const facts: QuickFactResult[] = [];
   for (const result of rankedResults) {
@@ -481,30 +542,91 @@ function extractFactsFromPayload(
   return facts;
 }
 
-export async function fetchQuickFactsFromTavily(query: string): Promise<QuickFactResponse> {
+function toCleanAnswerFallback(
+  cleanResults: QuickFactResult[],
+  queryType: QuickFactQueryType,
+  query: string
+) {
+  const first = cleanResults[0];
+  if (!first) {
+    return "";
+  }
+
+  if (queryType === "count" || queryType === "market_fact" || /\bhow many\b/i.test(query)) {
+    const countMatch = first.answer.match(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/);
+    if (countMatch) {
+      return `${normalizeSubjectFromQuery(query)} is ${countMatch[0]}.`;
+    }
+  }
+
+  return first.answer;
+}
+
+export async function fetchTavilyQuickFactBundle(query: string): Promise<TavilyQuickFactBundle> {
   const normalizedQuery = normalizeQuickFactQuery(query);
   if (!normalizedQuery || looksTooBroadForQuickFact(normalizedQuery)) {
-    return { results: [], fallback: buildQuickFactFallback("too_broad") };
+    return {
+      query,
+      normalizedQuery,
+      queryType: classifyQuickFactQuery(normalizedQuery || query),
+      answer: null,
+      rawResults: [],
+      cleanResults: [],
+      bestSource: null,
+      retrievalQuality: "empty",
+      fallback: buildQuickFactFallback("too_broad")
+    };
   }
 
   const queryType = classifyQuickFactQuery(normalizedQuery);
   const firstPayload = await runTavilySearch(normalizedQuery, queryType, false);
-  let facts = extractFactsFromPayload(firstPayload, normalizedQuery, queryType);
+  let activePayload = firstPayload;
+  let rawResults = rankResults(firstPayload);
+  let cleanResults = extractFactsFromPayload(firstPayload, normalizedQuery, queryType);
 
   if (
-    facts.length === 0 &&
+    cleanResults.length === 0 &&
     (queryType === "product" || queryType === "market_fact" || queryType === "general_fact")
   ) {
     const secondPayload = await runTavilySearch(normalizedQuery, queryType, true);
-    facts = extractFactsFromPayload(secondPayload, normalizedQuery, queryType);
+    const secondRawResults = rankResults(secondPayload);
+    const secondCleanResults = extractFactsFromPayload(secondPayload, normalizedQuery, queryType);
+
+    rawResults = [...rawResults, ...secondRawResults].sort((left, right) => scoreSource(right) - scoreSource(left));
+    cleanResults = secondCleanResults.length > 0 ? secondCleanResults : cleanResults;
+    activePayload = secondPayload ?? firstPayload;
   }
 
-  if (facts.length === 0) {
+  const bestSource = chooseBestSource(rawResults);
+  const answer = toCleanAnswerFallback(cleanResults, queryType, normalizedQuery) || activePayload?.answer?.trim() || null;
+  const retrievalQuality = determineRetrievalQuality({
+    rawResults,
+    cleanResults,
+    answer
+  });
+
+  if (cleanResults.length === 0) {
     return {
-      results: [],
+      query,
+      normalizedQuery,
+      queryType,
+      answer,
+      rawResults,
+      cleanResults,
+      bestSource,
+      retrievalQuality,
       fallback: buildQuickFactFallback("no_clean_fact")
     };
   }
 
-  return { results: facts };
+  return {
+    query,
+    normalizedQuery,
+    queryType,
+    answer,
+    rawResults,
+    cleanResults,
+    bestSource,
+    retrievalQuality
+  };
 }
