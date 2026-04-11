@@ -37,11 +37,6 @@ import { COMPOSER_COMMANDS } from "@/composer/commands/registry";
 import type { ComposerCommand, ComposerCommandId } from "@/composer/commands/types";
 import { buildComposerCommandContext } from "@/composer/context/build-command-context";
 import {
-  findComposeEventAttachmentIndex,
-  upsertComposeEventAttachment
-} from "@/composer/events/attachment";
-import { ComposeEventBuilder } from "@/composer/events/compose-event-builder";
-import {
   getComposeAccountForIdentity,
   resolveComposeIdentityState,
   resolveSendIdentityForSession
@@ -76,6 +71,12 @@ import type {
   ComposeEventFormState,
   GeneratedEventAsset
 } from "@/composer/events/types";
+import {
+  findComposeEventAttachmentIndex,
+  resolveComposeEventAttachmentFromDraft,
+  upsertComposeEventAttachment
+} from "@/composer/events/attachment";
+import { ComposeEventBuilder } from "@/composer/events/compose-event-builder";
 import {
   loadComposerToolbarPreferences,
   moveToolbarCommand,
@@ -166,6 +167,7 @@ import type { AiTransformType } from "@/lib/ai-rewrite";
 import type { QuickFactFallback, QuickFactResult } from "@/lib/quickfact";
 import { formatQuickFactForInsert } from "@/lib/quickfact";
 import { fetchQuickFacts } from "@/lib/quickfact-client";
+import { getPreviewBranchName, shouldShowPreviewBranchBadge } from "@/lib/preview-branch";
 import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
@@ -216,6 +218,9 @@ type SenderFilterScope = "general" | "prioritized";
 type ScrollBridgedFrame = HTMLIFrameElement & {
   __mmwbmailScrollCleanup?: () => void;
 };
+
+const previewBranchName = getPreviewBranchName();
+const showPreviewBranchBadge = shouldShowPreviewBranchBadge() && Boolean(previewBranchName);
 
 type LightboxBridgedFrame = HTMLIFrameElement & {
   __mmwbmailLightboxCleanup?: () => void;
@@ -1785,7 +1790,6 @@ type TavilySettingsSummary = {
 };
 
 const AI_AVAILABILITY_FRESH_MS = 5 * 60 * 1000;
-const PREVIEW_BRANCH_NAME = (process.env.NEXT_PUBLIC_GIT_BRANCH ?? "").trim();
 
 function getAiSettingsStatusLabel(status: AiSettingsSummary["status"]) {
   switch (status) {
@@ -5144,6 +5148,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           })()
         }))
       );
+      const resolvedComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
+        attachments,
+        composeEvent,
+        composeEventAttachment
+      });
 
       return {
         draftId: activeComposeSession.draft.draftId,
@@ -5160,7 +5169,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeIntent: activeComposeSession.intent,
         sourceMessageMeta: activeComposeSession.sourceMessageMeta,
         composeEvent,
-        composeEventAttachment,
+        composeEventAttachment: resolvedComposeEventAttachment,
         subject: activeComposeSession.subject,
         to: activeComposeSession.recipients.to,
         cc: activeComposeSession.recipients.cc,
@@ -5312,13 +5321,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setBlockedSelectionAnchor(null);
     closeAccountForm();
   }, [accountFormMode, accounts.length, settingsOpen, settingsTab]);
-
-  const previewBadgeLabel =
-    process.env.NODE_ENV === "development" &&
-    PREVIEW_BRANCH_NAME.length > 0 &&
-    PREVIEW_BRANCH_NAME !== "main"
-      ? PREVIEW_BRANCH_NAME
-      : null;
 
   useEffect(() => {
     if (!settingsOpen || settingsTab !== "ai") {
@@ -6005,6 +6007,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeBccList,
     composeBody,
     composeCcList,
+    composeEvent,
+    composeEventAttachment,
     composePlainText,
     composeReplyTo,
     composeSubject,
@@ -8185,6 +8189,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setComposeSubject("");
       setComposeBody("");
       setComposeAttachments([]);
+      clearComposeEventState();
       setComposeWordCount({ words: 0, chars: 0 });
       composeBodyRef.current = "";
       setComposeMinimized(false);
@@ -8265,6 +8270,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeBccList.length > 0 ||
       composeReplyTo.trim().length > 0 ||
       composeAttachments.length > 0 ||
+      Boolean(composeEventAttachment) ||
       composeSubject.trim().length > 0 ||
       stripHtml(composeBody).trim().length > 0 ||
       contentWithoutSignature.length > 0;
@@ -8289,6 +8295,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeSubject("");
     setComposeBody("");
     setComposeAttachments([]);
+    clearComposeEventState();
     setComposeWordCount({ words: 0, chars: 0 });
     setComposeMinimized(false);
     setComposePlainText(false);
@@ -11159,17 +11166,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         }
 
         const indexedFile = typeof index === "number" ? composeAttachments[index] : null;
+        const indexedFileAttachmentId = indexedFile
+          ? composeAttachmentIdsRef.current.get(indexedFile)
+          : null;
+        const fileAttachmentId = file ? composeAttachmentIdsRef.current.get(file) : null;
+        const hasTrackedComposeEventAttachmentId = Boolean(composeEventAttachment?.attachmentId);
         const shouldClearComposeEventAttachment = Boolean(
           composeEventAttachment &&
             ((attachmentId && composeEventAttachment.attachmentId === attachmentId) ||
-              (filename && composeEventAttachment.fileName === filename) ||
-              (indexedFile &&
-                (composeAttachmentIdsRef.current.get(indexedFile) ===
-                  composeEventAttachment.attachmentId ||
-                  indexedFile.name === composeEventAttachment.fileName)) ||
-              (file &&
-                (composeAttachmentIdsRef.current.get(file) === composeEventAttachment.attachmentId ||
-                  file.name === composeEventAttachment.fileName)))
+              (indexedFileAttachmentId &&
+                indexedFileAttachmentId === composeEventAttachment.attachmentId) ||
+              (fileAttachmentId && fileAttachmentId === composeEventAttachment.attachmentId) ||
+              (!hasTrackedComposeEventAttachmentId &&
+                ((filename && composeEventAttachment.fileName === filename) ||
+                  (indexedFile && indexedFile.name === composeEventAttachment.fileName) ||
+                  (file && file.name === composeEventAttachment.fileName))))
         );
 
         if (shouldClearComposeEventAttachment) {
@@ -18733,10 +18744,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setSelectedUid(null);
                     }
 
+                    const folderPathsForRefresh = currentFolderPath
+                      ? [currentFolderPath]
+                      : undefined;
                     const [, messageResponse] = await Promise.all([
                       refreshFolderCounts(activeAccountId ?? undefined, {
                         sync: true,
-                        folderPaths: currentFolderPath ? [currentFolderPath] : undefined
+                        folderPaths: folderPathsForRefresh
                       }),
                       loadMessages(currentFolderPath ?? undefined, {
                         force: true,
@@ -19958,8 +19972,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       composeAttachmentIdsRef.current.set(file, attachment.attachmentId);
                       return file;
                     });
+                    const restoredComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
+                      attachments: draft.attachments,
+                      composeEvent: draft.composeEvent ?? null,
+                      composeEventAttachment: draft.composeEventAttachment ?? null
+                    });
                     applyComposeSession(session, {
-                      restoredDraft: draft,
+                      restoredDraft: {
+                        ...draft,
+                        composeEventAttachment: restoredComposeEventAttachment
+                      },
                       restoredFiles,
                       savedAt: draft.savedAt ?? draft.updatedAt,
                       localRevision: draft.localRevision,
@@ -20949,9 +20971,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <button
                           type="button"
                           className="compose-ai-close"
-                          aria-label={
-                            "Close Elevate"
-                          }
+                          aria-label="Close Elevate"
                           onClick={closeComposeAiPanel}
                         >
                           <span aria-hidden="true">×</span>
@@ -22603,15 +22623,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           )
         : null}
 
-      {previewBadgeLabel ? (
-        <div
-          className="preview-branch-badge"
-          aria-label={`Preview branch ${previewBadgeLabel}`}
-        >
-          <span className="preview-branch-badge-icon" aria-hidden="true">
-            ⑂
-          </span>
-          <span className="preview-branch-badge-name">{previewBadgeLabel}</span>
+      {showPreviewBranchBadge ? (
+        <div className="preview-branch-badge" aria-label={`Preview branch ${previewBranchName}`}>
+          <span className="preview-branch-glyph">⑂</span>
+          <span>{previewBranchName}</span>
         </div>
       ) : null}
 
