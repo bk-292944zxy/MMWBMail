@@ -1,12 +1,36 @@
+import { prisma } from "@/lib/prisma";
+
 export type CurrentAiOwner = {
   scope: string;
-  type: "single_owner_placeholder";
+  type: "mail_account_owner" | "single_owner_placeholder";
   label: string;
 };
 
-export function resolveCurrentAiOwner(): CurrentAiOwner {
+export const AI_OWNER_LEGACY_SCOPE = "local-owner";
+
+export async function resolveCurrentAiOwner(): Promise<CurrentAiOwner> {
+  const primaryAccount = await prisma.mailAccount.findFirst({
+    orderBy: {
+      createdAt: "asc"
+    },
+    select: {
+      id: true,
+      label: true,
+      email: true
+    }
+  });
+
+  if (primaryAccount) {
+    const label = primaryAccount.label.trim() || primaryAccount.email.trim() || "Current owner";
+    return {
+      scope: `mail-account-owner:${primaryAccount.id}`,
+      type: "mail_account_owner",
+      label
+    };
+  }
+
   return {
-    scope: "local-owner",
+    scope: AI_OWNER_LEGACY_SCOPE,
     type: "single_owner_placeholder",
     label: "Current owner"
   };

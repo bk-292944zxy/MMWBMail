@@ -138,6 +138,18 @@ export function reconcileVisibleSelection(
     input.preserveSelection &&
     selectionMatchesScope &&
     currentUid !== null &&
+    messages.length === 0
+  ) {
+    return {
+      selectedUid: currentUid,
+      clearSelectedMessage: false
+    };
+  }
+
+  if (
+    input.preserveSelection &&
+    selectionMatchesScope &&
+    currentUid !== null &&
     visibleUids.has(currentUid)
   ) {
     return {

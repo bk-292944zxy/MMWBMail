@@ -16,15 +16,15 @@ export const COMPOSER_DEFAULT_TOOLBAR_ORDER: ComposerCommandId[] = [
   "indent",
   "clear_formatting",
   "link",
+  "attach_file",
+  "create_calendar_event",
   "rewrite_for_outcome",
+  "insert_image",
   "insert_signature",
   "insert_thanks",
   "insert_follow_up",
   "insert_meeting_request",
   "save_draft",
-  "attach_file",
-  "create_calendar_event",
-  "insert_image",
   "print_message",
   "schedule_send"
 ];

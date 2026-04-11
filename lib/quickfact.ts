@@ -12,8 +12,8 @@ export type QuickFactFallbackReason =
 
 export type QuickFactResult = {
   answer: string;
-  sourceName: string;
-  sourceUrl: string;
+  sourceName?: string;
+  sourceUrl?: string;
   sourceDate?: string;
   confidence?: QuickFactConfidence;
 };
@@ -38,7 +38,7 @@ export function formatQuickFactForInsert(
     return answer;
   }
 
-  const sourceName = result.sourceName.trim();
+  const sourceName = result.sourceName?.trim() ?? "";
   if (!sourceName) {
     return answer;
   }

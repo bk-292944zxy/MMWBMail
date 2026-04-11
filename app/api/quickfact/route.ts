@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { QuickFactRequest, QuickFactResponse } from "@/lib/quickfact";
-import { fetchQuickFactsFromTavily } from "@/lib/tavily-quickfact";
+import { runQuickFactPipeline } from "@/lib/quickfact-pipeline";
 
 export const runtime = "nodejs";
 
@@ -14,14 +14,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "What fact do you need?", results: [] }, { status: 400 });
     }
 
-    const response = await fetchQuickFactsFromTavily(query);
+    const response = await runQuickFactPipeline(query);
     return NextResponse.json(response satisfies QuickFactResponse);
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "No solid quick fact surfaced fast enough.";
+
     return NextResponse.json({
       results: [],
       fallback: {
         reason: "backend_error",
-        message: "No solid quick fact surfaced fast enough.",
+        message,
         actionLabel: "Search more broadly"
       }
     } satisfies QuickFactResponse);

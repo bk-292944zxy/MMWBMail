@@ -127,7 +127,6 @@ export function findComposeEventAttachmentIndex(
     if (fileAttachmentId) {
       return false;
     }
-
     return file.name === attachmentState.fileName && file.type.startsWith("text/calendar");
   });
 }

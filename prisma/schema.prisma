@@ -80,7 +80,7 @@ model UserPreferences {
 
 model AiCredential {
   id              String   @id @default(cuid())
-  ownerScope      String   @unique
+  ownerScope      String
   ownerType       String
   provider        String
   encryptedApiKey String
@@ -91,6 +91,7 @@ model AiCredential {
   updatedAt       DateTime @updatedAt
 
   @@index([ownerType, provider])
+  @@unique([ownerScope, provider])
 }
 
 model MailboxFolder {
