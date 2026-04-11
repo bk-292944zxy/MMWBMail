@@ -68,6 +68,7 @@ import type {
 } from "@/composer/drafts/draft-types";
 import {
   findComposeEventAttachmentIndex,
+  resolveComposeEventAttachmentFromDraft,
   upsertComposeEventAttachment
 } from "@/composer/events/attachment";
 import { ComposeEventBuilder } from "@/composer/events/compose-event-builder";
@@ -5043,6 +5044,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           })()
         }))
       );
+      const resolvedComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
+        attachments,
+        composeEvent,
+        composeEventAttachment
+      });
 
       return {
         draftId: activeComposeSession.draft.draftId,
@@ -5059,7 +5065,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeIntent: activeComposeSession.intent,
         sourceMessageMeta: activeComposeSession.sourceMessageMeta,
         composeEvent,
-        composeEventAttachment,
+        composeEventAttachment: resolvedComposeEventAttachment,
         subject: activeComposeSession.subject,
         to: activeComposeSession.recipients.to,
         cc: activeComposeSession.recipients.cc,
@@ -10978,17 +10984,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         }
 
         const indexedFile = typeof index === "number" ? composeAttachments[index] : null;
+        const indexedFileAttachmentId = indexedFile
+          ? composeAttachmentIdsRef.current.get(indexedFile)
+          : null;
+        const fileAttachmentId = file ? composeAttachmentIdsRef.current.get(file) : null;
+        const hasTrackedComposeEventAttachmentId = Boolean(composeEventAttachment?.attachmentId);
         const shouldClearComposeEventAttachment = Boolean(
           composeEventAttachment &&
             ((attachmentId && composeEventAttachment.attachmentId === attachmentId) ||
-              (filename && composeEventAttachment.fileName === filename) ||
-              (indexedFile &&
-                (composeAttachmentIdsRef.current.get(indexedFile) ===
-                  composeEventAttachment.attachmentId ||
-                  indexedFile.name === composeEventAttachment.fileName)) ||
-              (file &&
-                (composeAttachmentIdsRef.current.get(file) === composeEventAttachment.attachmentId ||
-                  file.name === composeEventAttachment.fileName)))
+              (indexedFileAttachmentId &&
+                indexedFileAttachmentId === composeEventAttachment.attachmentId) ||
+              (fileAttachmentId && fileAttachmentId === composeEventAttachment.attachmentId) ||
+              (!hasTrackedComposeEventAttachmentId &&
+                ((filename && composeEventAttachment.fileName === filename) ||
+                  (indexedFile && indexedFile.name === composeEventAttachment.fileName) ||
+                  (file && file.name === composeEventAttachment.fileName))))
         );
 
         if (shouldClearComposeEventAttachment) {
@@ -19409,8 +19419,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       composeAttachmentIdsRef.current.set(file, attachment.attachmentId);
                       return file;
                     });
+                    const restoredComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
+                      attachments: draft.attachments,
+                      composeEvent: draft.composeEvent ?? null,
+                      composeEventAttachment: draft.composeEventAttachment ?? null
+                    });
                     applyComposeSession(session, {
-                      restoredDraft: draft,
+                      restoredDraft: {
+                        ...draft,
+                        composeEventAttachment: restoredComposeEventAttachment
+                      },
                       restoredFiles,
                       savedAt: draft.savedAt ?? draft.updatedAt,
                       localRevision: draft.localRevision,
