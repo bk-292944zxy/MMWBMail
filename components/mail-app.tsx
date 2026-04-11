@@ -67,6 +67,16 @@ import type {
   StoredComposerDraft
 } from "@/composer/drafts/draft-types";
 import {
+  findComposeEventAttachmentIndex,
+  upsertComposeEventAttachment
+} from "@/composer/events/attachment";
+import { ComposeEventBuilder } from "@/composer/events/compose-event-builder";
+import type {
+  ComposeEventAttachmentState,
+  ComposeEventFormState,
+  GeneratedEventAsset
+} from "@/composer/events/types";
+import {
   loadComposerToolbarPreferences,
   moveToolbarCommand,
   persistComposerToolbarPreferences,
@@ -1983,6 +1993,7 @@ const COMPACT_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
   "link",
   "rewrite_for_outcome",
   "attach_file",
+  "create_calendar_event",
   "insert_image"
 ];
 
@@ -2127,6 +2138,17 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
+      );
+    case "calendar":
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M8 2v4" />
+          <path d="M16 2v4" />
+          <path d="M3 10h18" />
+          <path d="M12 13v5" />
+          <path d="M9.5 15.5h5" />
         </svg>
       );
     case "image":
@@ -3416,6 +3438,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [composeBccList, setComposeBccList] = useState<string[]>([]);
   const [composeReplyTo, setComposeReplyTo] = useState("");
   const [composeAttachments, setComposeAttachments] = useState<File[]>([]);
+  const [composeEventBuilderOpen, setComposeEventBuilderOpen] = useState(false);
+  const [composeEvent, setComposeEvent] = useState<ComposeEventFormState | null>(null);
+  const [composeEventAttachment, setComposeEventAttachment] =
+    useState<ComposeEventAttachmentState | null>(null);
   const [composeWordCount, setComposeWordCount] = useState({ words: 0, chars: 0 });
   const [composeDragOver, setComposeDragOver] = useState(false);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
@@ -4264,6 +4290,52 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const fileAttachments = composeAttachments.filter(
     (file) => !file.type.startsWith("image/")
   );
+  const clearComposeEventState = useCallback(() => {
+    setComposeEventBuilderOpen(false);
+    setComposeEvent(null);
+    setComposeEventAttachment(null);
+  }, []);
+  const openComposeEventBuilder = useCallback(() => {
+    setComposeMinimized(false);
+    setComposeEventBuilderOpen(true);
+  }, []);
+  const closeComposeEventBuilder = useCallback(() => {
+    setComposeEventBuilderOpen(false);
+  }, []);
+  const handleComposeEventCreate = useCallback(
+    async ({
+      form,
+      asset
+    }: {
+      form: ComposeEventFormState;
+      asset: GeneratedEventAsset;
+    }) => {
+      const nextAttachmentId =
+        composeEventAttachment?.attachmentId ?? `compose-event-${asset.eventId}`;
+      const nextFile = new File([asset.icsText], asset.fileName, {
+        type: asset.mimeType
+      });
+
+      composeAttachmentIdsRef.current.set(nextFile, nextAttachmentId);
+      composeAttachmentDataUrlCacheRef.current.delete(nextFile);
+
+      setComposeAttachments((current) => {
+        const replaceIndex = findComposeEventAttachmentIndex(
+          current,
+          composeEventAttachment,
+          composeAttachmentIdsRef.current
+        );
+        return upsertComposeEventAttachment(current, nextFile, replaceIndex);
+      });
+      setComposeEvent(form);
+      setComposeEventAttachment({
+        eventId: asset.eventId,
+        attachmentId: nextAttachmentId,
+        fileName: asset.fileName
+      });
+    },
+    [composeEventAttachment]
+  );
   const senderSuggestions = useMemo(() => {
     const messageSuggestions: string[] = [];
 
@@ -4980,6 +5052,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeContentState: activeComposeSession.content,
         composeIntent: activeComposeSession.intent,
         sourceMessageMeta: activeComposeSession.sourceMessageMeta,
+        composeEvent,
+        composeEventAttachment,
         subject: activeComposeSession.subject,
         to: activeComposeSession.recipients.to,
         cc: activeComposeSession.recipients.cc,
@@ -4996,6 +5070,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     [
       composeAttachments,
       activeComposeSession,
+      composeEvent,
+      composeEventAttachment,
       composePlainText,
       createDraftIdentitySnapshot,
       getComposeAttachmentState,
@@ -5013,13 +5089,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeContentState(null);
     setComposeIntent({ kind: "new" });
     setComposeSourceMessageMeta(null);
+    clearComposeEventState();
     setComposeDraftStatus("idle");
     setComposeDraftSavedAt(null);
     setComposeDraftError(null);
     composeLocalRevisionRef.current = 0;
     composeLastSavedRevisionRef.current = 0;
     autosaveServiceRef.current?.cancel();
-  }, []);
+  }, [clearComposeEventState]);
 
   const handleBlockedSenderSelection = useCallback(
     (sender: string, event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -5811,6 +5888,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeBccList,
     composeBody,
     composeCcList,
+    composeEvent,
+    composeEventAttachment,
     composePlainText,
     composeReplyTo,
     composeSubject,
@@ -7991,6 +8070,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setComposeSubject("");
       setComposeBody("");
       setComposeAttachments([]);
+      clearComposeEventState();
       setComposeWordCount({ words: 0, chars: 0 });
       composeBodyRef.current = "";
       setComposeMinimized(false);
@@ -8071,6 +8151,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeBccList.length > 0 ||
       composeReplyTo.trim().length > 0 ||
       composeAttachments.length > 0 ||
+      Boolean(composeEventAttachment) ||
       composeSubject.trim().length > 0 ||
       stripHtml(composeBody).trim().length > 0 ||
       contentWithoutSignature.length > 0;
@@ -8095,6 +8176,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeSubject("");
     setComposeBody("");
     setComposeAttachments([]);
+    clearComposeEventState();
     setComposeWordCount({ words: 0, chars: 0 });
     setComposeMinimized(false);
     setComposePlainText(false);
@@ -9678,6 +9760,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeBccList(recipients.bcc);
     setComposeReplyTo(session.identity?.replyTo ?? session.replyTo);
     setComposeAttachments(restoredFiles);
+    setComposeEvent(restoredDraft?.composeEvent ?? null);
+    setComposeEventAttachment(restoredDraft?.composeEventAttachment ?? null);
+    setComposeEventBuilderOpen(false);
     setComposeSubject(session.subject);
     setComposeBody(session.textBody);
     setSignature(session.signature);
@@ -10885,10 +10970,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           setSelectedImg(null);
           setImgRect(null);
         }
+
+        const indexedFile = typeof index === "number" ? composeAttachments[index] : null;
+        const shouldClearComposeEventAttachment = Boolean(
+          composeEventAttachment &&
+            ((attachmentId && composeEventAttachment.attachmentId === attachmentId) ||
+              (filename && composeEventAttachment.fileName === filename) ||
+              (indexedFile &&
+                (composeAttachmentIdsRef.current.get(indexedFile) ===
+                  composeEventAttachment.attachmentId ||
+                  indexedFile.name === composeEventAttachment.fileName)) ||
+              (file &&
+                (composeAttachmentIdsRef.current.get(file) === composeEventAttachment.attachmentId ||
+                  file.name === composeEventAttachment.fileName)))
+        );
+
+        if (shouldClearComposeEventAttachment) {
+          setComposeEvent(null);
+          setComposeEventAttachment(null);
+        }
       },
       getAttachmentState: (draftId) => getComposeAttachmentState(draftId)
     }),
-    [getComposeAttachmentState, selectedImg]
+    [composeAttachments, composeEventAttachment, getComposeAttachmentState, selectedImg]
   );
   const composePhotoService: ComposePhotoService = useMemo(
     () => createComposePhotoService(composeAttachmentAdapter),
@@ -10979,6 +11083,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           attachmentService: composeAttachmentService,
           photoService: composePhotoService
         },
+        events: {
+          openComposeEventBuilder
+        },
         content: {
           activeSignatureLabel: composeActiveSignatureLabel,
           activeSignatureText: signature,
@@ -10995,6 +11102,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeAttachmentService,
       composeCapabilityFlags,
       composeEditorAdapter,
+      openComposeEventBuilder,
       composePhotoService,
       composeSessionAccountId,
       composeSelectionState,
@@ -19320,6 +19428,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             );
           })()
         : null}
+
+      <ComposeEventBuilder
+        open={activeComposeSession.presentation.isOpen && composeEventBuilderOpen}
+        initialEvent={composeEvent}
+        onClose={closeComposeEventBuilder}
+        onCreate={({ form, asset }) => handleComposeEventCreate({ form, asset })}
+      />
 
       {activeComposeSession.presentation.isOpen ? (
         (() => {

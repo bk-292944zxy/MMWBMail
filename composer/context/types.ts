@@ -40,6 +40,9 @@ export interface ComposerCommandContext {
     attachmentService: ComposeAttachmentService;
     photoService: ComposePhotoService;
   };
+  events?: {
+    openComposeEventBuilder: () => void;
+  };
   content?: {
     activeSignatureLabel: string;
     activeSignatureText: string;

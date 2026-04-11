@@ -1,6 +1,10 @@
 import type { AttachmentState } from "@/composer/attachments/types";
 import type { ComposeContentState } from "@/composer/content/types";
 import type {
+  ComposeEventAttachmentState,
+  ComposeEventFormState
+} from "@/composer/events/types";
+import type {
   ComposeSessionContext,
   DraftIdentitySnapshot
 } from "@/composer/identity/session-context";
@@ -45,6 +49,8 @@ export type StoredComposerDraft = {
   composeContentState?: ComposeContentState | null;
   composeIntent?: ComposeIntent;
   sourceMessageMeta?: ComposeSourceMessageMeta | null;
+  composeEvent?: ComposeEventFormState | null;
+  composeEventAttachment?: ComposeEventAttachmentState | null;
   subject: string;
   to: string[];
   cc: string[];
@@ -81,6 +87,8 @@ export type DraftSnapshotInput = {
   composeContentState?: ComposeContentState | null;
   composeIntent?: ComposeIntent;
   sourceMessageMeta?: ComposeSourceMessageMeta | null;
+  composeEvent?: ComposeEventFormState | null;
+  composeEventAttachment?: ComposeEventAttachmentState | null;
   subject: string;
   to: string[];
   cc: string[];
