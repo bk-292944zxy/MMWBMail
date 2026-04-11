@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Maximail",
+  title: "MaxiMail",
   description: "Maximum clarity, productivity, and speed for your inbox."
 };
 
@@ -19,7 +19,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#ff4d00" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Maximail" />
+        <meta name="apple-mobile-web-app-title" content="MaxiMail" />
       </head>
       <body>{children}</body>
     </html>

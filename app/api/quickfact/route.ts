@@ -16,12 +16,17 @@ export async function POST(request: Request) {
 
     const response = await runQuickFactPipeline(query);
     return NextResponse.json(response satisfies QuickFactResponse);
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "No solid quick fact surfaced fast enough.";
+
     return NextResponse.json({
       results: [],
       fallback: {
         reason: "backend_error",
-        message: "No solid quick fact surfaced fast enough.",
+        message,
         actionLabel: "Search more broadly"
       }
     } satisfies QuickFactResponse);

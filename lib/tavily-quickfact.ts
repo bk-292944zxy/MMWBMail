@@ -1,4 +1,4 @@
-import { getTavilyApiKey } from "@/lib/env";
+import { getCurrentOwnerTavilyApiKey } from "@/lib/tavily-settings";
 import type {
   QuickFactConfidence,
   QuickFactFallback,
@@ -431,6 +431,7 @@ export function buildQuickFactFallback(reason: QuickFactFallback["reason"]): Qui
 }
 
 async function runTavilySearch(query: string, queryType: QuickFactQueryType, fallbackPass = false) {
+  const apiKey = await getCurrentOwnerTavilyApiKey();
   const maxResults = fallbackPass ? 6 : QUICKFACT_MAX_RESULTS;
   const searchDepth =
     fallbackPass && (queryType === "product" || queryType === "market_fact" || queryType === "general_fact")
@@ -445,7 +446,7 @@ async function runTavilySearch(query: string, queryType: QuickFactQueryType, fal
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getTavilyApiKey()}`
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         query,

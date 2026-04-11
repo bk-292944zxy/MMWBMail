@@ -26,7 +26,7 @@ export function buildAiRewriteMessages(input: AiRewritePromptInput): AiRewriteCh
   const modifierDefinitions = input.modifiers.map((modifierId) => AI_REWRITE_MODIFIERS[modifierId]);
 
   const systemInstructions = [
-    "You are Maximail's AI Writing Assistant.",
+    "You are MaxiMail's AI Writing Assistant.",
     "This is not a generic tone improver. Rewrite the message so it better achieves the selected communication outcome while preserving meaning, intent, and strategic usefulness.",
     "",
     "Global guardrails:",

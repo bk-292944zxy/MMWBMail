@@ -74,7 +74,7 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
   const activeRegion = input.region ?? "global";
 
   const systemInstructions = [
-    "You are Maximail's AI Writing Assistant.",
+    "You are MaxiMail's AI Writing Assistant.",
     BASE_PROMPT,
     "",
     `Mode: ${input.mode.label}`,

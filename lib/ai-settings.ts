@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { resolveCurrentAiOwner } from "@/lib/ai-owner";
+import { AI_OWNER_LEGACY_SCOPE, resolveCurrentAiOwner } from "@/lib/ai-owner";
 import { decryptStoredSecret, encryptStoredSecret } from "@/lib/secret-crypto";
 
 const OPENAI_PROVIDER = "openai";
@@ -54,6 +54,48 @@ const availabilityCache = new Map<
   }
 >();
 
+async function findOpenAiCredentialRecord(ownerScope: string) {
+  return prisma.aiCredential.findFirst({
+    where: {
+      ownerScope,
+      provider: OPENAI_PROVIDER
+    }
+  });
+}
+
+async function findOpenAiCredentialRecordForOwner(owner: {
+  scope: string;
+  type: string;
+}) {
+  const current = await findOpenAiCredentialRecord(owner.scope);
+  if (current) {
+    return current;
+  }
+
+  if (owner.scope === AI_OWNER_LEGACY_SCOPE) {
+    return null;
+  }
+
+  const legacy = await findOpenAiCredentialRecord(AI_OWNER_LEGACY_SCOPE);
+  if (!legacy) {
+    return null;
+  }
+
+  try {
+    return await prisma.aiCredential.update({
+      where: {
+        id: legacy.id
+      },
+      data: {
+        ownerScope: owner.scope,
+        ownerType: owner.type
+      }
+    });
+  } catch {
+    return legacy;
+  }
+}
+
 function mapStatus(value: string | null | undefined): AiCredentialStatus {
   if (value === "connected" || value === "invalid") {
     return value;
@@ -62,15 +104,13 @@ function mapStatus(value: string | null | undefined): AiCredentialStatus {
   return "not_configured";
 }
 
-function toSummary(record: {
+function toSummary(ownerLabel: string, record: {
   status: string;
   lastValidatedAt: Date | null;
   lastError: string | null;
 } | null): AiSettingsSummary {
-  const owner = resolveCurrentAiOwner();
-
   return {
-    ownerLabel: owner.label,
+    ownerLabel,
     provider: "openai",
     configured: Boolean(record),
     status: record ? mapStatus(record.status) : "not_configured",
@@ -233,24 +273,23 @@ async function fetchOpenAiModels(apiKey: string) {
 }
 
 export async function getAiSettingsSummary() {
-  const owner = resolveCurrentAiOwner();
-  const record = await prisma.aiCredential.findUnique({
-    where: { ownerScope: owner.scope },
-    select: {
-      status: true,
-      lastValidatedAt: true,
-      lastError: true
-    }
-  });
-
-  return toSummary(record);
+  const owner = await resolveCurrentAiOwner();
+  const record = await findOpenAiCredentialRecordForOwner(owner);
+  return toSummary(
+    owner.label,
+    record
+      ? {
+          status: record.status,
+          lastValidatedAt: record.lastValidatedAt,
+          lastError: record.lastError
+        }
+      : null
+  );
 }
 
 export async function getCurrentOwnerOpenAiCredential() {
-  const owner = resolveCurrentAiOwner();
-  const record = await prisma.aiCredential.findUnique({
-    where: { ownerScope: owner.scope }
-  });
+  const owner = await resolveCurrentAiOwner();
+  const record = await findOpenAiCredentialRecordForOwner(owner);
 
   if (!record) {
     throw new Error("AI Writing Assistant isn't configured yet. Add your OpenAI API key in Settings to use rewrite modes.");
@@ -271,7 +310,7 @@ export async function getCurrentOwnerOpenAiCredential() {
 }
 
 export async function removeAiCredential() {
-  const owner = resolveCurrentAiOwner();
+  const owner = await resolveCurrentAiOwner();
 
   await prisma.aiCredential.deleteMany({
     where: {
@@ -328,7 +367,7 @@ export async function saveAiCredential(input: {
   apiKey: string;
   validate?: boolean;
 }) {
-  const owner = resolveCurrentAiOwner();
+  const owner = await resolveCurrentAiOwner();
   const apiKey = normalizeApiKey(input.apiKey);
   const validation = input.validate === false
     ? {
@@ -339,39 +378,43 @@ export async function saveAiCredential(input: {
     : await callOpenAiValidation(apiKey);
   clearAiAvailabilityCache(owner.scope);
 
-  await prisma.aiCredential.upsert({
-    where: {
-      ownerScope: owner.scope
-    },
-    create: {
-      ownerScope: owner.scope,
-      ownerType: owner.type,
-      provider: OPENAI_PROVIDER,
-      encryptedApiKey: encryptStoredSecret(apiKey),
-      status: validation.status,
-      lastValidatedAt: validation.lastValidatedAt,
-      lastError: validation.lastError
-    },
-    update: {
-      ownerType: owner.type,
-      provider: OPENAI_PROVIDER,
-      encryptedApiKey: encryptStoredSecret(apiKey),
-      status: validation.status,
-      lastValidatedAt: validation.lastValidatedAt,
-      lastError: validation.lastError
-    }
-  });
+  const encryptedApiKey = encryptStoredSecret(apiKey);
+  const record = await findOpenAiCredentialRecordForOwner(owner);
+
+  if (record) {
+    await prisma.aiCredential.update({
+      where: {
+        id: record.id
+      },
+      data: {
+        ownerType: owner.type,
+        provider: OPENAI_PROVIDER,
+        encryptedApiKey,
+        status: validation.status,
+        lastValidatedAt: validation.lastValidatedAt,
+        lastError: validation.lastError
+      }
+    });
+  } else {
+    await prisma.aiCredential.create({
+      data: {
+        ownerScope: owner.scope,
+        ownerType: owner.type,
+        provider: OPENAI_PROVIDER,
+        encryptedApiKey,
+        status: validation.status,
+        lastValidatedAt: validation.lastValidatedAt,
+        lastError: validation.lastError
+      }
+    });
+  }
 
   return getAiSettingsSummary();
 }
 
 export async function testStoredAiCredential() {
-  const owner = resolveCurrentAiOwner();
-  const record = await prisma.aiCredential.findUnique({
-    where: {
-      ownerScope: owner.scope
-    }
-  });
+  const owner = await resolveCurrentAiOwner();
+  const record = await findOpenAiCredentialRecordForOwner(owner);
 
   if (!record) {
     throw new Error("No OpenAI API key is configured.");
@@ -382,7 +425,7 @@ export async function testStoredAiCredential() {
 
   await prisma.aiCredential.update({
     where: {
-      ownerScope: owner.scope
+      id: record.id
     },
     data: {
       status: validation.status,
@@ -395,7 +438,7 @@ export async function testStoredAiCredential() {
 }
 
 export async function testAiCredentialInput(apiKeyInput?: string | null) {
-  const owner = resolveCurrentAiOwner();
+  const owner = await resolveCurrentAiOwner();
   const providedApiKey = apiKeyInput?.trim();
 
   let apiKey = "";
@@ -403,11 +446,7 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
   if (providedApiKey) {
     apiKey = normalizeApiKey(providedApiKey);
   } else {
-    const record = await prisma.aiCredential.findUnique({
-      where: {
-        ownerScope: owner.scope
-      }
-    });
+    const record = await findOpenAiCredentialRecordForOwner(owner);
 
     if (!record) {
       throw new Error("No OpenAI API key is configured.");
@@ -420,9 +459,14 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
   clearAiAvailabilityCache(owner.scope);
 
   if (!providedApiKey) {
+    const record = await findOpenAiCredentialRecordForOwner(owner);
+    if (!record) {
+      throw new Error("No OpenAI API key is configured.");
+    }
+
     await prisma.aiCredential.update({
       where: {
-        ownerScope: owner.scope
+        id: record.id
       },
       data: {
         status: validation.status,
@@ -435,7 +479,7 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
   }
 
   return {
-    ...toSummary({
+    ...toSummary(owner.label, {
       status: validation.status,
       lastValidatedAt: validation.lastValidatedAt,
       lastError: validation.lastError
@@ -448,7 +492,7 @@ export async function getAiAvailabilitySummary(input?: {
   force?: boolean;
   maxAgeMs?: number;
 }) {
-  const owner = resolveCurrentAiOwner();
+  const owner = await resolveCurrentAiOwner();
   const maxAgeMs = input?.maxAgeMs ?? AI_AVAILABILITY_FRESH_MS;
   const cached = availabilityCache.get(owner.scope);
 
@@ -456,15 +500,7 @@ export async function getAiAvailabilitySummary(input?: {
     return cached.result;
   }
 
-  const record = await prisma.aiCredential.findUnique({
-    where: { ownerScope: owner.scope },
-    select: {
-      encryptedApiKey: true,
-      status: true,
-      lastError: true,
-      lastValidatedAt: true
-    }
-  });
+  const record = await findOpenAiCredentialRecordForOwner(owner);
 
   if (!record) {
     return toAvailabilitySummary({
