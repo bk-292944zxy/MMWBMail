@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { generateICSFromComposeEvent } from "@/composer/events/ics";
 import { getDefaultComposeEventTimeZone } from "@/composer/events/state";
@@ -39,12 +39,62 @@ const TIMEZONE_SUGGESTIONS = Array.from(
   ])
 );
 
+const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) {
+    return new Date();
+  }
+
+  return new Date(year, month - 1, day);
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateDisplayValue(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric"
+  }).format(parseDateInput(value));
+}
+
+function formatMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric"
+  }).format(date);
+}
+
+function buildCalendarDays(visibleMonth: Date) {
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = firstOfMonth.getDay();
+  const gridStart = new Date(year, month, 1 - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+}
+
 export function ComposeEventBuilder({
   open,
   initialEvent,
   onClose,
   onCreate
 }: ComposeEventBuilderProps) {
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [openCalendarField, setOpenCalendarField] = useState<"startDate" | "endDate" | null>(null);
+  const [visibleMonth, setVisibleMonth] = useState(() => parseDateInput(initialEvent?.startDate ?? ""));
   const {
     form,
     errors,
@@ -54,22 +104,17 @@ export function ComposeEventBuilder({
     toggleMultiDay,
     buildEvent
   } = useComposeEventBuilderState(initialEvent, open);
-  const startDateInputRef = useRef<HTMLInputElement | null>(null);
-  const endDateInputRef = useRef<HTMLInputElement | null>(null);
+  const calendarCardRef = useRef<HTMLDivElement | null>(null);
 
-  const openDatePicker = (input: HTMLInputElement | null) => {
-    if (!input) {
+  useEffect(() => {
+    if (!open) {
       return;
     }
 
-    if (typeof input.showPicker === "function") {
-      input.showPicker();
-      return;
-    }
-
-    input.focus();
-    input.click();
-  };
+    setSubmitError(null);
+    setOpenCalendarField(null);
+    setVisibleMonth(parseDateInput(initialEvent?.startDate ?? ""));
+  }, [initialEvent?.startDate, open]);
 
   useEffect(() => {
     if (!open) {
@@ -78,6 +123,11 @@ export function ComposeEventBuilder({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (openCalendarField) {
+          event.preventDefault();
+          setOpenCalendarField(null);
+          return;
+        }
         event.preventDefault();
         onClose();
       }
@@ -85,13 +135,50 @@ export function ComposeEventBuilder({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
+  }, [onClose, open, openCalendarField]);
+
+  useEffect(() => {
+    if (!openCalendarField) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (calendarCardRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setOpenCalendarField(null);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [openCalendarField]);
+
+  const handleCalendarOpen = (field: "startDate" | "endDate") => {
+    const currentValue = field === "startDate" ? form.startDate : form.endDate;
+    setVisibleMonth(parseDateInput(currentValue));
+    setOpenCalendarField((current) => (current === field ? null : field));
+  };
+
+  const handleCalendarSelect = (field: "startDate" | "endDate", date: Date) => {
+    updateField(field, formatDateInputValue(date));
+    if (field === "startDate" && !form.isMultiDay) {
+      updateField("endDate", formatDateInputValue(date));
+    }
+    setVisibleMonth(date);
+    setOpenCalendarField(null);
+  };
 
   if (!open || typeof document === "undefined") {
     return null;
   }
 
+  const calendarDays = buildCalendarDays(visibleMonth);
+  const activeCalendarValue = openCalendarField === "endDate" ? form.endDate : form.startDate;
+  const selectedCalendarDate = parseDateInput(activeCalendarValue);
+
   const handleSubmit = async () => {
+    setSubmitError(null);
     const event = buildEvent();
     if (!event) {
       return;
@@ -107,6 +194,10 @@ export function ComposeEventBuilder({
         asset
       });
       onClose();
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Unable to attach the calendar invite."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -127,7 +218,7 @@ export function ComposeEventBuilder({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="compose-event-header">
-          <div>
+          <div className="compose-event-header-copy">
             <div className="compose-event-title" id="compose-event-title">
               Create calendar event
             </div>
@@ -147,45 +238,45 @@ export function ComposeEventBuilder({
 
         <div className="compose-event-modal-body">
           <div className="compose-event-title-row">
-            <div
-              className="compose-event-title-glyph"
-              aria-hidden="true"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="compose-event-title-shell">
+              <div
+                className="compose-event-title-glyph"
                 aria-hidden="true"
               >
-                <rect x="3" y="4" width="18" height="17" rx="2" />
-                <path d="M8 2v4" />
-                <path d="M16 2v4" />
-                <path d="M3 10h18" />
-              </svg>
-            </div>
-            <div className="compose-event-title-field">
-              <label className="sr-only" htmlFor="compose-event-title-input">
-                Event details
-              </label>
-              <input
-                id="compose-event-title-input"
-                className={`compose-event-input compose-event-title-input ${
-                  errors.title ? "compose-event-input-error" : ""
-                }`}
-                type="text"
-                value={form.title}
-                onChange={(event) => updateField("title", event.target.value)}
-                placeholder="Event details"
-                autoFocus
-              />
-              {errors.title ? (
-                <span className="compose-event-error compose-event-title-error">{errors.title}</span>
-              ) : null}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="4" width="18" height="17" rx="2" />
+                  <path d="M8 2v4" />
+                  <path d="M16 2v4" />
+                  <path d="M3 10h18" />
+                </svg>
+              </div>
+              <div className="compose-event-title-field">
+                <input
+                  id="compose-event-title-input"
+                  aria-label="Event details"
+                  className={`compose-event-input compose-event-title-input ${
+                    errors.title ? "compose-event-input-error" : ""
+                  }`}
+                  type="text"
+                  value={form.title}
+                  onChange={(event) => updateField("title", event.target.value)}
+                  placeholder="Event details"
+                  autoFocus
+                />
+                {errors.title ? (
+                  <span className="compose-event-error compose-event-title-error">{errors.title}</span>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -194,21 +285,22 @@ export function ComposeEventBuilder({
               <div className="compose-event-field compose-event-field-date">
                 <span className="compose-event-label">Date</span>
                 <div className="compose-event-input-shell">
-                  <input
-                    ref={startDateInputRef}
-                    className={`compose-event-input compose-event-date-input ${
+                  <button
+                    type="button"
+                    className={`compose-event-input compose-event-date-display ${
                       errors.startDate ? "compose-event-input-error" : ""
                     }`}
-                      type="date"
-                      value={form.startDate}
-                      onChange={(event) => updateField("startDate", event.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="compose-event-icon-button compose-event-date-trigger"
-                      aria-label="Open date picker"
-                      onClick={() => openDatePicker(startDateInputRef.current)}
-                    >
+                    aria-expanded={openCalendarField === "startDate"}
+                    onClick={() => handleCalendarOpen("startDate")}
+                  >
+                    {formatDateDisplayValue(form.startDate)}
+                  </button>
+                  <button
+                    type="button"
+                    className="compose-event-icon-button compose-event-date-trigger"
+                    aria-label="Open date picker"
+                    onClick={() => handleCalendarOpen("startDate")}
+                  >
                     <svg
                       width="13"
                       height="13"
@@ -244,75 +336,212 @@ export function ComposeEventBuilder({
               </button>
             </div>
 
-            <div className="compose-event-row compose-event-row-time">
-              <label className="compose-event-field">
-                <span className="compose-event-label">Start time</span>
-                <input
-                  className={`compose-event-input ${
-                    errors.startTime ? "compose-event-input-error" : ""
-                  }`}
-                  type="time"
-                  value={form.startTime}
-                  onChange={(event) => updateField("startTime", event.target.value)}
-                />
-                {errors.startTime ? <span className="compose-event-error">{errors.startTime}</span> : null}
-              </label>
+            {openCalendarField === "startDate" ? (
+              <div className="compose-event-calendar-inline">
+                <div className="compose-event-calendar-card" ref={calendarCardRef}>
+                  <div className="compose-event-calendar-toolbar">
+                    <div className="compose-event-calendar-selection">
+                      {formatDateDisplayValue(form.startDate)}
+                    </div>
+                    <div className="compose-event-calendar-nav">
+                      <button
+                        type="button"
+                        className="compose-event-calendar-nav-button"
+                        aria-label="Previous month"
+                        onClick={() =>
+                          setVisibleMonth(
+                            new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
+                          )
+                        }
+                      >
+                        ‹
+                      </button>
+                      <div className="compose-event-calendar-month">{formatMonthLabel(visibleMonth)}</div>
+                      <button
+                        type="button"
+                        className="compose-event-calendar-nav-button"
+                        aria-label="Next month"
+                        onClick={() =>
+                          setVisibleMonth(
+                            new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1)
+                          )
+                        }
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </div>
+                  <div className="compose-event-calendar-weekdays">
+                    {WEEKDAY_LABELS.map((label) => (
+                      <span key={label}>{label}</span>
+                    ))}
+                  </div>
+                  <div className="compose-event-calendar-grid">
+                    {calendarDays.map((day) => {
+                      const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
+                      const isSelected =
+                        day.getFullYear() === selectedCalendarDate.getFullYear() &&
+                        day.getMonth() === selectedCalendarDate.getMonth() &&
+                        day.getDate() === selectedCalendarDate.getDate();
 
-              <label className="compose-event-field">
-                <span className="compose-event-label">End time</span>
-                <input
-                  className={`compose-event-input ${
-                    errors.endTime ? "compose-event-input-error" : ""
-                  }`}
-                  type="time"
-                  value={form.endTime}
-                  onChange={(event) => updateField("endTime", event.target.value)}
-                />
-                {errors.endTime ? <span className="compose-event-error">{errors.endTime}</span> : null}
-              </label>
+                      return (
+                        <button
+                          key={day.toISOString()}
+                          type="button"
+                          className={`compose-event-calendar-day ${
+                            isCurrentMonth ? "" : "is-outside"
+                          } ${isSelected ? "is-selected" : ""}`}
+                          onClick={() => handleCalendarSelect("startDate", day)}
+                        >
+                          {day.getDate()}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="compose-event-row compose-event-row-time">
+              <div className="compose-event-time-cluster">
+                <label className="compose-event-field compose-event-time-field">
+                  <span className="compose-event-label">Start time</span>
+                  <input
+                    className={`compose-event-input ${
+                      errors.startTime ? "compose-event-input-error" : ""
+                    }`}
+                    type="time"
+                    value={form.startTime}
+                    onChange={(event) => updateField("startTime", event.target.value)}
+                  />
+                  {errors.startTime ? <span className="compose-event-error">{errors.startTime}</span> : null}
+                </label>
+
+                <label className="compose-event-field compose-event-time-field">
+                  <span className="compose-event-label">End time</span>
+                  <input
+                    className={`compose-event-input ${
+                      errors.endTime ? "compose-event-input-error" : ""
+                    }`}
+                    type="time"
+                    value={form.endTime}
+                    onChange={(event) => updateField("endTime", event.target.value)}
+                  />
+                  {errors.endTime ? <span className="compose-event-error">{errors.endTime}</span> : null}
+                </label>
+              </div>
             </div>
 
             {form.isMultiDay ? (
-              <div className="compose-event-row compose-event-row-enddate">
-                <div className="compose-event-field compose-event-field-enddate">
-                  <span className="compose-event-label">End date</span>
-                  <div className="compose-event-input-shell">
-                    <input
-                      ref={endDateInputRef}
-                      className={`compose-event-input compose-event-date-input ${
-                        errors.endDate ? "compose-event-input-error" : ""
-                      }`}
-                      type="date"
-                      value={form.endDate}
-                      onChange={(event) => updateField("endDate", event.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="compose-event-icon-button compose-event-date-trigger"
-                      aria-label="Open end date picker"
-                      onClick={() => openDatePicker(endDateInputRef.current)}
-                    >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+              <>
+                <div className="compose-event-row compose-event-row-enddate">
+                  <div className="compose-event-field compose-event-field-enddate">
+                    <span className="compose-event-label">End date</span>
+                    <div className="compose-event-input-shell">
+                      <button
+                        type="button"
+                        className={`compose-event-input compose-event-date-display ${
+                          errors.endDate ? "compose-event-input-error" : ""
+                        }`}
+                        aria-expanded={openCalendarField === "endDate"}
+                        onClick={() => handleCalendarOpen("endDate")}
                       >
-                        <rect x="3" y="4" width="18" height="17" rx="2" />
-                        <path d="M8 2v4" />
-                        <path d="M16 2v4" />
-                        <path d="M3 10h18" />
-                      </svg>
-                    </button>
+                        {formatDateDisplayValue(form.endDate)}
+                      </button>
+                      <button
+                        type="button"
+                        className="compose-event-icon-button compose-event-date-trigger"
+                        aria-label="Open end date picker"
+                        onClick={() => handleCalendarOpen("endDate")}
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <rect x="3" y="4" width="18" height="17" rx="2" />
+                          <path d="M8 2v4" />
+                          <path d="M16 2v4" />
+                          <path d="M3 10h18" />
+                        </svg>
+                      </button>
+                    </div>
+                    {errors.endDate ? <span className="compose-event-error">{errors.endDate}</span> : null}
                   </div>
-                  {errors.endDate ? <span className="compose-event-error">{errors.endDate}</span> : null}
                 </div>
-              </div>
+
+                {openCalendarField === "endDate" ? (
+                  <div className="compose-event-calendar-inline">
+                    <div className="compose-event-calendar-card" ref={calendarCardRef}>
+                      <div className="compose-event-calendar-toolbar">
+                        <div className="compose-event-calendar-selection">
+                          {formatDateDisplayValue(form.endDate)}
+                        </div>
+                        <div className="compose-event-calendar-nav">
+                          <button
+                            type="button"
+                            className="compose-event-calendar-nav-button"
+                            aria-label="Previous month"
+                            onClick={() =>
+                              setVisibleMonth(
+                                new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
+                              )
+                            }
+                          >
+                            ‹
+                          </button>
+                          <div className="compose-event-calendar-month">{formatMonthLabel(visibleMonth)}</div>
+                          <button
+                            type="button"
+                            className="compose-event-calendar-nav-button"
+                            aria-label="Next month"
+                            onClick={() =>
+                              setVisibleMonth(
+                                new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1)
+                              )
+                            }
+                          >
+                            ›
+                          </button>
+                        </div>
+                      </div>
+                      <div className="compose-event-calendar-weekdays">
+                        {WEEKDAY_LABELS.map((label) => (
+                          <span key={label}>{label}</span>
+                        ))}
+                      </div>
+                      <div className="compose-event-calendar-grid">
+                        {calendarDays.map((day) => {
+                          const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
+                          const isSelected =
+                            day.getFullYear() === selectedCalendarDate.getFullYear() &&
+                            day.getMonth() === selectedCalendarDate.getMonth() &&
+                            day.getDate() === selectedCalendarDate.getDate();
+
+                          return (
+                            <button
+                              key={day.toISOString()}
+                              type="button"
+                              className={`compose-event-calendar-day ${
+                                isCurrentMonth ? "" : "is-outside"
+                              } ${isSelected ? "is-selected" : ""}`}
+                              onClick={() => handleCalendarSelect("endDate", day)}
+                            >
+                              {day.getDate()}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             <div className="compose-event-utility-row">
@@ -376,7 +605,16 @@ export function ComposeEventBuilder({
         </div>
 
         <div className="compose-event-modal-footer">
-          <div className="compose-event-copy">Event data will be attached as an ICS file.</div>
+          <div className="compose-event-footer-meta">
+            <div className="compose-event-copy compose-event-footer-copy">
+              Event data will be attached as an ICS file.
+            </div>
+            {submitError ? (
+              <div className="compose-event-submit-error" role="alert">
+                {submitError}
+              </div>
+            ) : null}
+          </div>
           <div className="compose-event-actions">
             <button
               type="button"

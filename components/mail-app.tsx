@@ -1991,9 +1991,9 @@ const COMPACT_TOOLBAR_COMMAND_IDS: ComposerCommandId[] = [
   "italic",
   "underline",
   "link",
-  "rewrite_for_outcome",
   "attach_file",
   "create_calendar_event",
+  "rewrite_for_outcome",
   "insert_image"
 ];
 
@@ -4325,6 +4325,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           composeEventAttachment,
           composeAttachmentIdsRef.current
         );
+        if (replaceIndex >= 0 && replaceIndex < current.length) {
+          const previousFile = current[replaceIndex];
+          composeAttachmentIdsRef.current.delete(previousFile);
+          composeAttachmentDataUrlCacheRef.current.delete(previousFile);
+        }
         return upsertComposeEventAttachment(current, nextFile, replaceIndex);
       });
       setComposeEvent(form);
@@ -4333,6 +4338,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         attachmentId: nextAttachmentId,
         fileName: asset.fileName
       });
+      setStatus("Calendar invite attached.");
     },
     [composeEventAttachment]
   );
