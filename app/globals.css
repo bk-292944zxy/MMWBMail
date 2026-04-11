@@ -4219,8 +4219,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .fmt-btn-label {
   width: auto !important;
-  padding: 0 10px !important;
-  gap: 6px !important;
+  padding: 0 7px !important;
+  gap: 4px !important;
 }
 
 .fmt-btn-rewrite {
@@ -4842,6 +4842,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   box-shadow: 0 20px 44px rgba(15, 23, 42, 0.16) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
+  overflow: visible !important;
 }
 
 .compose-event-header {
@@ -4868,6 +4869,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   gap: 13px !important;
+  position: relative !important;
+  overflow: visible !important;
 }
 
 .compose-event-popover button.compose-event-close {
@@ -5007,6 +5010,33 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   text-align: left !important;
 }
 
+.compose-event-date-control {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding-right: 8px !important;
+}
+
+.compose-event-date-text {
+  min-width: 0 !important;
+}
+
+.compose-event-date-glyph {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: rgba(100, 116, 139, 0.92) !important;
+  flex-shrink: 0 !important;
+}
+
+.compose-event-date-control.is-open {
+  border-bottom-left-radius: 8px !important;
+  border-bottom-right-radius: 8px !important;
+}
+
 .compose-event-popover button.compose-event-icon-button {
   width: 30px !important;
   height: 30px !important;
@@ -5031,9 +5061,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   margin-left: -1px !important;
 }
 
-.compose-event-calendar-inline {
-  display: flex !important;
-  justify-content: flex-start !important;
+.compose-event-calendar-floating {
+  position: absolute !important;
+  z-index: 40 !important;
 }
 
 .compose-event-calendar-card {
@@ -5042,7 +5072,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-radius: 14px !important;
   border: 1px solid rgba(15, 23, 42, 0.08) !important;
   background: rgba(255, 255, 255, 0.99) !important;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18) !important;
+  margin-top: 0 !important;
 }
 
 .compose-event-calendar-toolbar {
@@ -5213,16 +5244,28 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-event-timezone-field {
-  width: min(100%, 196px) !important;
+  width: auto !important;
+  max-width: 100% !important;
+  align-self: flex-start !important;
   opacity: 0.9 !important;
 }
 
+.compose-event-timezone-input {
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
 .compose-event-reminder-field {
-  width: 170px !important;
+  width: auto !important;
+  max-width: 100% !important;
+  align-self: flex-start !important;
 }
 
 .compose-event-reminder-input {
-  width: 170px !important;
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
 }
 
 .compose-event-notes-field {
@@ -5320,16 +5363,6 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
   .compose-event-time-cluster {
     grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .compose-event-timezone-field,
-  .compose-event-reminder-field,
-  .compose-event-reminder-input {
-    width: 100% !important;
-  }
-
-  .compose-event-calendar-card {
-    width: 100% !important;
   }
 
   .compose-event-modal-footer {
@@ -12174,20 +12207,30 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-bottom: none !important;
 }
 
+.compose-fmt-row-primary .fmt-btn:not(.fmt-btn-label):not(.fmt-btn-color) {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+.compose-fmt-row-primary .fmt-btn:not(.fmt-btn-label):not(.fmt-btn-color) svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
 .compose-fmt-row-secondary {
   padding-top: 5px !important;
   border-top: none !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn {
-  width: 24px !important;
-  height: 24px !important;
+  width: 26px !important;
+  height: 26px !important;
   opacity: 0.7 !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn:hover,

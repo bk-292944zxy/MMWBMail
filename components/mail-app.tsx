@@ -1661,7 +1661,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T & { error?: s
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
-  let timeoutId: number | null = null;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
 
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = globalThis.setTimeout(() => {
@@ -18277,12 +18277,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setSelectedUid(null);
                     }
 
+                    const folderPathsForRefresh = currentFolderPath
+                      ? [currentFolderPath]
+                      : undefined;
                     const [, messageResponse] = await Promise.all([
-                      refreshFolderCounts(activeAccountId, {
+                      refreshFolderCounts(activeAccountId ?? undefined, {
                         sync: true,
-                        folderPaths: [currentFolderPath]
+                        folderPaths: folderPathsForRefresh
                       }),
-                      loadMessages(currentFolderPath, {
+                      loadMessages(currentFolderPath ?? undefined, {
                         force: true,
                         manageBusy: false
                       })
@@ -20394,16 +20397,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <div className="compose-ai-target">{composeAiSelectionLabel}</div>
                       </div>
                       <div className="compose-ai-panel-header-meta">
-                        <button
-                          type="button"
-                          className="compose-ai-close"
-                          aria-label={
-                            composeAiType === "polish"
-                              ? "Close Polish"
-                              : "Close Elevate"
-                          }
-                          onClick={closeComposeAiPanel}
-                        >
+                          <button
+                            type="button"
+                            className="compose-ai-close"
+                            aria-label="Close Elevate"
+                            onClick={closeComposeAiPanel}
+                          >
                           <span aria-hidden="true">×</span>
                         </button>
                       </div>

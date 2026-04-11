@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { generateICSFromComposeEvent } from "@/composer/events/ics";
 import { getDefaultComposeEventTimeZone } from "@/composer/events/state";
@@ -38,6 +38,15 @@ const TIMEZONE_SUGGESTIONS = Array.from(
     "Australia/Sydney"
   ])
 );
+const REMINDER_OPTIONS: Array<{ value: ComposeEventFormState["reminder"]; label: string }> = [
+  { value: "none", label: "None" },
+  { value: "at_time", label: "At time of event" },
+  { value: "5m", label: "5 minutes before" },
+  { value: "15m", label: "15 minutes before" },
+  { value: "30m", label: "30 minutes before" },
+  { value: "1h", label: "1 hour before" },
+  { value: "1d", label: "1 day before" }
+];
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -86,6 +95,74 @@ function buildCalendarDays(visibleMonth: Date) {
   });
 }
 
+function looksLikeUrlOrEmail(text: string) {
+  const trimmed = text.trimStart();
+  return (
+    /^(https?:\/\/|www\.)/i.test(trimmed) ||
+    /^[^\s@]+@[^\s@]+\.[^\s@]+/.test(trimmed)
+  );
+}
+
+function toSentenceCase(value: string) {
+  if (!value.trim() || looksLikeUrlOrEmail(value)) {
+    return value;
+  }
+
+  const firstLetterIndex = value.search(/[A-Za-z]/);
+  if (firstLetterIndex < 0) {
+    return value;
+  }
+
+  const firstLetter = value[firstLetterIndex];
+  const upperFirstLetter = firstLetter.toLocaleUpperCase();
+  if (firstLetter === upperFirstLetter) {
+    return value;
+  }
+
+  return `${value.slice(0, firstLetterIndex)}${upperFirstLetter}${value.slice(firstLetterIndex + 1)}`;
+}
+
+function normalizeNotesSentenceCase(value: string) {
+  if (!value.trim()) {
+    return value;
+  }
+
+  let result = "";
+  let capitalizeNext = true;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (capitalizeNext && /[A-Za-z]/.test(char)) {
+      if (char === char.toLocaleLowerCase()) {
+        const tail = value.slice(index);
+        if (!looksLikeUrlOrEmail(tail)) {
+          result += char.toLocaleUpperCase();
+        } else {
+          result += char;
+        }
+      } else {
+        result += char;
+      }
+      capitalizeNext = false;
+      continue;
+    }
+
+    result += char;
+
+    if (char === "." || char === "!" || char === "?" || char === "\n") {
+      capitalizeNext = true;
+      continue;
+    }
+
+    if (!/\s/.test(char)) {
+      capitalizeNext = false;
+    }
+  }
+
+  return result;
+}
+
 export function ComposeEventBuilder({
   open,
   initialEvent,
@@ -95,6 +172,10 @@ export function ComposeEventBuilder({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [openCalendarField, setOpenCalendarField] = useState<"startDate" | "endDate" | null>(null);
   const [visibleMonth, setVisibleMonth] = useState(() => parseDateInput(initialEvent?.startDate ?? ""));
+  const [calendarPosition, setCalendarPosition] = useState({
+    top: 0,
+    left: 0
+  });
   const {
     form,
     errors,
@@ -104,6 +185,9 @@ export function ComposeEventBuilder({
     toggleMultiDay,
     buildEvent
   } = useComposeEventBuilderState(initialEvent, open);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
+  const startDateControlRef = useRef<HTMLButtonElement | null>(null);
+  const endDateControlRef = useRef<HTMLButtonElement | null>(null);
   const calendarCardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -169,6 +253,84 @@ export function ComposeEventBuilder({
     setOpenCalendarField(null);
   };
 
+  const updateCalendarPosition = useCallback(() => {
+    if (!openCalendarField) {
+      return;
+    }
+
+    const modalBody = modalBodyRef.current;
+    const anchor =
+      openCalendarField === "startDate" ? startDateControlRef.current : endDateControlRef.current;
+    if (!modalBody || !anchor) {
+      return;
+    }
+
+    const modalRect = modalBody.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const cardWidth = 198;
+    const edgePadding = 8;
+    const desiredLeft = anchorRect.left - modalRect.left;
+    const maxLeft = Math.max(edgePadding, modalRect.width - cardWidth - edgePadding);
+    const nextLeft = Math.max(edgePadding, Math.min(desiredLeft, maxLeft));
+    const nextTop = anchorRect.bottom - modalRect.top + 2;
+
+    setCalendarPosition({
+      top: nextTop,
+      left: nextLeft
+    });
+  }, [openCalendarField]);
+
+  useEffect(() => {
+    if (!openCalendarField) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(updateCalendarPosition);
+    const handleReposition = () => {
+      updateCalendarPosition();
+    };
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [openCalendarField, updateCalendarPosition]);
+
+  const normalizeFieldOnBlur = useCallback(
+    (
+      key: "title" | "location" | "notes",
+      value: string,
+      normalizer: (input: string) => string
+    ) => {
+      const normalizedValue = normalizer(value);
+      if (normalizedValue !== value) {
+        updateField(key, normalizedValue);
+      }
+    },
+    [updateField]
+  );
+  const handleTitleChange = useCallback(
+    (value: string) => {
+      updateField("title", toSentenceCase(value));
+    },
+    [updateField]
+  );
+  const handleLocationChange = useCallback(
+    (value: string) => {
+      updateField("location", toSentenceCase(value));
+    },
+    [updateField]
+  );
+  const handleNotesChange = useCallback(
+    (value: string) => {
+      updateField("notes", normalizeNotesSentenceCase(value));
+    },
+    [updateField]
+  );
+
   if (!open || typeof document === "undefined") {
     return null;
   }
@@ -176,6 +338,27 @@ export function ComposeEventBuilder({
   const calendarDays = buildCalendarDays(visibleMonth);
   const activeCalendarValue = openCalendarField === "endDate" ? form.endDate : form.startDate;
   const selectedCalendarDate = parseDateInput(activeCalendarValue);
+  const timezoneOptions = Array.from(
+    new Set(
+      form.timezone && form.timezone.trim().length > 0
+        ? [form.timezone, ...TIMEZONE_SUGGESTIONS]
+        : TIMEZONE_SUGGESTIONS
+    )
+  );
+  const timezoneWidthCh = Math.min(
+    Math.max(
+      timezoneOptions.reduce((maxChars, timezone) => Math.max(maxChars, timezone.length), 0) + 3,
+      16
+    ),
+    30
+  );
+  const reminderWidthCh = Math.min(
+    Math.max(
+      REMINDER_OPTIONS.reduce((maxChars, option) => Math.max(maxChars, option.label.length), 0) + 3,
+      14
+    ),
+    24
+  );
 
   const handleSubmit = async () => {
     setSubmitError(null);
@@ -236,7 +419,7 @@ export function ComposeEventBuilder({
           </button>
         </div>
 
-        <div className="compose-event-modal-body">
+        <div className="compose-event-modal-body" ref={modalBodyRef}>
           <div className="compose-event-title-row">
             <div className="compose-event-title-shell">
               <div
@@ -269,7 +452,8 @@ export function ComposeEventBuilder({
                   }`}
                   type="text"
                   value={form.title}
-                  onChange={(event) => updateField("title", event.target.value)}
+                  onChange={(event) => handleTitleChange(event.target.value)}
+                  onBlur={() => normalizeFieldOnBlur("title", form.title, toSentenceCase)}
                   placeholder="Event details"
                   autoFocus
                 />
@@ -284,23 +468,17 @@ export function ComposeEventBuilder({
             <div className="compose-event-row compose-event-row-date">
               <div className="compose-event-field compose-event-field-date">
                 <span className="compose-event-label">Date</span>
-                <div className="compose-event-input-shell">
-                  <button
-                    type="button"
-                    className={`compose-event-input compose-event-date-display ${
-                      errors.startDate ? "compose-event-input-error" : ""
-                    }`}
-                    aria-expanded={openCalendarField === "startDate"}
-                    onClick={() => handleCalendarOpen("startDate")}
-                  >
-                    {formatDateDisplayValue(form.startDate)}
-                  </button>
-                  <button
-                    type="button"
-                    className="compose-event-icon-button compose-event-date-trigger"
-                    aria-label="Open date picker"
-                    onClick={() => handleCalendarOpen("startDate")}
-                  >
+                <button
+                  type="button"
+                  ref={startDateControlRef}
+                  className={`compose-event-input compose-event-date-control ${
+                    errors.startDate ? "compose-event-input-error" : ""
+                  } ${openCalendarField === "startDate" ? "is-open" : ""}`}
+                  aria-expanded={openCalendarField === "startDate"}
+                  onClick={() => handleCalendarOpen("startDate")}
+                >
+                  <span className="compose-event-date-text">{formatDateDisplayValue(form.startDate)}</span>
+                  <span className="compose-event-date-glyph" aria-hidden="true">
                     <svg
                       width="13"
                       height="13"
@@ -310,15 +488,14 @@ export function ComposeEventBuilder({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      aria-hidden="true"
                     >
                       <rect x="3" y="4" width="18" height="17" rx="2" />
                       <path d="M8 2v4" />
                       <path d="M16 2v4" />
                       <path d="M3 10h18" />
                     </svg>
-                  </button>
-                </div>
+                  </span>
+                </button>
                 {errors.startDate ? <span className="compose-event-error">{errors.startDate}</span> : null}
               </div>
 
@@ -336,72 +513,6 @@ export function ComposeEventBuilder({
               </button>
             </div>
 
-            {openCalendarField === "startDate" ? (
-              <div className="compose-event-calendar-inline">
-                <div className="compose-event-calendar-card" ref={calendarCardRef}>
-                  <div className="compose-event-calendar-toolbar">
-                    <div className="compose-event-calendar-selection">
-                      {formatDateDisplayValue(form.startDate)}
-                    </div>
-                    <div className="compose-event-calendar-nav">
-                      <button
-                        type="button"
-                        className="compose-event-calendar-nav-button"
-                        aria-label="Previous month"
-                        onClick={() =>
-                          setVisibleMonth(
-                            new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
-                          )
-                        }
-                      >
-                        ‹
-                      </button>
-                      <div className="compose-event-calendar-month">{formatMonthLabel(visibleMonth)}</div>
-                      <button
-                        type="button"
-                        className="compose-event-calendar-nav-button"
-                        aria-label="Next month"
-                        onClick={() =>
-                          setVisibleMonth(
-                            new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1)
-                          )
-                        }
-                      >
-                        ›
-                      </button>
-                    </div>
-                  </div>
-                  <div className="compose-event-calendar-weekdays">
-                    {WEEKDAY_LABELS.map((label) => (
-                      <span key={label}>{label}</span>
-                    ))}
-                  </div>
-                  <div className="compose-event-calendar-grid">
-                    {calendarDays.map((day) => {
-                      const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
-                      const isSelected =
-                        day.getFullYear() === selectedCalendarDate.getFullYear() &&
-                        day.getMonth() === selectedCalendarDate.getMonth() &&
-                        day.getDate() === selectedCalendarDate.getDate();
-
-                      return (
-                        <button
-                          key={day.toISOString()}
-                          type="button"
-                          className={`compose-event-calendar-day ${
-                            isCurrentMonth ? "" : "is-outside"
-                          } ${isSelected ? "is-selected" : ""}`}
-                          onClick={() => handleCalendarSelect("startDate", day)}
-                        >
-                          {day.getDate()}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
             <div className="compose-event-row compose-event-row-time">
               <div className="compose-event-time-cluster">
                 <label className="compose-event-field compose-event-time-field">
@@ -417,18 +528,20 @@ export function ComposeEventBuilder({
                   {errors.startTime ? <span className="compose-event-error">{errors.startTime}</span> : null}
                 </label>
 
-                <label className="compose-event-field compose-event-time-field">
-                  <span className="compose-event-label">End time</span>
-                  <input
-                    className={`compose-event-input ${
-                      errors.endTime ? "compose-event-input-error" : ""
-                    }`}
-                    type="time"
-                    value={form.endTime}
-                    onChange={(event) => updateField("endTime", event.target.value)}
-                  />
-                  {errors.endTime ? <span className="compose-event-error">{errors.endTime}</span> : null}
-                </label>
+                {!form.isMultiDay ? (
+                  <label className="compose-event-field compose-event-time-field">
+                    <span className="compose-event-label">End time</span>
+                    <input
+                      className={`compose-event-input ${
+                        errors.endTime ? "compose-event-input-error" : ""
+                      }`}
+                      type="time"
+                      value={form.endTime}
+                      onChange={(event) => updateField("endTime", event.target.value)}
+                    />
+                    {errors.endTime ? <span className="compose-event-error">{errors.endTime}</span> : null}
+                  </label>
+                ) : null}
               </div>
             </div>
 
@@ -437,23 +550,17 @@ export function ComposeEventBuilder({
                 <div className="compose-event-row compose-event-row-enddate">
                   <div className="compose-event-field compose-event-field-enddate">
                     <span className="compose-event-label">End date</span>
-                    <div className="compose-event-input-shell">
-                      <button
-                        type="button"
-                        className={`compose-event-input compose-event-date-display ${
-                          errors.endDate ? "compose-event-input-error" : ""
-                        }`}
-                        aria-expanded={openCalendarField === "endDate"}
-                        onClick={() => handleCalendarOpen("endDate")}
-                      >
-                        {formatDateDisplayValue(form.endDate)}
-                      </button>
-                      <button
-                        type="button"
-                        className="compose-event-icon-button compose-event-date-trigger"
-                        aria-label="Open end date picker"
-                        onClick={() => handleCalendarOpen("endDate")}
-                      >
+                    <button
+                      type="button"
+                      ref={endDateControlRef}
+                      className={`compose-event-input compose-event-date-control ${
+                        errors.endDate ? "compose-event-input-error" : ""
+                      } ${openCalendarField === "endDate" ? "is-open" : ""}`}
+                      aria-expanded={openCalendarField === "endDate"}
+                      onClick={() => handleCalendarOpen("endDate")}
+                    >
+                      <span className="compose-event-date-text">{formatDateDisplayValue(form.endDate)}</span>
+                      <span className="compose-event-date-glyph" aria-hidden="true">
                         <svg
                           width="13"
                           height="13"
@@ -463,100 +570,49 @@ export function ComposeEventBuilder({
                           strokeWidth="2"
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          aria-hidden="true"
                         >
                           <rect x="3" y="4" width="18" height="17" rx="2" />
                           <path d="M8 2v4" />
                           <path d="M16 2v4" />
                           <path d="M3 10h18" />
                         </svg>
-                      </button>
-                    </div>
+                      </span>
+                    </button>
                     {errors.endDate ? <span className="compose-event-error">{errors.endDate}</span> : null}
                   </div>
+                  <label className="compose-event-field compose-event-time-field compose-event-end-time-field">
+                    <span className="compose-event-label">End time</span>
+                    <input
+                      className={`compose-event-input ${
+                        errors.endTime ? "compose-event-input-error" : ""
+                      }`}
+                      type="time"
+                      value={form.endTime}
+                      onChange={(event) => updateField("endTime", event.target.value)}
+                    />
+                    {errors.endTime ? <span className="compose-event-error">{errors.endTime}</span> : null}
+                  </label>
                 </div>
-
-                {openCalendarField === "endDate" ? (
-                  <div className="compose-event-calendar-inline">
-                    <div className="compose-event-calendar-card" ref={calendarCardRef}>
-                      <div className="compose-event-calendar-toolbar">
-                        <div className="compose-event-calendar-selection">
-                          {formatDateDisplayValue(form.endDate)}
-                        </div>
-                        <div className="compose-event-calendar-nav">
-                          <button
-                            type="button"
-                            className="compose-event-calendar-nav-button"
-                            aria-label="Previous month"
-                            onClick={() =>
-                              setVisibleMonth(
-                                new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
-                              )
-                            }
-                          >
-                            ‹
-                          </button>
-                          <div className="compose-event-calendar-month">{formatMonthLabel(visibleMonth)}</div>
-                          <button
-                            type="button"
-                            className="compose-event-calendar-nav-button"
-                            aria-label="Next month"
-                            onClick={() =>
-                              setVisibleMonth(
-                                new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1)
-                              )
-                            }
-                          >
-                            ›
-                          </button>
-                        </div>
-                      </div>
-                      <div className="compose-event-calendar-weekdays">
-                        {WEEKDAY_LABELS.map((label) => (
-                          <span key={label}>{label}</span>
-                        ))}
-                      </div>
-                      <div className="compose-event-calendar-grid">
-                        {calendarDays.map((day) => {
-                          const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
-                          const isSelected =
-                            day.getFullYear() === selectedCalendarDate.getFullYear() &&
-                            day.getMonth() === selectedCalendarDate.getMonth() &&
-                            day.getDate() === selectedCalendarDate.getDate();
-
-                          return (
-                            <button
-                              key={day.toISOString()}
-                              type="button"
-                              className={`compose-event-calendar-day ${
-                                isCurrentMonth ? "" : "is-outside"
-                              } ${isSelected ? "is-selected" : ""}`}
-                              onClick={() => handleCalendarSelect("endDate", day)}
-                            >
-                              {day.getDate()}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
               </>
             ) : null}
 
             <div className="compose-event-utility-row">
               <label className="compose-event-field compose-event-timezone-field">
                 <span className="compose-event-label">Time zone</span>
-                <input
+                <select
                   className={`compose-event-input compose-event-timezone-input ${
                     errors.timezone ? "compose-event-input-error" : ""
                   }`}
-                  type="text"
-                  list="compose-event-timezones"
                   value={form.timezone}
                   onChange={(event) => updateField("timezone", event.target.value)}
-                  placeholder="America/New_York"
-                />
+                  style={{ width: `${timezoneWidthCh}ch` }}
+                >
+                  {timezoneOptions.map((timezone) => (
+                    <option key={timezone} value={timezone}>
+                      {timezone}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
@@ -567,7 +623,8 @@ export function ComposeEventBuilder({
                   className="compose-event-input"
                   type="text"
                   value={form.location}
-                  onChange={(event) => updateField("location", event.target.value)}
+                  onChange={(event) => handleLocationChange(event.target.value)}
+                  onBlur={() => normalizeFieldOnBlur("location", form.location, toSentenceCase)}
                   placeholder="Conference room or address"
                 />
               </label>
@@ -580,14 +637,13 @@ export function ComposeEventBuilder({
                   onChange={(event) =>
                     updateField("reminder", event.target.value as ComposeEventFormState["reminder"])
                   }
+                  style={{ width: `${reminderWidthCh}ch` }}
                 >
-                  <option value="none">None</option>
-                  <option value="at_time">At time of event</option>
-                  <option value="5m">5 minutes before</option>
-                  <option value="15m">15 minutes before</option>
-                  <option value="30m">30 minutes before</option>
-                  <option value="1h">1 hour before</option>
-                  <option value="1d">1 day before</option>
+                  {REMINDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -597,11 +653,87 @@ export function ComposeEventBuilder({
               <textarea
                 className="compose-event-input compose-event-textarea"
                 value={form.notes}
-                onChange={(event) => updateField("notes", event.target.value)}
+                onChange={(event) => handleNotesChange(event.target.value)}
+                onBlur={() =>
+                  normalizeFieldOnBlur("notes", form.notes, normalizeNotesSentenceCase)
+                }
                 placeholder="Agenda, meeting link, or anything attendees should know"
               />
             </label>
           </div>
+
+          {openCalendarField ? (
+            <div
+              className="compose-event-calendar-floating"
+              ref={calendarCardRef}
+              style={{
+                top: `${calendarPosition.top}px`,
+                left: `${calendarPosition.left}px`
+              }}
+            >
+              <div className="compose-event-calendar-card">
+                <div className="compose-event-calendar-toolbar">
+                  <div className="compose-event-calendar-selection">
+                    {formatDateDisplayValue(activeCalendarValue)}
+                  </div>
+                  <div className="compose-event-calendar-nav">
+                    <button
+                      type="button"
+                      className="compose-event-calendar-nav-button"
+                      aria-label="Previous month"
+                      onClick={() =>
+                        setVisibleMonth(
+                          new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
+                        )
+                      }
+                    >
+                      ‹
+                    </button>
+                    <div className="compose-event-calendar-month">{formatMonthLabel(visibleMonth)}</div>
+                    <button
+                      type="button"
+                      className="compose-event-calendar-nav-button"
+                      aria-label="Next month"
+                      onClick={() =>
+                        setVisibleMonth(
+                          new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1)
+                        )
+                      }
+                    >
+                      ›
+                    </button>
+                  </div>
+                </div>
+                <div className="compose-event-calendar-weekdays">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+                <div className="compose-event-calendar-grid">
+                  {calendarDays.map((day) => {
+                    const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
+                    const isSelected =
+                      day.getFullYear() === selectedCalendarDate.getFullYear() &&
+                      day.getMonth() === selectedCalendarDate.getMonth() &&
+                      day.getDate() === selectedCalendarDate.getDate();
+
+                    return (
+                      <button
+                        key={day.toISOString()}
+                        type="button"
+                        className={`compose-event-calendar-day ${
+                          isCurrentMonth ? "" : "is-outside"
+                        } ${isSelected ? "is-selected" : ""}`}
+                        onClick={() => handleCalendarSelect(openCalendarField, day)}
+                      >
+                        {day.getDate()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="compose-event-modal-footer">
@@ -633,12 +765,6 @@ export function ComposeEventBuilder({
             </button>
           </div>
         </div>
-
-        <datalist id="compose-event-timezones">
-          {TIMEZONE_SUGGESTIONS.map((timezone) => (
-            <option key={timezone} value={timezone} />
-          ))}
-        </datalist>
       </div>
     </div>,
     document.body
