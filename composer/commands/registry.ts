@@ -1,5 +1,6 @@
 import { createAttachmentCommands } from "@/composer/attachments/attachment-commands";
 import type { ComposerCommand } from "@/composer/commands/types";
+import { createEventCommands } from "@/composer/events/event-commands";
 
 function insertSnippet(
   ctx: Parameters<NonNullable<ComposerCommand["run"]>>[0],
@@ -252,6 +253,7 @@ export const COMPOSER_COMMANDS: ComposerCommand[] = [
     }
   },
   ...createAttachmentCommands(),
+  ...createEventCommands(),
   {
     id: "insert_signature",
     label: "Signature",

@@ -23,6 +23,7 @@ export const COMPOSER_DEFAULT_TOOLBAR_ORDER: ComposerCommandId[] = [
   "insert_meeting_request",
   "save_draft",
   "attach_file",
+  "create_calendar_event",
   "insert_image",
   "print_message",
   "schedule_send"

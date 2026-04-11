@@ -4219,8 +4219,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .fmt-btn-label {
   width: auto !important;
-  padding: 0 10px !important;
-  gap: 6px !important;
+  padding: 0 7px !important;
+  gap: 4px !important;
 }
 
 .fmt-btn-rewrite {
@@ -4833,27 +4833,44 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   z-index: 10030 !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 10px !important;
-  padding: 12px !important;
-  border-radius: 14px !important;
+  gap: 11px !important;
+  width: min(548px, calc(100vw - 28px)) !important;
+  padding: 14px !important;
+  border-radius: 16px !important;
   border: 1px solid rgba(15, 23, 42, 0.08) !important;
   background: rgba(255,255,255,0.98) !important;
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.16) !important;
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.16) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
+  overflow: visible !important;
 }
 
 .compose-event-header {
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 10px !important;
 }
 
+.compose-event-header-copy {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+
 .compose-event-title {
-  font-size: 13px !important;
+  font-size: 12.5px !important;
   font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
   color: var(--text1) !important;
+}
+
+.compose-event-modal-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 13px !important;
+  position: relative !important;
+  overflow: visible !important;
 }
 
 .compose-event-popover button.compose-event-close {
@@ -4882,26 +4899,16 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-event-empty,
 .compose-event-notes,
 .compose-event-reasoning {
-  font-size: 11.5px !important;
-  line-height: 1.45 !important;
+  font-size: 11px !important;
+  line-height: 1.42 !important;
   color: var(--text3) !important;
-}
-
-.compose-event-form {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 12px 12px !important;
 }
 
 .compose-event-field {
   display: flex !important;
   flex-direction: column !important;
-  gap: 6px !important;
+  gap: 5px !important;
   min-width: 0 !important;
-}
-
-.compose-event-field-wide {
-  grid-column: 1 / -1 !important;
 }
 
 .compose-event-label {
@@ -4910,53 +4917,264 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   color: var(--text2) !important;
 }
 
-.compose-event-label-with-icon {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-}
-
-.compose-event-label-with-icon svg,
-.compose-event-section-title svg {
-  color: var(--text3) !important;
-  flex-shrink: 0 !important;
-}
-
-.compose-event-section {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 8px !important;
-  padding: 11px !important;
-  border: 1px solid rgba(15, 23, 42, 0.08) !important;
-  border-radius: 12px !important;
-  background: rgba(248, 250, 252, 0.68) !important;
-}
-
-.compose-event-section-title {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  font-size: 11.5px !important;
-  font-weight: 700 !important;
-  color: var(--text1) !important;
-}
-
-.compose-event-section-grid {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 10px 12px !important;
-}
-
 .compose-event-input {
   width: 100% !important;
-  min-height: 36px !important;
-  padding: 8px 10px !important;
+  min-height: 38px !important;
+  padding: 8px 11px !important;
   border-radius: 10px !important;
   border: 1px solid rgba(15, 23, 42, 0.12) !important;
   background: #fff !important;
   color: var(--text1) !important;
   font-size: 12.5px !important;
+  line-height: 1.4 !important;
   box-sizing: border-box !important;
+}
+
+.compose-event-title-row {
+  display: block !important;
+}
+
+.compose-event-title-shell {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.compose-event-title-glyph {
+  width: 20px !important;
+  height: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  color: rgba(100, 116, 139, 0.9) !important;
+}
+
+.compose-event-title-field {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.compose-event-title-input {
+  min-height: 38px !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  padding: 8px 11px !important;
+}
+
+.compose-event-schedule-grid {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 11px !important;
+}
+
+.compose-event-row {
+  display: grid !important;
+  gap: 11px !important;
+  align-items: end !important;
+}
+
+.compose-event-row-date {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+}
+
+.compose-event-row-time {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.compose-event-row-enddate,
+.compose-event-utility-row {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.compose-event-details-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  gap: 11px !important;
+  align-items: end !important;
+}
+
+.compose-event-input-shell {
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+}
+
+.compose-event-date-input {
+  flex: 1 1 auto !important;
+}
+
+.compose-event-date-display {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+
+.compose-event-date-control {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding-right: 8px !important;
+}
+
+.compose-event-date-text {
+  min-width: 0 !important;
+}
+
+.compose-event-date-glyph {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: rgba(100, 116, 139, 0.92) !important;
+  flex-shrink: 0 !important;
+}
+
+.compose-event-date-control.is-open {
+  border-bottom-left-radius: 8px !important;
+  border-bottom-right-radius: 8px !important;
+}
+
+.compose-event-popover button.compose-event-icon-button {
+  width: 30px !important;
+  height: 30px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 9px !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+  color: rgba(100, 116, 139, 0.9) !important;
+}
+
+.compose-event-popover button.compose-event-icon-button:hover {
+  background: rgba(241, 245, 249, 0.98) !important;
+  border-color: rgba(100, 116, 139, 0.28) !important;
+  color: rgba(51, 65, 85, 0.94) !important;
+}
+
+.compose-event-date-trigger {
+  margin-left: -1px !important;
+}
+
+.compose-event-calendar-floating {
+  position: absolute !important;
+  z-index: 40 !important;
+}
+
+.compose-event-calendar-card {
+  width: 198px !important;
+  padding: 10px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background: rgba(255, 255, 255, 0.99) !important;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18) !important;
+  margin-top: 0 !important;
+}
+
+.compose-event-calendar-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+}
+
+.compose-event-calendar-selection {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: rgba(71, 85, 105, 0.92) !important;
+  white-space: nowrap !important;
+}
+
+.compose-event-calendar-month {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: rgba(31, 41, 55, 0.96) !important;
+  min-width: 62px !important;
+  text-align: center !important;
+}
+
+.compose-event-calendar-nav {
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+}
+
+.compose-event-calendar-nav-button {
+  width: 22px !important;
+  height: 22px !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: rgba(71, 85, 105, 0.9) !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+}
+
+.compose-event-calendar-nav-button:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+  color: rgba(15, 23, 42, 0.96) !important;
+}
+
+.compose-event-calendar-weekdays,
+.compose-event-calendar-grid {
+  display: grid !important;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+}
+
+.compose-event-calendar-weekdays {
+  margin-bottom: 4px !important;
+  color: rgba(100, 116, 139, 0.9) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+}
+
+.compose-event-calendar-grid {
+  gap: 3px !important;
+}
+
+.compose-event-calendar-day {
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: rgba(31, 41, 55, 0.96) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+.compose-event-calendar-day:hover {
+  background: rgba(15, 23, 42, 0.05) !important;
+}
+
+.compose-event-calendar-day.is-outside {
+  color: rgba(148, 163, 184, 0.9) !important;
+}
+
+.compose-event-calendar-day.is-selected {
+  background: rgba(31, 41, 55, 0.96) !important;
+  color: #fff !important;
+}
+
+.compose-event-time-cluster {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  padding: 10px 11px !important;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  border-radius: 12px !important;
+  background: rgba(248, 250, 252, 0.6) !important;
+}
+
+.compose-event-time-field {
+  gap: 4px !important;
 }
 
 .compose-event-input-error {
@@ -4971,39 +5189,23 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-event-textarea {
-  min-height: 82px !important;
+  min-height: 74px !important;
   resize: vertical !important;
-}
-
-.compose-event-toggle-field {
-  align-self: end !important;
-}
-
-.compose-event-toggle-row {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  padding: 2px 0 !important;
-}
-
-.compose-event-checkbox {
-  width: 16px !important;
-  height: 16px !important;
-  margin: 0 !important;
 }
 
 .compose-event-toggle {
   display: inline-flex !important;
   align-items: center !important;
   gap: 8px !important;
-  padding: 0 !important;
+  align-self: center !important;
+  min-height: 38px !important;
+  padding: 0 0 0 3px !important;
   border: none !important;
   background: transparent !important;
-  color: var(--text2) !important;
+  color: rgba(71, 85, 105, 0.95) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
+  white-space: nowrap !important;
 }
 
 .compose-event-toggle-track {
@@ -5041,22 +5243,89 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   color: #b42318 !important;
 }
 
+.compose-event-timezone-field {
+  width: auto !important;
+  max-width: 100% !important;
+  align-self: flex-start !important;
+  opacity: 0.9 !important;
+}
+
+.compose-event-timezone-input {
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.compose-event-reminder-field {
+  width: auto !important;
+  max-width: 100% !important;
+  align-self: flex-start !important;
+}
+
+.compose-event-reminder-input {
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.compose-event-notes-field {
+  gap: 6px !important;
+}
+
+.compose-event-textarea::placeholder,
+.compose-event-title-input::placeholder {
+  color: rgba(100, 116, 139, 0.82) !important;
+}
+
+.compose-event-modal-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  margin-top: 2px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid rgba(15, 23, 42, 0.06) !important;
+}
+
+.compose-event-footer-copy {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.compose-event-footer-meta {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.compose-event-submit-error {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  color: #b42318 !important;
+}
+
 .compose-event-actions {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-end !important;
   gap: 8px !important;
+  flex-shrink: 0 !important;
 }
 
 .compose-event-popover button.compose-event-action-primary,
 .compose-event-popover button.compose-event-action-secondary {
-  min-height: 32px !important;
-  padding: 6px 11px !important;
+  min-height: 34px !important;
+  min-width: 88px !important;
+  padding: 6px 14px !important;
   border-radius: 10px !important;
   border-width: 1px !important;
   border-style: solid !important;
   font-size: 12px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
 }
 
 .compose-event-popover button.compose-event-action-primary {
@@ -5083,12 +5352,30 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 @media (max-width: 720px) {
-  .compose-event-form {
+  .compose-event-popover {
+    width: min(100vw - 20px, 560px) !important;
+  }
+
+  .compose-event-row-date,
+  .compose-event-details-row {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
-  .compose-event-section-grid {
+  .compose-event-time-cluster {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .compose-event-modal-footer {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .compose-event-footer-copy {
+    max-width: none !important;
+  }
+
+  .compose-event-footer-meta {
+    width: 100% !important;
   }
 }
 
@@ -11920,20 +12207,30 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-bottom: none !important;
 }
 
+.compose-fmt-row-primary .fmt-btn:not(.fmt-btn-label):not(.fmt-btn-color) {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+.compose-fmt-row-primary .fmt-btn:not(.fmt-btn-label):not(.fmt-btn-color) svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
 .compose-fmt-row-secondary {
   padding-top: 5px !important;
   border-top: none !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn {
-  width: 24px !important;
-  height: 24px !important;
+  width: 26px !important;
+  height: 26px !important;
   opacity: 0.7 !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
 }
 
 .compose-fmt-row-secondary .fmt-btn:hover,

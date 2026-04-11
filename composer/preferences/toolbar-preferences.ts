@@ -25,6 +25,25 @@ function dedupe(ids: ComposerCommandId[]) {
   return Array.from(new Set(ids));
 }
 
+function moveCommandBefore(
+  order: ComposerCommandId[],
+  commandId: ComposerCommandId,
+  anchorId: ComposerCommandId
+) {
+  const next = [...order];
+  const currentIndex = next.indexOf(commandId);
+  const anchorIndex = next.indexOf(anchorId);
+
+  if (currentIndex === -1 || anchorIndex === -1 || currentIndex < anchorIndex) {
+    return next;
+  }
+
+  next.splice(currentIndex, 1);
+  const nextAnchorIndex = next.indexOf(anchorId);
+  next.splice(nextAnchorIndex, 0, commandId);
+  return next;
+}
+
 export function normalizeToolbarPreferences(
   input?: Partial<ComposerToolbarPreferences> | null
 ): ComposerToolbarPreferences {
@@ -34,12 +53,17 @@ export function normalizeToolbarPreferences(
   ]).filter((id): id is ComposerCommandId =>
     COMPOSER_DEFAULT_TOOLBAR_ORDER.includes(id)
   );
+  const migratedOrder = moveCommandBefore(
+    moveCommandBefore(order, "create_calendar_event", "rewrite_for_outcome"),
+    "attach_file",
+    "rewrite_for_outcome"
+  );
   const hidden = dedupe(input?.hidden ?? []).filter((id): id is ComposerCommandId =>
     COMPOSER_DEFAULT_TOOLBAR_ORDER.includes(id)
   );
   const mode = input?.mode === "compact" ? "compact" : "expanded";
 
-  return { order, hidden, mode };
+  return { order: migratedOrder, hidden, mode };
 }
 
 export function loadComposerToolbarPreferences(): ComposerToolbarPreferences {
