@@ -1143,16 +1143,55 @@ function mergeRecipientSuggestionLists(existing: string[], incoming: string[]) {
   return merged.slice(0, 120);
 }
 
+function resolveDateFocusMessageDate(
+  inputDate: string | null | undefined,
+  now: Date
+) {
+  if (!inputDate) {
+    return null;
+  }
+
+  const direct = new Date(inputDate);
+  if (!Number.isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  const normalized = inputDate
+    .replace(/\bat\b/gi, " ")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const normalizedDirect = new Date(normalized);
+  if (!Number.isNaN(normalizedDirect.getTime())) {
+    return normalizedDirect;
+  }
+
+  const hasYear = /\b\d{4}\b/.test(normalized);
+  if (!hasYear) {
+    const withCurrentYear = `${normalized} ${now.getFullYear()}`;
+    const withYear = new Date(withCurrentYear);
+    if (!Number.isNaN(withYear.getTime())) {
+      return withYear;
+    }
+  }
+
+  return null;
+}
+
 function isWithinDateFocusPreset(
   inputDate: string | null | undefined,
   preset: "today" | "this_week" | "30_days" | "6_months",
   now: Date
 ) {
-  if (!inputDate) {
+  const messageDate = resolveDateFocusMessageDate(inputDate, now);
+  if (!messageDate) {
     return false;
   }
-  const messageDate = new Date(inputDate);
-  if (Number.isNaN(messageDate.getTime()) || messageDate.getTime() > now.getTime()) {
+  if (messageDate.getTime() > now.getTime()) {
     return false;
   }
 
@@ -16236,34 +16275,37 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     { id: "this_week", label: "This Week" },
                     { id: "30_days", label: "30 Days" },
                     { id: "6_months", label: "6 Months" },
-                    ...(dateFocusPreset ? [{ id: "none", label: "None" } as const] : [])
-                  ] as const).map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => {
-                        setSortBy("date");
-                        setDateFocusPreset(preset.id === "none" ? null : preset.id);
-                        setDateFocusMenuOpen(false);
-                      }}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        border: "none",
-                        background:
-                          dateFocusPreset === preset.id ? "var(--accent-soft)" : "transparent",
-                        color:
-                          dateFocusPreset === preset.id ? "var(--accent)" : "var(--text2)",
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: dateFocusPreset === preset.id ? 600 : 500,
-                        padding: "7px 9px",
-                        cursor: "pointer"
-                      }}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+                    { id: "none", label: "None" }
+                  ] as const).map((preset) => {
+                    const isActive =
+                      preset.id === "none" ? dateFocusPreset === null : dateFocusPreset === preset.id;
+
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          setSortBy("date");
+                          setDateFocusPreset(preset.id === "none" ? null : preset.id);
+                          setDateFocusMenuOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          border: "none",
+                          background: isActive ? "var(--accent-soft)" : "transparent",
+                          color: isActive ? "var(--accent)" : "var(--text2)",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: isActive ? 600 : 500,
+                          padding: "7px 9px",
+                          cursor: "pointer"
+                        }}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
