@@ -15,6 +15,11 @@
   --accent-hover: rgba(var(--accent-rgb), 0.16);
   --accent-soft: rgba(var(--accent-rgb), 0.10);
   --accent-border: rgba(var(--accent-rgb), 0.26);
+  --sidebar-icon-primary: var(--accent);
+  --sidebar-icon-muted: rgba(60,60,67,0.35);
+  --sidebar-active-from: rgba(var(--accent-rgb), 0.14);
+  --sidebar-active-to: rgba(var(--accent-rgb), 0.04);
+  --sidebar-hover-bg: rgba(60,60,67,0.05);
   --accent2: rgba(var(--accent-rgb), 0.18);
   --blue: #4f8ef7;
   --green: #3ecf8e;
@@ -6017,15 +6022,57 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-ai-panel {
   display: flex !important;
   flex-direction: column !important;
-  gap: 16px !important;
+  gap: 12px !important;
   width: 100% !important;
-  padding: 16px 18px 14px !important;
+  padding: 14px 18px 14px !important;
   border: none !important;
   border-radius: 0 !important;
   background: rgba(244, 246, 248, 0.92) !important;
   box-shadow: none !important;
   max-height: min(54vh, 620px) !important;
   overflow: auto !important;
+}
+
+.compose-ai-flow-topbar {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-height: 24px !important;
+}
+
+.compose-ai-flow-topbar-spacer {
+  flex: 1 1 auto !important;
+}
+
+.compose-ai-flow-topbar-main {
+  display: inline-flex !important;
+  align-items: flex-start !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+.compose-ai-flow-intro {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+  padding: 0 0 2px !important;
+}
+
+.compose-ai-flow-title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: var(--text1) !important;
+  line-height: 1.25 !important;
+}
+
+.compose-ai-flow-subtitle {
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  font-weight: 400 !important;
+  color: rgba(0, 0, 0, 0.45) !important;
 }
 
 @keyframes compose-ai-region-enter {
@@ -6131,7 +6178,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-section-category-intro {
-  margin-top: 20px !important;
+  margin-top: 6px !important;
 }
 
 .compose-ai-status-note,
@@ -6146,7 +6193,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   gap: 10px !important;
-  padding: 6px 0 0 0 !important;
+  padding: 2px 0 0 0 !important;
   border-radius: 0 !important;
   border: none !important;
   background: transparent !important;
@@ -6267,7 +6314,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-step-header {
   display: flex !important;
-  align-items: flex-start !important;
+  align-items: center !important;
   gap: 10px !important;
 }
 
@@ -6298,7 +6345,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-mode-stage {
   display: flex !important;
-  flex-wrap: wrap !important;
+  flex-direction: column !important;
   gap: 8px !important;
   align-content: start !important;
 }
@@ -6467,9 +6514,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-request-actions-deep {
   align-items: center !important;
-  justify-content: flex-start !important;
+  justify-content: space-between !important;
   gap: 12px !important;
   flex-wrap: wrap !important;
+  padding-top: 6px !important;
+  border-top: 1px solid rgba(17, 24, 39, 0.08) !important;
 }
 
 .compose-ai-clarification-stage {
@@ -6483,8 +6532,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-refine-stage {
   position: relative !important;
-  gap: 8px !important;
-  padding: 6px 0 4px 0 !important;
+  gap: 10px !important;
+  padding: 4px 0 6px 0 !important;
 }
 
 .compose-ai-action-primary {
@@ -6536,8 +6585,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   z-index: 24 !important;
   display: flex !important;
   flex-direction: column !important;
-  padding: 16px 18px 14px !important;
-  background: #ffffff !important;
+  padding: 14px 18px 14px !important;
+  background: rgba(244, 246, 248, 0.96) !important;
   pointer-events: all !important;
   overflow: auto !important;
   opacity: 1 !important;
@@ -6564,8 +6613,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-preview-step {
-  gap: 8px !important;
-  padding-top: 4px !important;
+  gap: 10px !important;
+  padding-top: 0 !important;
   background: rgba(244, 246, 248, 0.92) !important;
   border: none !important;
   box-shadow: none !important;
@@ -6573,13 +6622,13 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-preview-step-header {
-  padding-bottom: 0 !important;
+  padding-bottom: 2px !important;
   align-items: center !important;
 }
 
 .compose-ai-preview {
   gap: 10px !important;
-  padding-top: 0 !important;
+  padding-top: 2px !important;
   background: rgba(244, 246, 248, 0.92) !important;
   border: none !important;
   box-shadow: none !important;
@@ -6868,7 +6917,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   gap: 12px !important;
-  padding: 58px 14px 14px !important;
+  padding: 14px !important;
   border-radius: 14px !important;
   border: 1px solid rgba(17,24,39,0.08) !important;
   background: #fff !important;
@@ -6913,15 +6962,13 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-preview-actions {
-  position: absolute !important;
-  top: 14px !important;
-  right: 14px !important;
-  z-index: 2 !important;
+  position: static !important;
   justify-content: flex-end !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   align-items: center !important;
-  padding: 0 0 0 12px !important;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, #fff 22%) !important;
+  padding: 10px 0 0 0 !important;
+  border-top: 1px solid rgba(17, 24, 39, 0.08) !important;
+  background: transparent !important;
 }
 
 .compose-ai-preview-actions .compose-ai-action-secondary {
@@ -6937,6 +6984,335 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-save-status {
   font-weight: 600 !important;
+}
+
+/* Elevate Flow major visual polish */
+.compose-ai-panel .compose-ai-flow-intro {
+  gap: 5px !important;
+  padding: 0 0 5px !important;
+  border-bottom: 1px solid rgba(17, 24, 39, 0.07) !important;
+  transition: border-color 150ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-flow-title {
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.compose-ai-panel .compose-ai-flow-subtitle {
+  font-size: 12.75px !important;
+  line-height: 1.5 !important;
+  color: rgba(15, 23, 42, 0.56) !important;
+  max-width: 66ch !important;
+  text-wrap: pretty !important;
+}
+
+.compose-ai-panel .compose-ai-section-title {
+  font-size: 11px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: rgba(71, 85, 105, 0.95) !important;
+  padding-left: 1px !important;
+}
+
+.compose-ai-panel .compose-ai-category-grid,
+.compose-ai-panel .compose-ai-mode-stage {
+  gap: 10px !important;
+}
+
+.compose-ai-panel .compose-ai-mode-stage {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-stage > .compose-ai-section-header {
+  grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 780px) {
+  .compose-ai-panel .compose-ai-mode-stage {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.compose-ai-panel .compose-ai-category-card,
+.compose-ai-panel .compose-ai-mode-chip {
+  border-radius: 13px !important;
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(255,255,255,0.91)) !important;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease,
+    box-shadow 150ms ease, color 150ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-category-card:hover,
+.compose-ai-panel .compose-ai-category-card:focus-visible,
+.compose-ai-panel .compose-ai-mode-chip:hover,
+.compose-ai-panel .compose-ai-mode-chip:focus-visible {
+  border-color: rgba(17, 24, 39, 0.18) !important;
+  box-shadow: 0 7px 16px rgba(15, 23, 42, 0.06) !important;
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel .compose-ai-category-card-label,
+.compose-ai-panel .compose-ai-mode-chip-label {
+  font-size: 12.5px !important;
+}
+
+.compose-ai-panel .compose-ai-category-card-copy,
+.compose-ai-panel .compose-ai-mode-chip-desc {
+  font-size: 11.25px !important;
+  color: rgba(71, 85, 105, 0.88) !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip {
+  border: 1px solid rgba(17, 24, 39, 0.10) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92)) !important;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease,
+    box-shadow 140ms ease, transform 140ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip:hover:not(:disabled) {
+  border-color: rgba(17, 24, 39, 0.18) !important;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05) !important;
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel .compose-ai-refine-stage {
+  padding: 10px 12px !important;
+  border: 1px solid rgba(17, 24, 39, 0.08) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.88)) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-request-actions-deep {
+  justify-content: space-between !important;
+  padding-top: 9px !important;
+  align-items: center !important;
+  gap: 10px 12px !important;
+}
+
+.compose-ai-panel .compose-ai-request-actions-deep .compose-ai-action-primary {
+  min-height: 38px !important;
+  min-width: 124px !important;
+  border-radius: 12px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.01em !important;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease,
+    transform 140ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-preview-options {
+  gap: 12px !important;
+  background: linear-gradient(180deg, rgba(241,245,249,0.55), rgba(248,250,252,0.35)) !important;
+  border: 1px solid rgba(17, 24, 39, 0.08) !important;
+  border-radius: 16px !important;
+  padding: 12px !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-preview-option {
+  border: 1px solid rgba(17,24,39,0.10) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(255,255,255,0.95)) !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-preview-text {
+  font-size: 13px !important;
+  line-height: 1.72 !important;
+}
+
+.compose-ai-panel .compose-ai-preview-actions {
+  justify-content: space-between !important;
+  padding: 10px 2px 0 2px !important;
+  align-items: center !important;
+  gap: 8px 10px !important;
+}
+
+.compose-ai-panel .compose-ai-preview-actions .compose-ai-action-primary {
+  min-height: 36px !important;
+  padding: 8px 14px !important;
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.01em !important;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease,
+    transform 140ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-preview-actions .compose-ai-action-secondary {
+  min-height: 34px !important;
+  padding: 7px 12px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(17, 24, 39, 0.16) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94)) !important;
+  font-weight: 600 !important;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
+    box-shadow 140ms ease, transform 140ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-action-primary:hover,
+.compose-ai-panel .compose-ai-action-secondary:hover {
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active,
+.compose-ai-panel .compose-ai-category-card:active,
+.compose-ai-panel .compose-ai-mode-chip:active,
+.compose-ai-panel .compose-ai-modifier-chip.active {
+  box-shadow: 0 9px 20px rgba(15, 23, 42, 0.10) !important;
+}
+
+/* Shared Elevate/Polish theme-driven selected/highlight states */
+.compose-ai-panel .compose-ai-mode-chip.active {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb), 0.22),
+    rgba(var(--accent-rgb), 0.14)
+  ) !important;
+  border-color: rgba(var(--accent-rgb), 0.44) !important;
+  color: var(--accent) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-label,
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-desc,
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-category-card-chevron {
+  color: var(--accent) !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip.active {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb), 0.22),
+    rgba(var(--accent-rgb), 0.14)
+  ) !important;
+  border-color: rgba(var(--accent-rgb), 0.44) !important;
+  color: var(--accent) !important;
+}
+
+.compose-ai-panel .compose-ai-options-toggle input:checked {
+  border-color: rgba(var(--accent-rgb), 0.56) !important;
+  background: rgba(var(--accent-rgb), 0.86) !important;
+}
+
+.compose-ai-panel .compose-ai-preview-switch.active {
+  background: rgba(var(--accent-rgb), 0.9) !important;
+  color: #fff !important;
+}
+
+/* Polish major visual polish: calmer/editorial variant on shared shell */
+.compose-ai-panel-polish .compose-ai-flow-intro {
+  border-bottom-color: rgba(100, 116, 139, 0.16) !important;
+  padding-bottom: 6px !important;
+}
+
+.compose-ai-panel-polish .compose-ai-flow-title {
+  letter-spacing: -0.012em !important;
+  color: rgba(15, 23, 42, 0.95) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-flow-subtitle {
+  color: rgba(51, 65, 85, 0.68) !important;
+  margin-top: 1px !important;
+}
+
+.compose-ai-panel-polish .compose-ai-category-card,
+.compose-ai-panel-polish .compose-ai-mode-chip {
+  background: linear-gradient(180deg, rgba(255,255,255,0.985), rgba(250,252,255,0.93)) !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.035) !important;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease,
+    transform 140ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-category-card:hover,
+.compose-ai-panel-polish .compose-ai-category-card:focus-visible,
+.compose-ai-panel-polish .compose-ai-mode-chip:hover,
+.compose-ai-panel-polish .compose-ai-mode-chip:focus-visible {
+  border-color: rgba(100, 116, 139, 0.34) !important;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05) !important;
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-category-card-copy,
+.compose-ai-panel-polish .compose-ai-mode-chip-desc {
+  color: rgba(71, 85, 105, 0.82) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-refine-stage {
+  background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(247,250,252,0.92)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  gap: 9px !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-modifier-chip {
+  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.96)) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  transition: border-color 130ms ease, background-color 130ms ease, color 130ms ease,
+    box-shadow 130ms ease, transform 130ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-modifier-chip:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-mode-chip.active,
+.compose-ai-panel-polish .compose-ai-modifier-chip.active {
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.14) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-preview-options {
+  background: linear-gradient(180deg, rgba(248,250,252,0.74), rgba(251,252,253,0.56)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-preview-option {
+  background: linear-gradient(180deg, rgba(255,255,255,0.995), rgba(252,253,255,0.97)) !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-preview-text {
+  font-size: 12.9px !important;
+  line-height: 1.74 !important;
+  color: rgba(15, 23, 42, 0.92) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-preview-actions {
+  border-top-color: rgba(148, 163, 184, 0.26) !important;
+  padding-top: 11px !important;
+  gap: 8px 10px !important;
+}
+
+.compose-ai-panel-polish .compose-ai-action-secondary {
+  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.95)) !important;
+  border-color: rgba(148, 163, 184, 0.34) !important;
+  color: rgba(30, 41, 59, 0.92) !important;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
+    box-shadow 140ms ease, transform 140ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-action-primary {
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease,
+    transform 140ms ease !important;
+}
+
+.compose-ai-panel-polish .compose-ai-action-primary:hover,
+.compose-ai-panel-polish .compose-ai-action-secondary:hover {
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel-polish .compose-ai-panel-header-meta {
+  align-items: flex-start !important;
+  padding-top: 1px !important;
+}
+
+.compose-ai-panel-polish .compose-ai-target {
+  margin-top: 1px !important;
 }
 
 .compose-save-status-saving {
@@ -9535,7 +9911,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   justify-content: center !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--text) !important;
+  color: #fff !important;
   flex-shrink: 0 !important;
   margin-right: 10px !important;
 }
@@ -12077,6 +12453,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-struct-pane-sidebar-bg: rgba(241, 242, 245, 0.9);
   --theme-struct-pane-list-bg: rgba(248, 249, 251, 0.94);
   --theme-struct-pane-reader-bg: rgba(253, 253, 254, 0.97);
+  --theme-struct-pane-rail-bg: #e5e7ec;
   --theme-struct-pane-sidebar-seam: #e0ded9;
   --theme-struct-pane-list-seam: #e8e8e8;
 
@@ -12085,6 +12462,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-sidebar-bg: var(--theme-struct-pane-sidebar-bg);
   --theme-atmo-pane-list-bg: var(--theme-struct-pane-list-bg);
   --theme-atmo-pane-reader-bg: var(--theme-struct-pane-reader-bg);
+  --theme-atmo-pane-rail-bg: var(--theme-struct-pane-rail-bg);
   --theme-atmo-pane-sidebar-seam: var(--theme-struct-pane-sidebar-seam);
   --theme-atmo-pane-list-seam: var(--theme-struct-pane-list-seam);
 
@@ -12093,6 +12471,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg);
   --pane-list-bg: var(--theme-atmo-pane-list-bg);
   --pane-reader-bg: var(--theme-atmo-pane-reader-bg);
+  --pane-rail-bg: var(--theme-atmo-pane-rail-bg);
   --pane-sidebar-seam: var(--theme-atmo-pane-sidebar-seam);
   --pane-list-seam: var(--theme-atmo-pane-list-seam);
 }
@@ -12112,6 +12491,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-sidebar-bg: rgba(245, 239, 233, 0.9);
   --theme-atmo-pane-list-bg: rgba(250, 246, 241, 0.94);
   --theme-atmo-pane-reader-bg: rgba(254, 251, 247, 0.97);
+  --theme-atmo-pane-rail-bg: #e6ddd4;
   --theme-atmo-pane-sidebar-seam: #e3dbd2;
   --theme-atmo-pane-list-seam: #ece5dd;
 }
@@ -12131,6 +12511,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-sidebar-bg: rgba(237, 242, 248, 0.9);
   --theme-atmo-pane-list-bg: rgba(244, 248, 252, 0.94);
   --theme-atmo-pane-reader-bg: rgba(250, 252, 255, 0.97);
+  --theme-atmo-pane-rail-bg: #d7e1ec;
   --theme-atmo-pane-sidebar-seam: #d8e0ea;
   --theme-atmo-pane-list-seam: #e2e8f0;
 }
@@ -12150,6 +12531,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-sidebar-bg: rgba(236, 243, 237, 0.9);
   --theme-atmo-pane-list-bg: rgba(243, 248, 244, 0.94);
   --theme-atmo-pane-reader-bg: rgba(249, 252, 249, 0.97);
+  --theme-atmo-pane-rail-bg: #d4dfd6;
   --theme-atmo-pane-sidebar-seam: #d6e1d7;
   --theme-atmo-pane-list-seam: #e0e8e1;
 }
@@ -12169,6 +12551,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-sidebar-bg: rgba(239, 236, 245, 0.9);
   --theme-atmo-pane-list-bg: rgba(246, 244, 250, 0.94);
   --theme-atmo-pane-reader-bg: rgba(251, 250, 254, 0.97);
+  --theme-atmo-pane-rail-bg: #dad6e5;
   --theme-atmo-pane-sidebar-seam: #ddd8e7;
   --theme-atmo-pane-list-seam: #e7e2ef;
 }
@@ -12179,6 +12562,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-atmo-pane-list-bg) !important;
   --pane-reader-bg: var(--theme-atmo-pane-reader-bg) !important;
+  --pane-rail-bg: var(--theme-atmo-pane-rail-bg) !important;
   --pane-sidebar-seam: var(--theme-atmo-pane-sidebar-seam) !important;
   --pane-list-seam: var(--theme-atmo-pane-list-seam) !important;
 }
@@ -12190,6 +12574,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-sidebar-bg: var(--theme-struct-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-struct-pane-list-bg) !important;
   --pane-reader-bg: var(--theme-struct-pane-reader-bg) !important;
+  --pane-rail-bg: var(--theme-struct-pane-rail-bg) !important;
   --pane-sidebar-seam: var(--theme-struct-pane-sidebar-seam) !important;
   --pane-list-seam: var(--theme-struct-pane-list-seam) !important;
 }
@@ -12255,6 +12640,7 @@ body {
 .workspace {
   gap: 10px !important;
   padding: 14px !important;
+  background: var(--pane-rail-bg) !important;
 }
 
 .workspace-resizable {
@@ -12313,7 +12699,7 @@ body {
   position: relative !important;
   min-width: 8px !important;
   cursor: col-resize !important;
-  background: transparent !important;
+  background: var(--pane-rail-bg) !important;
   user-select: none !important;
   transition: background-color 0.16s ease, transform 0.16s ease !important;
 }
@@ -13826,39 +14212,25 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   animation-fill-mode: both !important;
 }
 
-/* Compact Classic/New Mail pill control */
+/* Compact Classic/New Mail single toggle control */
 .sidebar-folders-header-actions .mailbox-view-toggle {
   display: inline-flex !important;
   align-items: center !important;
   flex-wrap: nowrap !important;
   white-space: nowrap !important;
-  gap: 3px !important;
-  padding: 2px !important;
-  border-radius: 999px !important;
-  background: rgba(60, 60, 67, 0.08) !important;
-  border: 0.5px solid rgba(60, 60, 67, 0.16) !important;
-}
-
-.sidebar-folders-header-actions .mailbox-view-btn {
-  height: 22px !important;
-  min-height: 22px !important;
-  padding: 0 7px !important;
-  border-radius: 999px !important;
-  border: none !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
   background: transparent !important;
-  color: var(--text3) !important;
-  font-size: 10px !important;
-  line-height: 1 !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.01em !important;
-  white-space: nowrap !important;
-  flex: 0 0 auto !important;
+  border: none !important;
 }
 
-.sidebar-folders-header-actions .mailbox-view-btn.active {
-  background: #fff !important;
-  color: var(--accent) !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+.sidebar-folders-header-actions .mailbox-view-label {
+  font-size: 10px !important;
+  line-height: 1.1 !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+  color: var(--text2) !important;
 }
 
 /* Message list header hierarchy: controls band above focus row */
@@ -14106,6 +14478,44 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   box-shadow:
     0 1px 3px rgba(15, 23, 42, 0.10),
     0 0 0 1px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Restore sidebar left accent rail on hover/active */
+.folder-row {
+  position: relative !important;
+}
+
+.folder-row::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 2px !important;
+  top: 4px !important;
+  bottom: 4px !important;
+  width: 2px !important;
+  border-radius: 999px !important;
+  background: var(--accent) !important;
+  opacity: 0 !important;
+  transition: opacity 140ms var(--ease-out) !important;
+}
+
+.folder-row:hover::before {
+  opacity: 0.55 !important;
+}
+
+.folder-row.active::before {
+  opacity: 0.95 !important;
+}
+
+/* Keep active row icon/text harmonized with the accent rail per theme */
+.folder-row.active .folder-row-name,
+.folder-row.active .folder-row-icon,
+.folder-row.active .folder-icon {
+  color: var(--accent) !important;
+}
+
+.folder-row:hover .folder-row-icon,
+.folder-row:hover .folder-icon {
+  color: var(--accent) !important;
 }
 
 @keyframes folder-reveal {
