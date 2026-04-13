@@ -1626,18 +1626,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-panel button.compose-ai-mode-chip.active,
 .compose-ai-panel button.compose-ai-modifier-chip.active {
-  background: rgba(15, 23, 42, 0.94) !important;
-  color: #fff !important;
-  border-color: rgba(15, 23, 42, 0.94) !important;
+  background: var(--ai-chip-selected-bg) !important;
+  color: var(--ai-chip-selected-text) !important;
+  border-color: var(--ai-chip-selected-border) !important;
 }
 
 .compose-ai-panel button.compose-ai-mode-chip.active .compose-ai-mode-chip-label,
 .compose-ai-panel button.compose-ai-mode-chip.active .compose-ai-mode-chip-desc {
-  color: #fff !important;
+  color: var(--ai-chip-selected-text) !important;
 }
 
 .compose-ai-panel button.compose-ai-modifier-chip {
-  background: #fff !important;
+  background: var(--ai-chip-bg) !important;
 }
 
 .compose-ai-panel button.compose-ai-action-primary {
@@ -3949,6 +3949,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
+  position: relative !important;
+  z-index: 180 !important;
   padding: 10px 14px !important;
   background: var(--surface3) !important;
   border-bottom: 1px solid var(--border) !important;
@@ -4808,11 +4810,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .qf-label {
   font-family: 'Inter', -apple-system, sans-serif !important;
   font-size: 10px !important;
-  font-weight: 400 !important;
-  color: var(--text3) !important;
+  font-weight: 560 !important;
+  color: var(--text2) !important;
   padding: 10px 16px 2px !important;
-  letter-spacing: 0.02em !important;
-  opacity: 0.5 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  opacity: 0.72 !important;
   user-select: none !important;
 }
 
@@ -4883,12 +4886,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 34px !important;
-  height: 34px !important;
-  margin: 5px 2px 5px 0 !important;
+  width: 30px !important;
+  height: 30px !important;
+  margin: 7px 4px 5px 0 !important;
   background: var(--accent) !important;
   border: none !important;
-  border-radius: 9px !important;
+  border-radius: 999px !important;
   color: var(--accent-foreground) !important;
   cursor: pointer !important;
   flex-shrink: 0 !important;
@@ -4983,21 +4986,51 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 5px !important;
-  padding: 18px 0 !important;
+  gap: 7px !important;
+  padding: 16px 0 !important;
   margin: 0 8px 8px !important;
   border-radius: 10px !important;
-  background: rgba(0,0,0,0.03) !important;
-  border: 0.5px solid rgba(0,0,0,0.075) !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface2) 88%, var(--accent-soft) 12%),
+      color-mix(in srgb, var(--surface2) 94%, transparent 6%)
+    ) !important;
+  border: 0.5px solid color-mix(in srgb, var(--border) 76%, rgba(var(--accent-rgb), 0.2)) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) inset !important;
   animation: qfSettleIn 160ms ease-out both !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.qf-loading::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 7px !important;
+  width: 78px !important;
+  height: 2px !important;
+  transform: translateX(-50%) !important;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(var(--accent-rgb), 0.2) 24%,
+      rgba(var(--accent-rgb), 0.62) 50%,
+      rgba(var(--accent-rgb), 0.2) 76%,
+      transparent 100%
+    ) !important;
+  animation: qfSweep 1.25s ease-in-out infinite !important;
 }
 
 .qf-loading-dot {
-  width: 5px !important;
-  height: 5px !important;
+  width: 6px !important;
+  height: 6px !important;
   border-radius: 50% !important;
   background: var(--accent) !important;
-  opacity: 0.15 !important;
+  opacity: 0.2 !important;
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.08) !important;
   animation: qfPulse 1.4s ease-in-out infinite !important;
 }
 
@@ -5081,6 +5114,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   }
 }
 
+@keyframes qfSweep {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: translateX(-50%) scaleX(0.92);
+  }
+  50% {
+    opacity: 0.92;
+    transform: translateX(-50%) scaleX(1.08);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qf-bar,
   .qf-result-area,
@@ -5094,6 +5139,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   }
 
   .qf-loading-dot {
+    animation: none !important;
+  }
+
+  .qf-loading::before {
     animation: none !important;
   }
 }
@@ -5927,8 +5976,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .img-resize-overlay {
-  position: fixed !important;
-  z-index: 9999 !important;
+  position: absolute !important;
+  z-index: 90 !important;
   pointer-events: none !important;
 }
 
@@ -9738,12 +9787,30 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .sidebar[data-size="small"] .priority-item {
-  padding: 4px 8px !important;
+  padding: 5px 9px !important;
+  gap: 7px !important;
 }
 
 .sidebar[data-size="small"] .priority-leading {
-  width: 16px !important;
-  height: 16px !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+}
+
+.sidebar[data-size="small"] .priority-info {
+  padding-left: 1px !important;
+}
+
+.sidebar[data-size="medium"] .priority-item {
+  gap: 8px !important;
+}
+
+.sidebar[data-size="medium"] .priority-leading {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
 }
 
 .sidebar[data-size="small"] .priority-folder-icon svg {
@@ -9783,11 +9850,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .sidebar[data-size="large"] .priority-item {
   padding: 8px 10px !important;
+  gap: 10px !important;
 }
 
 .sidebar[data-size="large"] .priority-leading {
-  width: 20px !important;
-  height: 20px !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+}
+
+.sidebar[data-size="large"] .priority-info {
+  padding-left: 2px !important;
 }
 
 .sidebar[data-size="large"] .priority-folder-icon svg {
@@ -11841,6 +11915,20 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-top: 0.5px solid var(--border) !important;
 }
 
+/* Keep Theme mode + Theme color as one visual block, divider below the block. */
+.settings-modal .settings-theme-mode-row + .settings-theme-color-row {
+  border-top: none !important;
+}
+
+.settings-modal .settings-theme-mode-row {
+  border-bottom: none !important;
+}
+
+.settings-modal .settings-theme-color-row {
+  border-top: none !important;
+  border-bottom: 0.5px solid var(--border) !important;
+}
+
 .settings-modal .settings-size-picker {
   width: 258px !important;
   display: grid !important;
@@ -12601,30 +12689,64 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: #f05050 !important;
 }
 
-/* MaxXMail light macOS theme */
+/* MaxiMail theme system (balanced layer port) */
 :root {
-  --bg: #f2f2f7;
-  --surface: rgba(246,246,248,0.92);
-  --surface2: #ffffff;
-  --surface3: #f4f4f6;
-  --border: rgba(60,60,67,0.12);
-  --border2: rgba(60,60,67,0.20);
-  --text: #111111;
-  --text2: rgba(60,60,67,0.85);
-  --text3: rgba(60,60,67,0.50);
-  --accent: #ff4d00;
-  --accent-rgb: 255, 77, 0;
-  --accent-foreground: #ffffff;
+  /* Neutral structural baseline (for highlight-only mode) */
+  --theme-neutral-bg: #f2f2f7;
+  --theme-neutral-surface: rgba(246, 246, 248, 0.92);
+  --theme-neutral-surface-strong: #ffffff;
+  --theme-neutral-surface-subtle: #f4f4f6;
+  --theme-neutral-border: rgba(60, 60, 67, 0.12);
+  --theme-neutral-border-strong: rgba(60, 60, 67, 0.2);
+  --theme-neutral-text: #111111;
+  --theme-neutral-text-2: rgba(60, 60, 67, 0.85);
+  --theme-neutral-text-3: rgba(60, 60, 67, 0.5);
+
+  /* Layer-1 token vocabulary (default: warm-paper) */
+  --bg-primary: #faf9f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f5f3f0;
+  --text-primary: #2d2d2d;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #9ca3af;
+  --text-inverse: #ffffff;
+  --accent-primary: #d97d54;
+  --accent-hover-solid: #c46d44;
+  --accent-light: #fdf3ee;
+  --accent-dark: #b55934;
+  --border-light: #e8e6e1;
+  --border-medium: #d1cfc9;
+  --border-heavy: #b8b5ae;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --success: #059669;
+  --warning: #d97d54;
+  --error: #dc2626;
+  --info: #4f46e5;
+
+  /* App-facing token aliases */
+  --accent: var(--accent-primary);
+  --accent-rgb: 217, 125, 84;
+  --accent-foreground: var(--text-inverse);
   --accent-subtle: color-mix(in srgb, var(--accent) 6%, transparent);
   --accent-hover: rgba(var(--accent-rgb), 0.16);
-  --accent-soft: rgba(var(--accent-rgb), 0.10);
+  --accent-soft: rgba(var(--accent-rgb), 0.1);
   --accent-border: rgba(var(--accent-rgb), 0.26);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.04);
-  --shadow-md: 0 8px 32px rgba(0,0,0,0.10);
-  --blue: #0a84ff;
-  --green: #34c759;
-  --amber: #f59e0b;
-  --red: #ff3b30;
+  --bg: var(--theme-neutral-bg);
+  --surface: var(--theme-neutral-surface);
+  --surface2: var(--theme-neutral-surface-strong);
+  --surface3: var(--theme-neutral-surface-subtle);
+  --text: var(--theme-neutral-text);
+  --text2: var(--theme-neutral-text-2);
+  --text3: var(--theme-neutral-text-3);
+  --border: var(--theme-neutral-border);
+  --border2: var(--theme-neutral-border-strong);
+  --blue: var(--info);
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--error);
+
   /* Shared neutral structural tokens */
   --theme-struct-shell-bg:
     radial-gradient(1200px 420px at 12% -10%, rgba(169, 180, 196, 0.18), transparent 62%),
@@ -12637,14 +12759,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-struct-pane-sidebar-seam: #e0ded9;
   --theme-struct-pane-list-seam: #e8e8e8;
 
-  /* Theme atmosphere tokens (mode-dependent, defaults to neutral) */
-  --theme-atmo-shell-bg: var(--theme-struct-shell-bg);
-  --theme-atmo-pane-sidebar-bg: var(--theme-struct-pane-sidebar-bg);
-  --theme-atmo-pane-list-bg: var(--theme-struct-pane-list-bg);
-  --theme-atmo-pane-reader-bg: var(--theme-struct-pane-reader-bg);
-  --theme-atmo-pane-rail-bg: var(--theme-struct-pane-rail-bg);
-  --theme-atmo-pane-sidebar-seam: var(--theme-struct-pane-sidebar-seam);
-  --theme-atmo-pane-list-seam: var(--theme-struct-pane-list-seam);
+  /* Theme atmosphere tokens (mode-dependent) */
+  --theme-atmo-shell-bg:
+    radial-gradient(1220px 420px at 14% -10%, rgba(217, 125, 84, 0.22), transparent 62%),
+    radial-gradient(980px 380px at 86% -12%, rgba(253, 243, 238, 0.7), transparent 64%),
+    linear-gradient(180deg, #f9f5f2 0%, #f2eeea 100%);
+  --theme-atmo-pane-sidebar-bg: rgba(245, 241, 236, 0.9);
+  --theme-atmo-pane-list-bg: rgba(252, 250, 247, 0.95);
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98);
+  --theme-atmo-pane-rail-bg: #e7e3de;
+  --theme-atmo-pane-sidebar-seam: #e2ddd6;
+  --theme-atmo-pane-list-seam: #ece6df;
 
   /* Applied layout tokens */
   --shell-gradient: var(--theme-atmo-shell-bg);
@@ -12657,88 +12782,201 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-list-header-bg: color-mix(in srgb, var(--pane-list-bg) 88%, var(--pane-list-seam) 12%);
 }
 
-:root[data-accent-theme="orange"] {
-  --accent: #ff4d00 !important;
-  --accent-rgb: 255, 77, 0 !important;
-  --accent-foreground: #ffffff !important;
-  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
-  --accent-soft: rgba(var(--accent-rgb), 0.10) !important;
-  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
-  /* Ember */
+:root[data-accent-theme="warm-paper"],
+:root[data-theme="warm-paper"],
+:root[data-accent-theme="orange"],
+:root[data-theme="orange"] {
+  --bg-primary: #faf9f7 !important;
+  --bg-secondary: #ffffff !important;
+  --bg-tertiary: #f5f3f0 !important;
+  --text-primary: #2d2d2d !important;
+  --text-secondary: #6b6b6b !important;
+  --text-tertiary: #9ca3af !important;
+  --text-inverse: #ffffff !important;
+  --accent-primary: #d97d54 !important;
+  --accent-hover-solid: #c46d44 !important;
+  --accent-light: #fdf3ee !important;
+  --accent-dark: #b55934 !important;
+  --accent-rgb: 217, 125, 84 !important;
+  --border-light: #e8e6e1 !important;
+  --border-medium: #d1cfc9 !important;
+  --border-heavy: #b8b5ae !important;
+  --success: #059669 !important;
+  --warning: #d97d54 !important;
+  --error: #dc2626 !important;
+  --info: #4f46e5 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1220px 420px at 14% -10%, rgba(255, 162, 109, 0.26), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(255, 205, 166, 0.2), transparent 64%),
-    linear-gradient(180deg, #f9f3ec 0%, #f1ece6 100%);
-  --theme-atmo-pane-sidebar-bg: rgba(245, 239, 233, 0.9);
-  --theme-atmo-pane-list-bg: rgba(250, 246, 241, 0.94);
-  --theme-atmo-pane-reader-bg: rgba(254, 251, 247, 0.97);
-  --theme-atmo-pane-rail-bg: #e6ddd4;
-  --theme-atmo-pane-sidebar-seam: #e3dbd2;
-  --theme-atmo-pane-list-seam: #ece5dd;
+    radial-gradient(1220px 420px at 14% -10%, rgba(217, 125, 84, 0.24), transparent 62%),
+    radial-gradient(980px 380px at 86% -12%, rgba(253, 243, 238, 0.74), transparent 64%),
+    linear-gradient(180deg, #f9f5f2 0%, #f2eeea 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(245, 241, 236, 0.9) !important;
+  --theme-atmo-pane-list-bg: rgba(252, 250, 247, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
+  --theme-atmo-pane-rail-bg: #e7e3de !important;
+  --theme-atmo-pane-sidebar-seam: #e2ddd6 !important;
+  --theme-atmo-pane-list-seam: #ece6df !important;
 }
 
-:root[data-accent-theme="blue"] {
-  --accent: #0a84ff !important;
-  --accent-rgb: 10, 132, 255 !important;
-  --accent-foreground: #ffffff !important;
-  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
-  --accent-soft: rgba(var(--accent-rgb), 0.10) !important;
-  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
-  /* Arctic */
+:root[data-accent-theme="cool-slate"],
+:root[data-theme="cool-slate"],
+:root[data-accent-theme="blue"],
+:root[data-theme="blue"] {
+  --bg-primary: #f5f7fa !important;
+  --bg-secondary: #ffffff !important;
+  --bg-tertiary: #f1f5f9 !important;
+  --text-primary: #1f2937 !important;
+  --text-secondary: #6b7280 !important;
+  --text-tertiary: #9ca3af !important;
+  --text-inverse: #ffffff !important;
+  --accent-primary: #4f46e5 !important;
+  --accent-hover-solid: #4338ca !important;
+  --accent-light: #eef2ff !important;
+  --accent-dark: #3730a3 !important;
+  --accent-rgb: 79, 70, 229 !important;
+  --border-light: #e5e7eb !important;
+  --border-medium: #d1d5db !important;
+  --border-heavy: #9ca3af !important;
+  --success: #059669 !important;
+  --warning: #d97706 !important;
+  --error: #dc2626 !important;
+  --info: #4f46e5 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 12% -10%, rgba(126, 177, 236, 0.23), transparent 62%),
-    radial-gradient(980px 380px at 88% -12%, rgba(188, 214, 244, 0.2), transparent 64%),
-    linear-gradient(180deg, #edf3f9 0%, #e8edf5 100%);
-  --theme-atmo-pane-sidebar-bg: rgba(237, 242, 248, 0.9);
-  --theme-atmo-pane-list-bg: rgba(244, 248, 252, 0.94);
-  --theme-atmo-pane-reader-bg: rgba(250, 252, 255, 0.97);
-  --theme-atmo-pane-rail-bg: #d7e1ec;
-  --theme-atmo-pane-sidebar-seam: #d8e0ea;
-  --theme-atmo-pane-list-seam: #e2e8f0;
+    radial-gradient(1200px 420px at 12% -10%, rgba(79, 70, 229, 0.2), transparent 62%),
+    radial-gradient(980px 380px at 88% -12%, rgba(238, 242, 255, 0.76), transparent 64%),
+    linear-gradient(180deg, #f3f6fb 0%, #edf1f7 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(238, 242, 248, 0.9) !important;
+  --theme-atmo-pane-list-bg: rgba(246, 248, 252, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
+  --theme-atmo-pane-rail-bg: #dbe1eb !important;
+  --theme-atmo-pane-sidebar-seam: #d8deea !important;
+  --theme-atmo-pane-list-seam: #e3e8f1 !important;
 }
 
-:root[data-accent-theme="green"] {
-  --accent: #34c759 !important;
-  --accent-rgb: 52, 199, 89 !important;
-  --accent-foreground: #ffffff !important;
-  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
-  --accent-soft: rgba(var(--accent-rgb), 0.10) !important;
-  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
-  /* Forest */
+:root[data-accent-theme="forest-mist"],
+:root[data-theme="forest-mist"],
+:root[data-accent-theme="green"],
+:root[data-theme="green"] {
+  --bg-primary: #f7f8f5 !important;
+  --bg-secondary: #ffffff !important;
+  --bg-tertiary: #f1f3f0 !important;
+  --text-primary: #1f2937 !important;
+  --text-secondary: #6b7280 !important;
+  --text-tertiary: #9ca3af !important;
+  --text-inverse: #ffffff !important;
+  --accent-primary: #059669 !important;
+  --accent-hover-solid: #047857 !important;
+  --accent-light: #ecfdf5 !important;
+  --accent-dark: #065f46 !important;
+  --accent-rgb: 5, 150, 105 !important;
+  --border-light: #e5e7eb !important;
+  --border-medium: #d1d5db !important;
+  --border-heavy: #9ca3af !important;
+  --success: #059669 !important;
+  --warning: #d97706 !important;
+  --error: #dc2626 !important;
+  --info: #4f46e5 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1180px 420px at 14% -10%, rgba(129, 188, 154, 0.24), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(181, 215, 190, 0.2), transparent 64%),
-    linear-gradient(180deg, #eff4ef 0%, #e7eee8 100%);
-  --theme-atmo-pane-sidebar-bg: rgba(236, 243, 237, 0.9);
-  --theme-atmo-pane-list-bg: rgba(243, 248, 244, 0.94);
-  --theme-atmo-pane-reader-bg: rgba(249, 252, 249, 0.97);
-  --theme-atmo-pane-rail-bg: #d4dfd6;
-  --theme-atmo-pane-sidebar-seam: #d6e1d7;
-  --theme-atmo-pane-list-seam: #e0e8e1;
+    radial-gradient(1180px 420px at 14% -10%, rgba(5, 150, 105, 0.2), transparent 62%),
+    radial-gradient(980px 380px at 86% -12%, rgba(236, 253, 245, 0.72), transparent 64%),
+    linear-gradient(180deg, #f2f5f1 0%, #ecefea 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(239, 243, 238, 0.9) !important;
+  --theme-atmo-pane-list-bg: rgba(246, 249, 245, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
+  --theme-atmo-pane-rail-bg: #dbe2dc !important;
+  --theme-atmo-pane-sidebar-seam: #d8ded8 !important;
+  --theme-atmo-pane-list-seam: #e2e8e2 !important;
 }
 
-:root[data-accent-theme="purple"] {
-  --accent: #8b5cf6 !important;
-  --accent-rgb: 139, 92, 246 !important;
-  --accent-foreground: #ffffff !important;
-  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
-  --accent-soft: rgba(var(--accent-rgb), 0.10) !important;
-  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
-  /* Dusk */
+:root[data-accent-theme="lavender-haze"],
+:root[data-theme="lavender-haze"],
+:root[data-accent-theme="purple"],
+:root[data-theme="purple"] {
+  --bg-primary: #faf8ff !important;
+  --bg-secondary: #ffffff !important;
+  --bg-tertiary: #f5f3ff !important;
+  --text-primary: #1f2937 !important;
+  --text-secondary: #6b7280 !important;
+  --text-tertiary: #9ca3af !important;
+  --text-inverse: #ffffff !important;
+  --accent-primary: #7c3aed !important;
+  --accent-hover-solid: #6d28d9 !important;
+  --accent-light: #f5f3ff !important;
+  --accent-dark: #5b21b6 !important;
+  --accent-rgb: 124, 58, 237 !important;
+  --border-light: #e9d5ff !important;
+  --border-medium: #d8b4fe !important;
+  --border-heavy: #c084fc !important;
+  --success: #059669 !important;
+  --warning: #d97706 !important;
+  --error: #dc2626 !important;
+  --info: #7c3aed !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1180px 420px at 14% -10%, rgba(176, 150, 234, 0.25), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(213, 196, 245, 0.2), transparent 64%),
-    linear-gradient(180deg, #f2eff8 0%, #ebe8f3 100%);
-  --theme-atmo-pane-sidebar-bg: rgba(239, 236, 245, 0.9);
-  --theme-atmo-pane-list-bg: rgba(246, 244, 250, 0.94);
-  --theme-atmo-pane-reader-bg: rgba(251, 250, 254, 0.97);
-  --theme-atmo-pane-rail-bg: #dad6e5;
-  --theme-atmo-pane-sidebar-seam: #ddd8e7;
-  --theme-atmo-pane-list-seam: #e7e2ef;
+    radial-gradient(1180px 420px at 14% -10%, rgba(124, 58, 237, 0.2), transparent 62%),
+    radial-gradient(980px 380px at 86% -12%, rgba(245, 243, 255, 0.76), transparent 64%),
+    linear-gradient(180deg, #f6f4fd 0%, #f0eef8 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(244, 240, 251, 0.9) !important;
+  --theme-atmo-pane-list-bg: rgba(250, 248, 255, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
+  --theme-atmo-pane-rail-bg: #e5dcf2 !important;
+  --theme-atmo-pane-sidebar-seam: #e1d9ee !important;
+  --theme-atmo-pane-list-seam: #eae3f5 !important;
+}
+
+/* Dark palette is wired for future use and intentionally hidden from picker for now. */
+:root[data-accent-theme="midnight-focus"],
+:root[data-theme="midnight-focus"] {
+  --bg-primary: #1f2937 !important;
+  --bg-secondary: #374151 !important;
+  --bg-tertiary: #4b5563 !important;
+  --text-primary: #f9fafb !important;
+  --text-secondary: #d1d5db !important;
+  --text-tertiary: #9ca3af !important;
+  --text-inverse: #1f2937 !important;
+  --accent-primary: #f59e0b !important;
+  --accent-hover-solid: #d97706 !important;
+  --accent-light: #fffbeb !important;
+  --accent-dark: #b45309 !important;
+  --accent-rgb: 245, 158, 11 !important;
+  --border-light: #4b5563 !important;
+  --border-medium: #6b7280 !important;
+  --border-heavy: #9ca3af !important;
+  --success: #10b981 !important;
+  --warning: #f59e0b !important;
+  --error: #ef4444 !important;
+  --info: #8b5cf6 !important;
+  --theme-atmo-shell-bg:
+    radial-gradient(1200px 420px at 12% -10%, rgba(245, 158, 11, 0.18), transparent 62%),
+    radial-gradient(980px 380px at 88% -12%, rgba(31, 41, 55, 0.78), transparent 64%),
+    linear-gradient(180deg, #202833 0%, #1b2330 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(37, 46, 59, 0.9) !important;
+  --theme-atmo-pane-list-bg: rgba(45, 55, 70, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(55, 65, 81, 0.98) !important;
+  --theme-atmo-pane-rail-bg: #273241 !important;
+  --theme-atmo-pane-sidebar-seam: #334152 !important;
+  --theme-atmo-pane-list-seam: #3a4a5d !important;
 }
 
 /* Explicit theme modes */
 :root[data-theme-mode="full"] {
+  --accent: var(--accent-primary) !important;
+  --accent-foreground: var(--text-inverse) !important;
+  --accent-subtle: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
+  --accent-soft: rgba(var(--accent-rgb), 0.1) !important;
+  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
+  --bg: var(--bg-primary) !important;
+  --surface: color-mix(in srgb, var(--bg-tertiary) 78%, var(--bg-secondary) 22%) !important;
+  --surface2: var(--bg-secondary) !important;
+  --surface3: var(--bg-tertiary) !important;
+  --text: var(--text-primary) !important;
+  --text2: var(--text-secondary) !important;
+  --text3: var(--text-tertiary) !important;
+  --border: var(--border-light) !important;
+  --border2: var(--border-medium) !important;
+  --blue: var(--info) !important;
+  --green: var(--success) !important;
+  --amber: var(--warning) !important;
+  --red: var(--error) !important;
   --shell-gradient: var(--theme-atmo-shell-bg) !important;
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-atmo-pane-list-bg) !important;
@@ -12748,9 +12986,28 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-list-seam: var(--theme-atmo-pane-list-seam) !important;
 }
 
-/* Highlight-only mode: keep structure neutral, theme only accents/highlights. */
+/* Highlight-only mode: lock surfaces to neutral baseline, keep accent theme active. */
 :root[data-theme-mode="highlight-only"],
 :root[data-highlight-only="true"] {
+  --accent: var(--accent-primary) !important;
+  --accent-foreground: var(--text-inverse) !important;
+  --accent-subtle: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  --accent-hover: rgba(var(--accent-rgb), 0.16) !important;
+  --accent-soft: rgba(var(--accent-rgb), 0.1) !important;
+  --accent-border: rgba(var(--accent-rgb), 0.26) !important;
+  --bg: var(--theme-neutral-bg) !important;
+  --surface: var(--theme-neutral-surface) !important;
+  --surface2: var(--theme-neutral-surface-strong) !important;
+  --surface3: var(--theme-neutral-surface-subtle) !important;
+  --text: var(--theme-neutral-text) !important;
+  --text2: var(--theme-neutral-text-2) !important;
+  --text3: var(--theme-neutral-text-3) !important;
+  --border: var(--theme-neutral-border) !important;
+  --border2: var(--theme-neutral-border-strong) !important;
+  --blue: #0a84ff !important;
+  --green: #34c759 !important;
+  --amber: #f59e0b !important;
+  --red: #ff3b30 !important;
   --shell-gradient: var(--theme-struct-shell-bg) !important;
   --pane-sidebar-bg: var(--theme-struct-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-struct-pane-list-bg) !important;
@@ -14127,17 +14384,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 /* Keep rewrite-related accent surfaces on white text/icons. */
 .compose-ai-panel .compose-ai-action-primary,
 .compose-ai-panel .compose-ai-action-primary:hover,
-.compose-ai-panel .compose-ai-action-primary:focus-visible,
-.compose-ai-panel .compose-ai-mode-chip.active,
-.compose-ai-panel .compose-ai-mode-chip.active:hover,
-.compose-ai-panel .compose-ai-modifier-chip.active,
-.compose-ai-panel .compose-ai-modifier-chip.active:hover {
+.compose-ai-panel .compose-ai-action-primary:focus-visible {
   color: #fff !important;
 }
 
-.compose-ai-panel .compose-ai-action-primary *,
-.compose-ai-panel .compose-ai-mode-chip.active *,
-.compose-ai-panel .compose-ai-modifier-chip.active * {
+.compose-ai-panel .compose-ai-action-primary * {
   color: #fff !important;
   fill: currentColor !important;
   stroke: currentColor !important;
@@ -14152,25 +14403,25 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   stroke: currentColor !important;
 }
 
-/* Refine chips: neutral by default, dark when selected. */
+/* Refine chips: token-driven selected state (theme-aware). */
 .compose-ai-panel button.compose-ai-modifier-chip,
 .compose-ai-panel button.compose-ai-modifier-chip:hover:not(:disabled),
 .compose-ai-panel button.compose-ai-modifier-chip:focus-visible {
-  background: #fff !important;
-  color: #111827 !important;
-  border: 1px solid rgba(17,24,39,0.12) !important;
+  background: var(--ai-chip-bg) !important;
+  color: var(--text2) !important;
+  border: 1px solid var(--ai-chip-border) !important;
 }
 
 .compose-ai-panel button.compose-ai-modifier-chip.active,
 .compose-ai-panel button.compose-ai-modifier-chip.active:hover,
 .compose-ai-panel button.compose-ai-modifier-chip.active:focus-visible {
-  background: rgba(15,23,42,0.94) !important;
-  color: #fff !important;
-  border: 1px solid rgba(15,23,42,0.94) !important;
+  background: var(--ai-chip-selected-bg) !important;
+  color: var(--ai-chip-selected-text) !important;
+  border: 1px solid var(--ai-chip-selected-border) !important;
 }
 
 .compose-ai-panel button.compose-ai-modifier-chip.active * {
-  color: #fff !important;
+  color: var(--ai-chip-selected-text) !important;
   fill: currentColor !important;
   stroke: currentColor !important;
 }
@@ -14466,6 +14717,31 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   padding: 8px 10px !important;
 }
 
+/* Final density-scaled avatar/name spacing for prioritized senders */
+.rail.sidebar[data-size="small"] .priority-item {
+  gap: 8px !important;
+}
+
+.rail.sidebar[data-size="small"] .priority-info {
+  padding-left: 4px !important;
+}
+
+.rail.sidebar[data-size="medium"] .priority-item {
+  gap: 10px !important;
+}
+
+.rail.sidebar[data-size="medium"] .priority-info {
+  padding-left: 6px !important;
+}
+
+.rail.sidebar[data-size="large"] .priority-item {
+  gap: 12px !important;
+}
+
+.rail.sidebar[data-size="large"] .priority-info {
+  padding-left: 8px !important;
+}
+
 /* Mail list header section unification + tighter sort spacing */
 .inbox-control-band,
 .col-header-bar,
@@ -14589,28 +14865,28 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(245, 247, 250, 0.86)) !important;
 }
 
-.settings-theme-btn[data-theme-key="orange"] .settings-theme-preview {
+.settings-theme-btn[data-theme-key="warm-paper"] .settings-theme-preview {
   background:
-    radial-gradient(50px 20px at 18% -12%, rgba(255, 223, 199, 0.55), transparent 66%),
-    linear-gradient(160deg, #faf3eb, #f0e8df) !important;
+    radial-gradient(50px 20px at 18% -12%, rgba(253, 243, 238, 0.75), transparent 66%),
+    linear-gradient(160deg, #faf9f7, #f5f3f0) !important;
 }
 
-.settings-theme-btn[data-theme-key="blue"] .settings-theme-preview {
+.settings-theme-btn[data-theme-key="cool-slate"] .settings-theme-preview {
   background:
-    radial-gradient(50px 20px at 18% -12%, rgba(201, 224, 249, 0.55), transparent 66%),
-    linear-gradient(160deg, #ecf3fa, #e4ecf5) !important;
+    radial-gradient(50px 20px at 18% -12%, rgba(238, 242, 255, 0.75), transparent 66%),
+    linear-gradient(160deg, #f5f7fa, #f1f5f9) !important;
 }
 
-.settings-theme-btn[data-theme-key="green"] .settings-theme-preview {
+.settings-theme-btn[data-theme-key="forest-mist"] .settings-theme-preview {
   background:
-    radial-gradient(50px 20px at 18% -12%, rgba(206, 230, 214, 0.55), transparent 66%),
-    linear-gradient(160deg, #edf4ee, #e6eee7) !important;
+    radial-gradient(50px 20px at 18% -12%, rgba(236, 253, 245, 0.78), transparent 66%),
+    linear-gradient(160deg, #f7f8f5, #f1f3f0) !important;
 }
 
-.settings-theme-btn[data-theme-key="purple"] .settings-theme-preview {
+.settings-theme-btn[data-theme-key="lavender-haze"] .settings-theme-preview {
   background:
-    radial-gradient(50px 20px at 18% -12%, rgba(221, 210, 245, 0.55), transparent 66%),
-    linear-gradient(160deg, #f1eef8, #e9e6f2) !important;
+    radial-gradient(50px 20px at 18% -12%, rgba(245, 243, 255, 0.78), transparent 66%),
+    linear-gradient(160deg, #faf8ff, #f5f3ff) !important;
 }
 
 .settings-theme-dot-wrap {
@@ -14655,40 +14931,46 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .settings-theme-mode-picker {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 6px !important;
-  padding: 2px !important;
-  border-radius: 10px !important;
-  border: 0.5px solid var(--border) !important;
-  background: var(--surface2) !important;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset !important;
+  gap: 4px !important;
+  padding: 3px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--border) !important;
+  background: color-mix(in srgb, var(--surface2) 84%, var(--surface3) 16%) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 1px 2px rgba(15, 23, 42, 0.04) !important;
 }
 
 .settings-theme-mode-btn {
-  border: none !important;
+  border: 1px solid transparent !important;
   background: transparent !important;
   color: var(--text2) !important;
   font-size: 12px !important;
-  font-weight: 500 !important;
-  border-radius: 7px !important;
-  padding: 5px 10px !important;
+  font-weight: 540 !important;
+  border-radius: 9px !important;
+  padding: 6px 12px !important;
+  line-height: 1 !important;
   transition:
     background-color 140ms var(--ease-out),
     color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
     box-shadow 140ms var(--ease-out),
     transform 140ms var(--ease-out) !important;
 }
 
 .settings-theme-mode-btn:hover {
-  background: rgba(60, 60, 67, 0.06) !important;
-  transform: translateY(-1px) !important;
+  background: color-mix(in srgb, var(--surface2) 66%, var(--accent-soft) 34%) !important;
+  color: var(--text) !important;
+  transform: translateY(-0.5px) !important;
 }
 
 .settings-theme-mode-btn.active {
-  background: #fff !important;
+  background: color-mix(in srgb, var(--surface2) 72%, var(--accent-soft) 28%) !important;
   color: var(--text) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border) 76%) !important;
   box-shadow:
-    0 1px 3px rgba(15, 23, 42, 0.10),
-    0 0 0 1px rgba(15, 23, 42, 0.06) !important;
+    0 1px 3px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(var(--accent-rgb), 0.12) !important;
 }
 
 /* Restore sidebar left accent rail on hover/active */
@@ -14918,7 +15200,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   color: var(--ai-chip-selected-text) !important;
   fill: currentColor !important;
   stroke: currentColor !important;
-  font-weight: 560 !important;
+  font-weight: 520 !important;
 }
 
 .compose-ai-panel button.compose-ai-mode-chip.active *,
@@ -14963,4 +15245,82 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   color: color-mix(in srgb, var(--text3) 88%, var(--text2) 12%) !important;
   font-size: 11px !important;
   line-height: 1.38 !important;
+}
+
+/* ── App-wide highlight token normalization ── */
+:root {
+  --hl-selected-bg: rgba(var(--accent-rgb), 0.1);
+  --hl-selected-bg-soft: rgba(var(--accent-rgb), 0.06);
+  --hl-selected-bg-strong: rgba(var(--accent-rgb), 0.14);
+  --hl-selected-border: rgba(var(--accent-rgb), 0.24);
+  --hl-focus-border: rgba(var(--accent-rgb), 0.3);
+  --hl-focus-ring: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+
+/* Sidebar + list selected/active states */
+.sidebar-item.active,
+.folder.active,
+.folder-row.active,
+.priority-item.active,
+.message-row.selected,
+.thread-row.selected,
+.thread-wrap.thread-selected,
+.thread-msg-row.active,
+.move-folder-row:hover,
+.sort-btn.active,
+.tb-btn-active,
+.cleanup-action-btn-active,
+.col-chip-active,
+.col-chip-date-active {
+  background: var(--hl-selected-bg) !important;
+}
+
+.message-row.selected,
+.thread-row.selected,
+.thread-wrap.thread-selected,
+.thread-msg-row.active,
+.folder-row.active {
+  border-left-color: var(--accent) !important;
+}
+
+.filter-pill,
+.type-chip-svc,
+.filter-pattern-badge,
+.focus-pill,
+.compose-helper-chip {
+  background: var(--hl-selected-bg) !important;
+  border-color: var(--hl-selected-border) !important;
+  color: var(--accent) !important;
+}
+
+.filter-pill:hover,
+.type-chip-svc:hover,
+.compose-helper-chip:hover {
+  background: var(--hl-selected-bg-strong) !important;
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent) !important;
+}
+
+/* Theme-driven focus treatment */
+input:focus,
+select:focus,
+textarea:focus,
+.compose-from-select:focus,
+.link-field input:focus,
+.compose-event-input:focus,
+.compose-event-title-input:focus,
+.compose-event-timezone-input:focus,
+.compose-event-reminder-input:focus,
+.settings-theme-mode-btn:focus-visible,
+.settings-theme-btn:focus-visible {
+  border-color: var(--hl-focus-border) !important;
+  box-shadow: var(--hl-focus-ring) !important;
+}
+
+/* Accent emphasized controls should not hardcode orange hover */
+.compose-btn:hover,
+.primaryButton:hover,
+.modal-btn-confirm:hover,
+.crop-btn-apply:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #000000 12%) !important;
+  border-color: color-mix(in srgb, var(--accent) 88%, #000000 12%) !important;
 }
