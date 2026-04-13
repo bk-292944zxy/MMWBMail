@@ -247,6 +247,11 @@ function getTranslateLandingModeInstructions(
     if (selected.has("more_concise")) {
       lines.push("- More concise: remove clutter that distorts perceived intent.");
     }
+    if (selected.has("preserve_blunt_honesty")) {
+      lines.push(
+        "- Preserve blunt honesty: keep directness, but do not preserve unnecessary interpersonal damage."
+      );
+    }
     lines.push(
       "- Do not introduce new arguments, and do not over-correct tone beyond what is needed."
     );
@@ -269,6 +274,11 @@ function getTranslateLandingModeInstructions(
     if (selected.has("add_accountability")) {
       lines.push(
         "- Add accountability: when action is involved, clarify next step ownership without inventing obligations."
+      );
+    }
+    if (selected.has("preserve_blunt_honesty")) {
+      lines.push(
+        "- Preserve blunt honesty: keep candor while preserving coherence and readability."
       );
     }
     lines.push(

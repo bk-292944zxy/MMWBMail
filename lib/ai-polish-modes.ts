@@ -44,6 +44,7 @@ export type AiPolishModeDefinition = {
   description: string;
   objective: string;
   modifierIds: AiPolishModifierId[];
+  defaultModifierIds?: AiPolishModifierId[];
 };
 
 export type AiPolishCultureRegionDefinition = {
@@ -139,9 +140,11 @@ export const AI_POLISH_MODES: AiPolishModeDefinition[] = [
     id: "professional",
     label: "Professional",
     category: AI_POLISH_CATEGORY,
-    description: "Use a modern business tone that is clear, direct, and easy to act on.",
-    objective: "Present the same message with competent business polish and stronger action-readiness.",
-    modifierIds: ["shorter", "concise", "detailed", "softer", "stronger", "structure"]
+    description: "Clean up presentation and flow for credible professional use.",
+    objective:
+      "Keep the same point and stance while improving composure, clarity, structure, and professional finish.",
+    modifierIds: ["shorter", "concise", "detailed", "softer", "stronger", "structure"],
+    defaultModifierIds: ["concise", "structure"]
   },
   {
     id: "academic",
@@ -164,6 +167,14 @@ export function getAiPolishModifierDefinitionsForMode(modeId: AiPolishModeId) {
   }
 
   return mode.modifierIds.map((modifierId) => AI_POLISH_MODIFIERS[modifierId]);
+}
+
+export function getAiPolishDefaultModifiersForMode(modeId: AiPolishModeId) {
+  const mode = getAiPolishModeDefinition(modeId);
+  if (!mode?.defaultModifierIds?.length) {
+    return [] as AiPolishModifierId[];
+  }
+  return [...mode.defaultModifierIds];
 }
 
 export function areAiPolishModifiersValid(modeId: AiPolishModeId, modifierIds: string[]) {

@@ -146,6 +146,7 @@ import {
   AI_POLISH_CATEGORY,
   AI_POLISH_CULTURE_REGIONS,
   AI_POLISH_MODES,
+  getAiPolishDefaultModifiersForMode,
   getAiPolishModifierDefinitionsForMode,
   type AiPolishCultureRegionId,
   type AiPolishModeDefinition,
@@ -22362,7 +22363,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     setComposeAiMode(mode.id);
                                     if (composeAiType === "polish") {
                                       setComposeAiCultureRegion("global");
-                                      setComposeAiModifiers([]);
+                                      setComposeAiModifiers(
+                                        getAiPolishDefaultModifiersForMode(mode.id as AiPolishModeId)
+                                      );
                                     } else {
                                       setComposeAiModifiers(
                                         getAiRewriteDefaultModifiersForMode(mode.id as AiRewriteModeId)

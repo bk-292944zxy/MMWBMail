@@ -452,7 +452,7 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
       "keep_strong_boundaries",
       "preserve_blunt_honesty"
     ],
-    defaultModifierIds: ["more_concise", "keep_my_voice", "add_accountability"]
+    defaultModifierIds: ["more_concise", "keep_my_voice"]
   },
   {
     id: "social_interpretation_translator",

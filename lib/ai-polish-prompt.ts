@@ -33,6 +33,55 @@ Only improve:
 - structure
 - readability`;
 
+function getProfessionalModeInstructions(modifiers: AiPolishModifierId[]) {
+  const selected = new Set(modifiers);
+  const lines = [
+    "Professional mode strategy:",
+    "- Preserve core intent, ask, stance, and meaning.",
+    "- Improve wording precision, sentence quality, and paragraph flow.",
+    "- Reduce draft sloppiness, uneven rhythm, and avoidable roughness without changing agenda."
+  ];
+
+  if (selected.has("concise")) {
+    lines.push(
+      "- More concise: remove redundancy and over-explanation while keeping context needed for credibility."
+    );
+  }
+  if (selected.has("structure")) {
+    lines.push(
+      "- Add structure: improve sequencing, transitions, and grouping so the message feels intentional and easy to trust."
+    );
+  }
+  if (selected.has("stronger")) {
+    lines.push(
+      "- Stronger tone: increase confidence slightly, but stay in presentation-polish lane (not leverage or social-strategy mode)."
+    );
+  }
+  if (selected.has("softer")) {
+    lines.push(
+      "- Softer tone: smooth unnecessary abrasion without becoming appeasing or weakening a firm point."
+    );
+  }
+  if (selected.has("detailed")) {
+    lines.push(
+      "- More detailed: add completion only where thin writing harms credibility; do not invent facts or rationale."
+    );
+  }
+  if (selected.has("shorter")) {
+    lines.push(
+      "- Shorter: trim aggressively where bloated, but keep full substantive meaning and necessary context."
+    );
+  }
+
+  lines.push(
+    "- Do not drift into Elevate-style social-outcome rewriting.",
+    "- Do not force executive cliché, corporate filler, or sterile tone.",
+    "- Keep the message human and recognizable."
+  );
+
+  return lines.join("\n");
+}
+
 function getModeInstructions(
   mode: AiPolishModeDefinition["id"],
   region: AiPolishCultureRegionId
@@ -72,6 +121,8 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
   const requestedCount = input.outputType === "two_options" ? 2 : 1;
   const modifierDefinitions = input.modifiers.map((modifierId) => AI_POLISH_MODIFIERS[modifierId]);
   const activeRegion = input.region ?? "global";
+  const modeSpecificInstructions =
+    input.mode.id === "professional" ? getProfessionalModeInstructions(input.modifiers) : "";
 
   const systemInstructions = [
     "You are MaxiMail's AI Writing Assistant.",
@@ -79,6 +130,7 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
     "",
     `Mode: ${input.mode.label}`,
     `Mode instructions: ${getModeInstructions(input.mode.id, activeRegion)}`,
+    modeSpecificInstructions ? `\nMode-specific guidance:\n${modeSpecificInstructions}` : "",
     "",
     modifierDefinitions.length > 0
       ? `Selected modifier instructions:\n${modifierDefinitions

@@ -14789,3 +14789,178 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     scroll-behavior: auto !important;
   }
 }
+
+/* Shared AI chip system refinement (Elevate + Polish) */
+.compose-ai-panel {
+  --ai-chip-bg: color-mix(in srgb, var(--pane-list-bg) 86%, #ffffff 14%);
+  --ai-chip-bg-hover: color-mix(in srgb, var(--pane-list-bg) 80%, #ffffff 20%);
+  --ai-chip-border: color-mix(in srgb, var(--border) 78%, rgba(var(--accent-rgb), 0.1));
+  --ai-chip-border-hover: color-mix(in srgb, var(--border) 58%, rgba(var(--accent-rgb), 0.28));
+  --ai-chip-selected-bg: color-mix(in srgb, var(--accent) 12%, #ffffff 88%);
+  --ai-chip-selected-bg-hover: color-mix(in srgb, var(--accent) 16%, #ffffff 84%);
+  --ai-chip-selected-border: color-mix(in srgb, var(--accent) 26%, var(--border) 74%);
+  --ai-chip-selected-text: color-mix(in srgb, var(--text) 94%, #000 6%);
+  --ai-chip-disabled-bg: color-mix(in srgb, var(--pane-list-bg) 90%, #ffffff 10%);
+  --ai-chip-disabled-border: color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0.03));
+  --ai-chip-disabled-text: color-mix(in srgb, var(--text3) 90%, var(--text2) 10%);
+}
+
+.compose-ai-panel .compose-ai-modifier-list {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  gap: 7px 8px !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip,
+.compose-ai-panel .compose-ai-modifier-chip {
+  border: 1px solid var(--ai-chip-border) !important;
+  background: linear-gradient(
+    180deg,
+    var(--ai-chip-bg),
+    color-mix(in srgb, var(--ai-chip-bg) 88%, #ffffff 12%)
+  ) !important;
+  color: var(--text2) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.62) inset,
+    0 1px 2px rgba(15, 23, 42, 0.03) !important;
+  transition:
+    background-color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out),
+    transform 140ms var(--ease-out) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip {
+  border-radius: 12px !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-chip {
+  border-radius: 999px !important;
+  padding: 7px 11px !important;
+  font-size: 11.5px !important;
+  font-weight: 560 !important;
+  letter-spacing: 0.004em !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip:hover,
+.compose-ai-panel .compose-ai-mode-chip:focus-visible,
+.compose-ai-panel .compose-ai-modifier-chip:hover:not(:disabled),
+.compose-ai-panel .compose-ai-modifier-chip:focus-visible {
+  border-color: var(--ai-chip-border-hover) !important;
+  background: linear-gradient(
+    180deg,
+    var(--ai-chip-bg-hover),
+    color-mix(in srgb, var(--ai-chip-bg-hover) 90%, #ffffff 10%)
+  ) !important;
+  color: var(--text) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.64) inset,
+    0 4px 10px rgba(15, 23, 42, 0.05) !important;
+  transform: translateY(-1px) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip:active,
+.compose-ai-panel .compose-ai-modifier-chip:active:not(:disabled) {
+  transform: translateY(0) scale(0.992) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active,
+.compose-ai-panel .compose-ai-mode-chip.active:hover,
+.compose-ai-panel .compose-ai-modifier-chip.active,
+.compose-ai-panel .compose-ai-modifier-chip.active:hover {
+  border-color: var(--ai-chip-selected-border) !important;
+  background: linear-gradient(
+    180deg,
+    var(--ai-chip-selected-bg),
+    color-mix(in srgb, var(--ai-chip-selected-bg) 88%, rgba(var(--accent-rgb), 0.08) 12%)
+  ) !important;
+  color: var(--ai-chip-selected-text) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.52) inset,
+    0 3px 8px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* High-specificity final win against older dark active overrides. */
+.compose-ai-panel button.compose-ai-mode-chip.active,
+.compose-ai-panel button.compose-ai-mode-chip.active:hover,
+.compose-ai-panel button.compose-ai-mode-chip.active:focus-visible,
+.compose-ai-panel button.compose-ai-modifier-chip.active,
+.compose-ai-panel button.compose-ai-modifier-chip.active:hover,
+.compose-ai-panel button.compose-ai-modifier-chip.active:focus-visible {
+  border-color: var(--ai-chip-selected-border) !important;
+  background: linear-gradient(
+    180deg,
+    var(--ai-chip-selected-bg),
+    color-mix(in srgb, var(--ai-chip-selected-bg) 90%, #ffffff 10%)
+  ) !important;
+  color: var(--ai-chip-selected-text) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.56) inset,
+    0 3px 8px rgba(15, 23, 42, 0.05) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active:focus-visible,
+.compose-ai-panel .compose-ai-modifier-chip.active:focus-visible {
+  background: linear-gradient(
+    180deg,
+    var(--ai-chip-selected-bg-hover),
+    color-mix(in srgb, var(--ai-chip-selected-bg-hover) 88%, rgba(var(--accent-rgb), 0.08) 12%)
+  ) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-label,
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-mode-chip-desc,
+.compose-ai-panel .compose-ai-mode-chip.active .compose-ai-category-card-chevron,
+.compose-ai-panel .compose-ai-modifier-chip.active,
+.compose-ai-panel .compose-ai-modifier-chip.active * {
+  color: var(--ai-chip-selected-text) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  font-weight: 560 !important;
+}
+
+.compose-ai-panel button.compose-ai-mode-chip.active *,
+.compose-ai-panel button.compose-ai-modifier-chip.active * {
+  color: var(--ai-chip-selected-text) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.compose-ai-panel .compose-ai-mode-chip:disabled,
+.compose-ai-panel .compose-ai-modifier-chip:disabled {
+  background: var(--ai-chip-disabled-bg) !important;
+  border-color: var(--ai-chip-disabled-border) !important;
+  color: var(--ai-chip-disabled-text) !important;
+  opacity: 0.62 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.compose-ai-panel .compose-ai-refine-header {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 3px !important;
+}
+
+.compose-ai-panel .compose-ai-refine-label {
+  color: color-mix(in srgb, var(--text3) 80%, var(--accent) 20%) !important;
+  letter-spacing: 0.05em !important;
+}
+
+.compose-ai-panel .compose-ai-refine-meta {
+  color: color-mix(in srgb, var(--text3) 76%, var(--accent) 24%) !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.045em !important;
+}
+
+.compose-ai-panel .compose-ai-modifier-hint {
+  margin-top: 3px !important;
+  color: color-mix(in srgb, var(--text3) 88%, var(--text2) 12%) !important;
+  font-size: 11px !important;
+  line-height: 1.38 !important;
+}
