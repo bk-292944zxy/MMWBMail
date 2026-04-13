@@ -138,13 +138,77 @@ const QUICKFACT_NOISE_PATTERNS = [
   /hours?, minutes?(?:,| and) seconds?/i,
   /follow us/i,
   /download now/i,
-  /newsletter/i
+  /newsletter/i,
+  /\bwritten by\b/i,
+  /\bauthor\b/i,
+  /\bcontributor\b/i,
+  /\beditor\b/i,
+  /\bfact-checked by\b/i,
+  /\brevised by\b/i,
+  /\bnavigation\b/i,
+  /\btable of contents\b/i
 ];
+const QUERY_STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "in",
+  "on",
+  "at",
+  "to",
+  "for",
+  "with",
+  "and",
+  "or",
+  "by",
+  "from",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "do",
+  "does",
+  "did",
+  "who",
+  "what",
+  "when",
+  "where",
+  "why",
+  "how",
+  "much",
+  "many",
+  "often",
+  "last",
+  "latest",
+  "current",
+  "season"
+]);
 
 const QUICKFACT_TAVILY_TIMEOUT_MS = 7000;
 
 function normalizeQuickFactQuery(query: string) {
-  return query.trim().replace(/\s+/g, " ");
+  const normalized = query.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return "";
+  }
+
+  let rewritten = normalized;
+  if (/\bwho won\b/i.test(rewritten)) {
+    rewritten = rewritten.replace(/\blast\b/gi, "most recent");
+    if (!/\bwinner\b/i.test(rewritten)) {
+      rewritten = `${rewritten} winner`;
+    }
+  }
+
+  if (/\baverage price\b/i.test(rewritten) && !/\bcurrent\b/i.test(rewritten)) {
+    rewritten = `${rewritten} current price`;
+  }
+
+  return rewritten.replace(/\s+/g, " ").trim();
 }
 
 function extractDomain(url: string) {
@@ -261,6 +325,77 @@ function stripNoisePhrases(text: string) {
   return next.replace(/\s+/g, " ").trim();
 }
 
+function extractQueryKeywords(query: string) {
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s$%.-]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !QUERY_STOPWORDS.has(token));
+}
+
+function countKeywordHits(text: string, keywords: string[]) {
+  if (keywords.length === 0) {
+    return 0;
+  }
+
+  const normalizedText = text.toLowerCase();
+  let hits = 0;
+  keywords.forEach((keyword) => {
+    if (normalizedText.includes(keyword)) {
+      hits += 1;
+    }
+  });
+  return hits;
+}
+
+function isLikelyBylineOrNavigation(text: string) {
+  const normalized = text.toLowerCase();
+  return (
+    /\bby\s+[a-z]/i.test(text) ||
+    /\bwritten by\b/.test(normalized) ||
+    /\bauthor\b/.test(normalized) ||
+    /\bcontributor\b/.test(normalized) ||
+    /\bfact-checked by\b/.test(normalized) ||
+    /\btable of contents\b/.test(normalized) ||
+    /\bmenu\b/.test(normalized) ||
+    /\bprivacy policy\b/.test(normalized)
+  );
+}
+
+function queryDemandsWinner(query: string) {
+  const normalized = query.toLowerCase();
+  return /\bwho won\b/.test(normalized) || /\bwinner\b/.test(normalized);
+}
+
+function queryDemandsPrice(query: string) {
+  const normalized = query.toLowerCase();
+  return /\bprice\b/.test(normalized) || /\bcost\b/.test(normalized);
+}
+
+function queryDemandsRateOrStat(query: string) {
+  const normalized = query.toLowerCase();
+  return /\bhow often\b/.test(normalized) || /\brate\b/.test(normalized) || /\bstat(?:istic)?\b/.test(normalized);
+}
+
+function isQueryAnswerLike(sentence: string, query: string) {
+  const normalized = sentence.toLowerCase();
+
+  if (queryDemandsWinner(query)) {
+    return /\b(winner|won|was)\b/.test(normalized);
+  }
+
+  if (queryDemandsPrice(query)) {
+    return /\$|\busd\b|\bprice\b|\bcost\b|\bfor\b/.test(normalized);
+  }
+
+  if (queryDemandsRateOrStat(query)) {
+    return /%|\bpercent\b|\brate\b|\bsurvey\b|\breport(?:ed|s)?\b|\bstudy\b/.test(normalized);
+  }
+
+  return hasFactLikeAnswer(sentence);
+}
+
 function normalizeSubjectFromQuery(query: string) {
   const normalized = query
     .toLowerCase()
@@ -335,13 +470,16 @@ function normalizeQuickFactAnswer(
     return "";
   }
 
+  const keywords = extractQueryKeywords(query);
   const factSentences = splitSentences(cleaned).filter(
     (sentence) =>
+      !isLikelyBylineOrNavigation(sentence) &&
       !QUICKFACT_NOISE_PATTERNS.some((pattern) => pattern.test(sentence)) &&
-      (hasFactLikeAnswer(sentence) ||
+      (isQueryAnswerLike(sentence, query) ||
         queryType === "product" ||
         queryType === "role_or_name" ||
-        queryType === "general_fact")
+        queryType === "general_fact") &&
+      (keywords.length === 0 || countKeywordHits(sentence, keywords) > 0)
   );
 
   const candidate = factSentences.slice(0, 2).join(" ").trim();
@@ -361,6 +499,31 @@ function scoreSource(result: TavilySearchResult) {
   const highTrustBoost = isHighTrustDomain(domain) ? 0.45 : 0;
   const reputableBoost = !highTrustBoost && isReputableDomain(domain) ? 0.22 : 0;
   return (result.score ?? 0) + highTrustBoost + reputableBoost;
+}
+
+function scoreResultRelevance(
+  result: TavilySearchResult,
+  query: string,
+  queryType: QuickFactQueryType
+) {
+  const title = (result.title ?? "").trim();
+  const snippet = (result.content ?? "").trim();
+  const combined = `${title} ${snippet}`.trim();
+  if (!combined) {
+    return -1;
+  }
+
+  const keywords = extractQueryKeywords(query);
+  const keywordHits = countKeywordHits(combined, keywords);
+  const keywordScore =
+    keywords.length === 0 ? 0.2 : Math.min(1, keywordHits / Math.max(1, Math.min(keywords.length, 3)));
+
+  const directAnswerBoost = isQueryAnswerLike(snippet, query) ? 0.4 : 0;
+  const bylinePenalty = isLikelyBylineOrNavigation(snippet) ? 0.6 : 0;
+  const weakSnippetPenalty =
+    snippet.length > 0 && !hasFactLikeAnswer(snippet) && queryType !== "general_fact" ? 0.2 : 0;
+
+  return keywordScore + directAnswerBoost - bylinePenalty - weakSnippetPenalty;
 }
 
 function inferConfidence(result: TavilySearchResult): QuickFactConfidence {
@@ -472,13 +635,21 @@ async function runTavilySearch(query: string, queryType: QuickFactQueryType, fal
   }
 }
 
-function rankResults(payload: TavilySearchResponse | null) {
+function rankResults(
+  payload: TavilySearchResponse | null,
+  query: string,
+  queryType: QuickFactQueryType
+) {
   return (payload?.results ?? [])
     .filter((result) => {
       const domain = extractDomain(result.url ?? "");
       return Boolean(result.url) && Boolean(domain) && !isExcludedDomain(domain);
     })
-    .sort((left, right) => scoreSource(right) - scoreSource(left));
+    .sort((left, right) => {
+      const rightScore = scoreSource(right) + scoreResultRelevance(right, query, queryType);
+      const leftScore = scoreSource(left) + scoreResultRelevance(left, query, queryType);
+      return rightScore - leftScore;
+    });
 }
 
 function chooseBestSource(results: TavilySearchResult[]) {
@@ -517,7 +688,7 @@ function extractFactsFromPayload(
   query: string,
   queryType: QuickFactQueryType
 ) {
-  const rankedResults = rankResults(payload);
+  const rankedResults = rankResults(payload, query, queryType);
 
   const facts: QuickFactResult[] = [];
   for (const result of rankedResults) {
@@ -582,7 +753,7 @@ export async function fetchTavilyQuickFactBundle(query: string): Promise<TavilyQ
   const queryType = classifyQuickFactQuery(normalizedQuery);
   const firstPayload = await runTavilySearch(normalizedQuery, queryType, false);
   let activePayload = firstPayload;
-  let rawResults = rankResults(firstPayload);
+  let rawResults = rankResults(firstPayload, normalizedQuery, queryType);
   let cleanResults = extractFactsFromPayload(firstPayload, normalizedQuery, queryType);
 
   if (
@@ -590,7 +761,7 @@ export async function fetchTavilyQuickFactBundle(query: string): Promise<TavilyQ
     (queryType === "product" || queryType === "market_fact" || queryType === "general_fact")
   ) {
     const secondPayload = await runTavilySearch(normalizedQuery, queryType, true);
-    const secondRawResults = rankResults(secondPayload);
+    const secondRawResults = rankResults(secondPayload, normalizedQuery, queryType);
     const secondCleanResults = extractFactsFromPayload(secondPayload, normalizedQuery, queryType);
 
     rawResults = [...rawResults, ...secondRawResults].sort((left, right) => scoreSource(right) - scoreSource(left));

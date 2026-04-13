@@ -3794,6 +3794,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: transparent !important;
 }
 
+.compose-window.compose-can-resize .compose-edge-handle::before {
+  content: "" !important;
+  position: absolute !important;
+  opacity: 0.45 !important;
+  transition: opacity 0.14s ease, background-color 0.14s ease, border-color 0.14s ease !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle:hover::before {
+  opacity: 0.9 !important;
+}
+
 .compose-edge-handle-n,
 .compose-edge-handle-s {
   left: 12px !important;
@@ -3806,9 +3817,25 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   cursor: n-resize !important;
 }
 
+.compose-window.compose-can-resize .compose-edge-handle-n::before,
+.compose-window.compose-can-resize .compose-edge-handle-s::before {
+  top: 2px !important;
+  left: 50% !important;
+  width: 30px !important;
+  height: 2px !important;
+  transform: translateX(-50%) !important;
+  border-radius: 2px !important;
+  background: rgba(60, 60, 67, 0.26) !important;
+}
+
 .compose-edge-handle-s {
   bottom: 0 !important;
   cursor: s-resize !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-s::before {
+  top: auto !important;
+  bottom: 2px !important;
 }
 
 .compose-edge-handle-e,
@@ -3826,6 +3853,22 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-edge-handle-w {
   left: 0 !important;
   cursor: w-resize !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-e::before,
+.compose-window.compose-can-resize .compose-edge-handle-w::before {
+  top: 50% !important;
+  left: 3px !important;
+  width: 2px !important;
+  height: 30px !important;
+  transform: translateY(-50%) !important;
+  border-radius: 2px !important;
+  background: rgba(60, 60, 67, 0.26) !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-e::before {
+  left: auto !important;
+  right: 3px !important;
 }
 
 .compose-edge-handle-ne,
@@ -3858,6 +3901,48 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   left: 0 !important;
   bottom: 0 !important;
   cursor: sw-resize !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-ne::before,
+.compose-window.compose-can-resize .compose-edge-handle-nw::before,
+.compose-window.compose-can-resize .compose-edge-handle-se::before,
+.compose-window.compose-can-resize .compose-edge-handle-sw::before {
+  width: 7px !important;
+  height: 7px !important;
+  border: 1px solid rgba(60, 60, 67, 0.32) !important;
+  background: rgba(255, 255, 255, 0.6) !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-ne::before {
+  top: 1px !important;
+  right: 1px !important;
+  border-left: none !important;
+  border-bottom: none !important;
+  border-top-right-radius: 2px !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-nw::before {
+  top: 1px !important;
+  left: 1px !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-top-left-radius: 2px !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-se::before {
+  right: 1px !important;
+  bottom: 1px !important;
+  border-left: none !important;
+  border-top: none !important;
+  border-bottom-right-radius: 2px !important;
+}
+
+.compose-window.compose-can-resize .compose-edge-handle-sw::before {
+  left: 1px !important;
+  bottom: 1px !important;
+  border-right: none !important;
+  border-top: none !important;
+  border-bottom-left-radius: 2px !important;
 }
 
 .compose-header {
@@ -4679,20 +4764,45 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
-  padding-top: 44px !important;
+  padding-top: 48px !important;
 }
 
 .qf-bar {
   position: relative !important;
   pointer-events: auto !important;
   z-index: 2147483647 !important;
-  width: calc(100% - 16px) !important;
-  max-width: 760px !important;
-  background: #ffffff !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 12px 48px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04) !important;
-  overflow: hidden !important;
+  width: calc(100% - 24px) !important;
+  max-width: 500px !important;
+  background: rgba(255,255,255,0.985) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+  border: 0.5px solid rgba(0,0,0,0.06) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 0 0 0.5px rgba(0,0,0,0.03),
+    0 1px 2px rgba(0,0,0,0.02),
+    0 4px 12px rgba(0,0,0,0.04),
+    0 12px 32px rgba(0,0,0,0.07),
+    0 24px 48px rgba(0,0,0,0.05) !important;
+  overflow: visible !important;
+  animation: qfShellIn 160ms ease-out both !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease !important;
+}
+
+.qf-bar:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 26%, rgba(0,0,0,0.06)) !important;
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--accent) 22%, rgba(0,0,0,0.03)),
+    0 1px 2px rgba(0,0,0,0.02),
+    0 4px 12px rgba(0,0,0,0.04),
+    0 12px 32px rgba(0,0,0,0.07),
+    0 24px 48px rgba(0,0,0,0.05) !important;
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--accent) 2.8%, rgba(255,255,255,0.96)),
+      rgba(255,255,255,0.96)
+    ) !important;
 }
 
 .qf-label {
@@ -4700,52 +4810,51 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 10px !important;
   font-weight: 400 !important;
   color: var(--text3) !important;
-  padding: 8px 14px 2px !important;
-  letter-spacing: 0.01em !important;
-  opacity: 0.7 !important;
+  padding: 10px 16px 2px !important;
+  letter-spacing: 0.02em !important;
+  opacity: 0.5 !important;
+  user-select: none !important;
 }
 
 .qf-close {
   position: absolute !important;
-  top: 6px !important;
-  right: 6px !important;
+  top: 8px !important;
+  right: 8px !important;
   background: none !important;
   border: none !important;
   color: var(--text3) !important;
   cursor: pointer !important;
-  padding: 3px !important;
-  border-radius: 4px !important;
+  padding: 4px !important;
+  border-radius: 6px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   z-index: 2 !important;
+  opacity: 0.4 !important;
+  transition: opacity 0.15s ease, background 0.15s ease !important;
 }
 
 .qf-close:hover {
+  opacity: 0.9 !important;
   background: rgba(0,0,0,0.04) !important;
-  color: var(--text2) !important;
 }
 
 .qf-input-row {
   display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  margin: 4px 14px 12px !important;
-  padding: 4px !important;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)) !important;
-  border-radius: 12px !important;
-  background: color-mix(in srgb, var(--surface-overlay, #ffffff) 92%, var(--accent) 8%) !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
+  padding: 0 5px 8px 0 !important;
 }
 
 .qf-icon {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 36px !important;
-  height: 36px !important;
+  width: 44px !important;
+  height: 44px !important;
   flex-shrink: 0 !important;
   color: var(--accent) !important;
-  opacity: 0.6 !important;
+  opacity: 0.45 !important;
 }
 
 .qf-input {
@@ -4757,98 +4866,130 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 14px !important;
   font-weight: 400 !important;
   color: var(--text) !important;
-  padding: 8px 8px 8px 10px !important;
+  padding: 11px 4px !important;
   min-width: 0 !important;
   resize: none !important;
   line-height: 1.5 !important;
-  min-height: 20px !important;
-  max-height: 120px !important;
+  min-height: calc(1.5em + 16px) !important;
+  max-height: calc(4.5em + 16px) !important;
+  box-shadow: none !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  border-radius: 0 !important;
   overflow-y: auto !important;
-}
-
-.qf-input::placeholder {
-  color: var(--text3) !important;
-  font-weight: 400 !important;
 }
 
 .qf-submit {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 32px !important;
-  height: 32px !important;
-  margin: 0 !important;
+  width: 34px !important;
+  height: 34px !important;
+  margin: 5px 2px 5px 0 !important;
   background: var(--accent) !important;
   border: none !important;
-  border-radius: 999px !important;
+  border-radius: 9px !important;
   color: var(--accent-foreground) !important;
   cursor: pointer !important;
   flex-shrink: 0 !important;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.04) !important;
 }
 
 .qf-submit:hover {
-  filter: brightness(0.9) !important;
+  filter: brightness(1.06) !important;
+  transform: scale(1.03) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04) !important;
+}
+
+.qf-submit:active {
+  transform: scale(0.97) !important;
+  filter: brightness(0.93) !important;
 }
 
 .qf-submit:disabled {
-  opacity: 0.3 !important;
+  opacity: 0.25 !important;
   cursor: default !important;
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
 }
 
 .qf-result-area {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: flex-start !important;
-  padding: 10px 14px 12px !important;
-  border-top: 1px solid var(--border) !important;
-  background: color-mix(in srgb, var(--accent) 3%, transparent) !important;
+  margin: 0 8px 8px !important;
+  padding: 14px 16px 16px !important;
+  border-radius: 10px !important;
+  background: rgba(0,0,0,0.03) !important;
+  border: 0.5px solid rgba(0,0,0,0.075) !important;
+  animation: qfSettleIn 160ms ease-out both !important;
+}
+
+.qf-result-area > div + div {
+  margin-top: 12px !important;
+  padding-top: 12px !important;
+  border-top: 0.5px solid rgba(0,0,0,0.085) !important;
 }
 
 .qf-result-label {
+  font-family: 'Inter', -apple-system, sans-serif !important;
   font-size: 9px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.1em !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.12em !important;
   text-transform: uppercase !important;
   color: var(--accent) !important;
-  margin-bottom: 4px !important;
-  opacity: 0.7 !important;
+  margin-bottom: 8px !important;
+  opacity: 0.6 !important;
 }
 
 .qf-result-text {
-  font-size: 13px !important;
+  font-family: 'Inter', -apple-system, sans-serif !important;
+  font-size: 13.5px !important;
   font-weight: 500 !important;
   color: var(--text) !important;
-  line-height: 1.55 !important;
-  margin-bottom: 8px !important;
+  line-height: 1.7 !important;
+  margin-bottom: 14px !important;
+  letter-spacing: -0.005em !important;
 }
 
 .qf-insert-btn {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 5px !important;
-  background: none !important;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent) !important;
-  border-radius: 6px !important;
-  padding: 5px 12px !important;
+  gap: 6px !important;
+  background: transparent !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  border-radius: 8px !important;
+  padding: 7px 14px !important;
   font-family: 'Inter', -apple-system, sans-serif !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
   color: var(--accent) !important;
   cursor: pointer !important;
+  transition: background 0.12s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease !important;
 }
 
 .qf-insert-btn:hover {
-  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  background: rgba(0,0,0,0.02) !important;
   border-color: var(--accent) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important;
+  transform: translateY(-0.5px) !important;
+}
+
+.qf-insert-btn:active {
+  transform: translateY(0px) scale(0.98) !important;
+  box-shadow: none !important;
 }
 
 .qf-loading {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
-  padding: 14px 0 !important;
-  border-top: 1px solid var(--border) !important;
+  gap: 5px !important;
+  padding: 18px 0 !important;
+  margin: 0 8px 8px !important;
+  border-radius: 10px !important;
+  background: rgba(0,0,0,0.03) !important;
+  border: 0.5px solid rgba(0,0,0,0.075) !important;
+  animation: qfSettleIn 160ms ease-out both !important;
 }
 
 .qf-loading-dot {
@@ -4856,27 +4997,104 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   height: 5px !important;
   border-radius: 50% !important;
   background: var(--accent) !important;
-  opacity: 0.2 !important;
-  animation: qfPulse 1.2s ease-in-out infinite !important;
+  opacity: 0.15 !important;
+  animation: qfPulse 1.4s ease-in-out infinite !important;
 }
 
 .qf-loading-dot:nth-child(2) {
-  animation-delay: 0.15s !important;
+  animation-delay: 0.18s !important;
 }
 
 .qf-loading-dot:nth-child(3) {
-  animation-delay: 0.3s !important;
+  animation-delay: 0.36s !important;
+}
+
+/* Specificity overrides for global input/textarea rules */
+.qf-bar input,
+.qf-bar textarea,
+.qf-bar input[type="text"],
+.qf-bar input[type="search"] {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0 !important;
+  padding: 11px 4px !important;
+  font-family: 'Inter', -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  color: var(--text) !important;
+}
+
+.qf-bar input:focus,
+.qf-bar textarea:focus,
+.qf-bar input[type="text"]:focus,
+.qf-bar input:focus-visible,
+.qf-bar textarea:focus-visible,
+.qf-bar input[type="text"]:focus-visible {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.qf-bar input::placeholder,
+.qf-bar textarea::placeholder {
+  color: var(--text3) !important;
+  font-weight: 400 !important;
+  opacity: 0.6 !important;
+}
+
+@keyframes qfShellIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes qfSettleIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes qfPulse {
   0%,
   100% {
-    opacity: 0.2;
-    transform: scale(0.85);
+    opacity: 0.12;
+    transform: scale(0.8);
   }
   50% {
-    opacity: 0.7;
-    transform: scale(1.1);
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-bar,
+  .qf-result-area,
+  .qf-loading,
+  .qf-submit,
+  .qf-insert-btn,
+  .qf-close {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+
+  .qf-loading-dot {
+    animation: none !important;
   }
 }
 
@@ -14272,6 +14490,36 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .inbox-control-band .sort-btn {
   padding: 2px 6px !important;
+}
+
+/* Mail list header polish: remove orphan gap and use text-only active sort state */
+.inbox .messageList {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.inbox-control-band .sort-toolbar .sort-btn-option {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 52px !important;
+  height: 24px !important;
+  padding: 0 8px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--text3) !important;
+  font-weight: 500 !important;
+}
+
+.inbox-control-band .sort-toolbar .sort-btn-option:hover {
+  background: transparent !important;
+  color: var(--text2) !important;
+}
+
+.inbox-control-band .sort-toolbar .sort-btn-option.active {
+  background: transparent !important;
+  color: var(--text) !important;
+  font-weight: 700 !important;
 }
 
 /* Settings: polished theme picker */
