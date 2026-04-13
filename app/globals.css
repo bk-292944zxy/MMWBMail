@@ -117,6 +117,15 @@ button {
   overflow: hidden;
 }
 
+.workspace > .viewer > .detail-transition-layer {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .workspace > .viewer > .messageDetail {
   display: flex;
   flex-direction: column;
@@ -131,6 +140,25 @@ button {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.workspace > .viewer > .detail-transition-layer > .messageDetail,
+.workspace > .viewer > .detail-transition-layer > .messageDetail.thread-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.workspace > .viewer > .detail-transition-layer > .messageDetail > .messageBody,
+.workspace > .viewer > .detail-transition-layer > .messageDetail.thread-conversation > .thread-conversation-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .workspace > .viewer > .messageDetail > .messageBody > .messageBodyFrame {
