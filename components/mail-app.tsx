@@ -6493,7 +6493,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     if (!composeOpen) {
       setComposeToolbarMenuOpen(false);
       setComposeToolbarOverflowOpen(false);
-      setComposeQuickInsertOpen(false);
+      closeComposeQuickFact();
       setComposeAiOpen(false);
       setComposeAiPreview(null);
       setComposeAiError(null);
@@ -6728,8 +6728,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         setComposeToolbarMenuPosition(null);
         setComposeToolbarOverflowOpen(false);
         setComposeToolbarOverflowPosition(null);
-        setComposeQuickInsertOpen(false);
-        setComposeQuickInsertPosition(null);
+        closeComposeQuickFact();
       }
     };
 
@@ -8644,7 +8643,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeBodyRef.current = "";
       setComposeMinimized(false);
       setComposePlainText(false);
-      setComposeQuickInsertOpen(false);
+      closeComposeQuickFact();
       setComposeToolbarOverflowOpen(false);
       setComposeToolbarMenuOpen(false);
       setComposeToolbarMenuPosition(null);
@@ -8752,7 +8751,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeToolbarMenuOpen(false);
     setComposeToolbarMenuPosition(null);
     setComposeToolbarOverflowOpen(false);
-    setComposeQuickInsertOpen(false);
+    closeComposeQuickFact();
     setComposeSelectionToolbarPos(null);
     setShowCc(false);
     setShowBcc(false);
@@ -9860,6 +9859,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeAiSelectionSnapshotRef.current = null;
   }
 
+  function resetComposeQuickFactState() {
+    setComposeQuickFact({
+      query: "",
+      results: [],
+      loading: false,
+      error: null,
+      fallback: null
+    });
+    setComposeQuickFactTooltip(null);
+  }
+
   function openComposeQuickFact() {
     setComposeToolbarMenuOpen(false);
     setComposeToolbarMenuPosition(null);
@@ -9868,7 +9878,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeQuickInsertOpen((current) => {
       const next = !current;
       if (!next) {
-        setComposeQuickFact((state) => ({ ...state, loading: false, error: null, fallback: null }));
+        resetComposeQuickFactState();
       }
       return next;
     });
@@ -9877,7 +9887,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   function closeComposeQuickFact() {
     setComposeQuickInsertOpen(false);
     setComposeQuickInsertPosition(null);
-    setComposeQuickFact((state) => ({ ...state, loading: false, error: null, fallback: null }));
+    resetComposeQuickFactState();
   }
 
   function handoffComposeQuickFactToBroaderSearch() {
@@ -10315,7 +10325,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeToolbarMenuOpen(false);
     setComposeToolbarMenuPosition(null);
     setComposeToolbarOverflowOpen(false);
-    setComposeQuickInsertOpen(false);
+    closeComposeQuickFact();
     setShowCc(session.ui.showCc);
     setShowBcc(session.ui.showBcc);
     setShowReplyTo(session.ui.showReplyTo);
@@ -12154,8 +12164,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     async (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.key === "Escape") {
         if (composeQuickInsertOpen || composeToolbarOverflowOpen || composeToolbarMenuOpen) {
-          setComposeQuickInsertOpen(false);
-          setComposeQuickInsertPosition(null);
+          closeComposeQuickFact();
           setComposeToolbarOverflowOpen(false);
           setComposeToolbarOverflowPosition(null);
           setComposeToolbarMenuOpen(false);
@@ -21901,195 +21910,130 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       </div>
                     </div>
             ) : null}
-            {composeQuickInsertOpen && composeQuickInsertPosition
-              ? createPortal(
-                  <div
-                    ref={composeQuickInsertPopoverRef}
-                    className="compose-quickfact-popover"
-                    style={{
-                      top: composeQuickInsertPosition.top,
-                      left: composeQuickInsertPosition.left,
-                      width: composeQuickInsertPosition.width
+            {composeQuickInsertOpen ? (
+              <div ref={composeQuickInsertPopoverRef} className="qf-overlay">
+                <div className="qf-bar">
+                  <button
+                    type="button"
+                    className="qf-close"
+                    aria-label="Close QuickFact"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      closeComposeQuickFact();
                     }}
                   >
-                    <div className="compose-quickfact-header">
-                      <div className="compose-quickfact-title">QuickFact</div>
-                      <button
-                        type="button"
-                        className="compose-quickfact-close"
-                        aria-label="Close QuickFact"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          closeComposeQuickFact();
-                        }}
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    >
+                      <line x1="4" y1="4" x2="12" y2="12" />
+                      <line x1="12" y1="4" x2="4" y2="12" />
+                    </svg>
+                  </button>
+                  <div className="qf-label">QuickFact</div>
+                  <div className="qf-input-row">
+                    <span className="qf-icon">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        ×
-                      </button>
-                    </div>
-                    <div className="compose-quickfact-copy">
-                      Get a quick sourced fact without leaving your draft.
-                    </div>
-                    <form
-                      className="compose-quickfact-form"
-                      onSubmit={(event) => {
+                        <circle cx="8" cy="8" r="3" />
+                        <line x1="8" y1="1" x2="8" y2="4" />
+                        <line x1="8" y1="12" x2="8" y2="15" />
+                        <line x1="1" y1="8" x2="4" y2="8" />
+                        <line x1="12" y1="8" x2="15" y2="8" />
+                      </svg>
+                    </span>
+                    <textarea
+                      ref={composeQuickFactInputRef}
+                      className="qf-input"
+                      rows={1}
+                      value={composeQuickFact.query}
+                      placeholder="Look up a fact, stat, or reference…"
+                      onInput={autoResizeComposeQuickFactInput}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          void submitComposeQuickFactQuery();
+                        }
+                      }}
+                      onChange={(event) =>
+                        setComposeQuickFact((state) => ({
+                          ...state,
+                          query: event.target.value,
+                          error: null,
+                          fallback: null
+                        }))
+                      }
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="qf-submit"
+                      onMouseDown={(event) => {
                         event.preventDefault();
                         void submitComposeQuickFactQuery();
                       }}
+                      disabled={composeQuickFact.loading}
                     >
-                      <div className="compose-quickfact-input-wrap">
-                        <textarea
-                          ref={composeQuickFactInputRef}
-                          className="compose-quickfact-input"
-                          rows={1}
-                          value={composeQuickFact.query}
-                          placeholder="What fact do you need?"
-                          onInput={autoResizeComposeQuickFactInput}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && !event.shiftKey) {
-                              event.preventDefault();
-                              void submitComposeQuickFactQuery();
-                            }
-                          }}
-                          onChange={(event) =>
-                            setComposeQuickFact((state) => ({
-                              ...state,
-                              query: event.target.value,
-                              error: null,
-                              fallback: null
-                            }))
-                          }
-                        />
-                        {composeQuickFact.query ? (
-                          <button
-                            type="button"
-                            className="compose-quickfact-clear"
-                            aria-label="Clear QuickFact search"
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              setComposeQuickFact((state) => ({
-                                ...state,
-                                query: "",
-                                error: null,
-                                results: [],
-                                fallback: null
-                              }));
-                              globalThis.setTimeout(() => {
-                                composeQuickFactInputRef.current?.focus();
-                              }, 0);
-                            }}
-                          >
-                            ×
-                          </button>
-                        ) : null}
-                      </div>
-                      <button
-                        type="submit"
-                        className="compose-quickfact-submit"
-                        disabled={composeQuickFact.loading}
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
                       >
-                        {composeQuickFact.loading ? "Searching…" : "Search"}
-                      </button>
-                    </form>
-                    {composeQuickFact.error ? (
-                      <div className="compose-quickfact-error">{composeQuickFact.error}</div>
-                    ) : null}
-                    {composeQuickFact.fallback ? (
-                      <div className="compose-quickfact-fallback">
-                        <div className="compose-quickfact-fallback-message">
-                          {composeQuickFact.fallback.message}
-                        </div>
-                        {composeQuickFact.fallback.actionLabel ? (
+                        <line x1="2" y1="8" x2="14" y2="8" />
+                        <polyline points="10,4 14,8 10,12" />
+                      </svg>
+                    </button>
+                  </div>
+                  {composeQuickFact.results.length > 0 ? (
+                    <div className="qf-result-area">
+                      {composeQuickFact.results.map((result) => (
+                        <div key={`${result.sourceUrl}-${result.answer}`}>
+                          <div className="qf-result-label">Result</div>
+                          <div className="qf-result-text">{result.answer}</div>
                           <button
                             type="button"
-                            className="compose-quickfact-fallback-action"
+                            className="qf-insert-btn"
                             onMouseDown={(event) => {
                               event.preventDefault();
-                              handoffComposeQuickFactToBroaderSearch();
+                              insertQuickFactResult(result, false);
                             }}
                           >
-                            {composeQuickFact.fallback.actionLabel}
+                            Insert into draft
                           </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {composeQuickFact.results.length > 0 ? (
-                      <div className="compose-quickfact-results">
-                        {composeQuickFact.results.map((result) => (
-                          <div key={`${result.sourceUrl}-${result.answer}`} className="compose-quickfact-card">
-                            <div className="compose-quickfact-answer">{result.answer}</div>
-                            <div className="compose-quickfact-source">
-                              <span>{result.sourceName}</span>
-                              {result.sourceDate ? (
-                                <span>{formatQuickFactSourceDate(result.sourceDate)}</span>
-                              ) : null}
-                            </div>
-                            <div className="compose-quickfact-actions">
-                              <button
-                                type="button"
-                                className="compose-quickfact-action-primary"
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                  insertQuickFactResult(result, false);
-                                }}
-                              >
-                                Insert
-                              </button>
-                              <button
-                                type="button"
-                                className="compose-quickfact-action-secondary"
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                  insertQuickFactResult(result, true);
-                                }}
-                              >
-                                Insert with source
-                              </button>
-                              <a
-                                className="compose-quickfact-open-source"
-                                href={result.sourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onMouseEnter={(event) =>
-                                  showComposeQuickFactTooltip(
-                                    event.currentTarget,
-                                    "Opening the source page"
-                                  )
-                                }
-                                onMouseLeave={hideComposeQuickFactTooltip}
-                                onFocus={(event) =>
-                                  showComposeQuickFactTooltip(
-                                    event.currentTarget,
-                                    "Opening the source page"
-                                  )
-                                }
-                                onBlur={hideComposeQuickFactTooltip}
-                                onMouseDown={(event) => event.preventDefault()}
-                              >
-                                <span>Open source</span>
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M7 17 17 7" />
-                                  <path d="M9 7h8v8" />
-                                </svg>
-                              </a>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>,
-                  document.body
-                )
-              : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {composeQuickFact.loading ? (
+                    <div className="qf-loading">
+                      <span className="qf-loading-dot"></span>
+                      <span className="qf-loading-dot"></span>
+                      <span className="qf-loading-dot"></span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <input
               ref={attachInputRef}
               type="file"
