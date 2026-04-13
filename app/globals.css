@@ -15311,6 +15311,29 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-left-color: var(--accent) !important;
 }
 
+/* Theme-tinted selected-row typography */
+.message-row.selected .row-subject,
+.thread-row.selected .row-subject {
+  color: color-mix(in srgb, var(--accent) 58%, var(--text) 42%) !important;
+}
+
+.message-row.selected .row-preview,
+.thread-row.selected .row-preview {
+  color: color-mix(in srgb, var(--accent) 42%, var(--text2) 58%) !important;
+}
+
+.message-row.selected .row-date,
+.thread-row.selected .row-date {
+  color: color-mix(in srgb, var(--accent) 48%, var(--text3) 52%) !important;
+}
+
+/* Active sort/view text should track theme accent */
+.sort-btn.active,
+.inbox-control-band .sort-toolbar .sort-btn-option.active,
+.mailbox-view-btn.active {
+  color: var(--accent) !important;
+}
+
 .filter-pill,
 .type-chip-svc,
 .filter-pattern-badge,
