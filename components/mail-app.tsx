@@ -264,8 +264,42 @@ type LoadMessagesOptions = {
   preserveSelection?: boolean;
   skipServerSync?: boolean;
 };
-type AccentTheme = "orange" | "blue" | "green" | "purple";
+type AccentTheme =
+  | "warm-paper"
+  | "cool-slate"
+  | "forest-mist"
+  | "lavender-haze"
+  | "midnight-focus";
 type ThemeMode = "full" | "highlight-only";
+
+const LEGACY_ACCENT_THEME_MAP: Record<string, AccentTheme> = {
+  orange: "warm-paper",
+  blue: "cool-slate",
+  green: "forest-mist",
+  purple: "lavender-haze"
+};
+
+function normalizeAccentTheme(theme: string | null | undefined): AccentTheme {
+  if (!theme) {
+    return "warm-paper";
+  }
+
+  if (theme in LEGACY_ACCENT_THEME_MAP) {
+    return LEGACY_ACCENT_THEME_MAP[theme];
+  }
+
+  if (
+    theme === "warm-paper" ||
+    theme === "cool-slate" ||
+    theme === "forest-mist" ||
+    theme === "lavender-haze" ||
+    theme === "midnight-focus"
+  ) {
+    return theme;
+  }
+
+  return "warm-paper";
+}
 
 const USER_DATA_VERSION = 4;
 const DB_NAME = "mmwbmail";
@@ -318,7 +352,7 @@ const DEFAULT_USER_DATA: UserData = {
     collapsedSortFolderVisibility: "essential_only",
     accountMailboxDisclosureStates: {},
     lightweightOnboardingDismissed: false,
-    accentTheme: "orange",
+    accentTheme: "warm-paper",
     themeMode: "full"
   }
 };
@@ -4122,9 +4156,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   );
   const [accentTheme, setAccentTheme] = useState<AccentTheme>(() => {
     if (typeof window === "undefined") {
-      return "orange";
+      return "warm-paper";
     }
-    return loadUserData().prefs.accentTheme ?? "orange";
+    return normalizeAccentTheme(loadUserData().prefs.accentTheme);
   });
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") {
@@ -6304,7 +6338,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setBlockedSenders(new Set(data.blockedSenders));
     setPinnedMessages(new Set(data.pinnedMessages));
     setSidebarSize(data.prefs.sidebarSize);
-    setAccentTheme(data.prefs.accentTheme ?? "orange");
+    setAccentTheme(normalizeAccentTheme(data.prefs.accentTheme));
     setThemeMode(data.prefs.themeMode ?? "full");
     setDefaultSignature(data.prefs.signature);
     setSignatureDefinitions(data.signatureDefinitions ?? []);
@@ -6324,6 +6358,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
     document.documentElement.setAttribute("data-accent-theme", accentTheme);
+    document.documentElement.setAttribute("data-theme", accentTheme);
     document.documentElement.setAttribute("data-theme-mode", themeMode);
 
     // Legacy compatibility: keep old hook in sync while mode migration settles.
@@ -19627,45 +19662,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         ))}
                       </div>
                     </div>
-                    <div className="settings-row settings-card-row">
-                      <div className="settings-row-info">
-                        <div className="settings-row-title">Theme color</div>
-                        <div className="settings-row-sub">
-                          Choose the accent color used across the app interface
-                        </div>
-                      </div>
-                      <div className="settings-theme-picker">
-                        {([
-                          { key: "orange", label: "Orange", color: "#ff4d00" },
-                          { key: "blue", label: "Blue", color: "#0a84ff" },
-                          { key: "green", label: "Green", color: "#34c759" },
-                          { key: "purple", label: "Purple", color: "#8b5cf6" }
-                        ] as const).map((themeOption) => {
-                          const active = accentTheme === themeOption.key;
-                          return (
-                            <button
-                              key={themeOption.key}
-                              type="button"
-                              onClick={() => setAccentTheme(themeOption.key)}
-                              className={`settings-theme-btn ${active ? "active" : ""}`}
-                              aria-pressed={active}
-                              data-theme-key={themeOption.key}
-                            >
-                              <span className="settings-theme-preview" aria-hidden="true">
-                                <span className="settings-theme-dot-wrap">
-                                  <span
-                                    className="settings-theme-dot"
-                                    style={{ "--theme-dot": themeOption.color } as CSSProperties}
-                                  />
-                                </span>
-                              </span>
-                              <span className="settings-theme-label">{themeOption.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="settings-row settings-card-row">
+                    <div className="settings-row settings-card-row settings-theme-mode-row">
                       <div className="settings-row-info">
                         <div className="settings-row-title">Theme mode</div>
                         <div className="settings-row-sub">
@@ -19688,6 +19685,44 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               aria-pressed={active}
                             >
                               {modeOption.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="settings-row settings-card-row settings-theme-color-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Theme color</div>
+                        <div className="settings-row-sub">
+                          Choose the accent color used across the app interface
+                        </div>
+                      </div>
+                      <div className="settings-theme-picker">
+                        {([
+                          { key: "warm-paper", label: "Warm Paper", color: "#d97d54" },
+                          { key: "cool-slate", label: "Cool Slate", color: "#4f46e5" },
+                          { key: "forest-mist", label: "Forest Mist", color: "#059669" },
+                          { key: "lavender-haze", label: "Lavender Haze", color: "#7c3aed" }
+                        ] as const).map((themeOption) => {
+                          const active = accentTheme === themeOption.key;
+                          return (
+                            <button
+                              key={themeOption.key}
+                              type="button"
+                              onClick={() => setAccentTheme(themeOption.key)}
+                              className={`settings-theme-btn ${active ? "active" : ""}`}
+                              aria-pressed={active}
+                              data-theme-key={themeOption.key}
+                            >
+                              <span className="settings-theme-preview" aria-hidden="true">
+                                <span className="settings-theme-dot-wrap">
+                                  <span
+                                    className="settings-theme-dot"
+                                    style={{ "--theme-dot": themeOption.color } as CSSProperties}
+                                  />
+                                </span>
+                              </span>
+                              <span className="settings-theme-label">{themeOption.label}</span>
                             </button>
                           );
                         })}
