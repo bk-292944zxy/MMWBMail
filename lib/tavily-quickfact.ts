@@ -27,6 +27,35 @@ type TavilySearchResponse = {
   results?: TavilySearchResult[];
 };
 
+type QuickFactTestEvaluationInput = {
+  query: string;
+  results: TavilySearchResult[];
+  answer?: string | null;
+};
+
+export type QuickFactAnswerValidation = {
+  acceptable: boolean;
+  reasons: string[];
+};
+
+export type QuickFactStressCandidate = {
+  title: string;
+  url: string;
+  sourceScore: number;
+  relevanceScore: number;
+  normalizedAnswer: string;
+  accepted: boolean;
+  reasons: string[];
+};
+
+export type QuickFactStressEvaluation = {
+  normalizedQuery: string;
+  queryType: QuickFactQueryType;
+  retrievalQuality: QuickFactRetrievalQuality;
+  cleanResults: QuickFactResult[];
+  candidates: QuickFactStressCandidate[];
+};
+
 export type QuickFactRetrievalQuality = "strong" | "mixed" | "weak" | "empty";
 
 export type TavilyQuickFactBundle = {
@@ -187,16 +216,64 @@ const QUERY_STOPWORDS = new Set([
   "current",
   "season"
 ]);
+const HIGH_CONFIDENCE_TERM_CORRECTIONS: Record<string, string> = {
+  cameros: "camaros",
+  camero: "camaro"
+};
+const PARTIAL_SCOPE_PATTERNS = [
+  /\bq[1-4]\b/i,
+  /\bquarter\b/i,
+  /\bmonth(?:ly)?\b/i,
+  /\bstate\b/i,
+  /\bregional?\b/i,
+  /\bcity\b/i,
+  /\bdealer(?:ship)?s?\b/i,
+  /\btrim\b/i,
+  /\bvariant\b/i
+];
+const NUMERIC_SALES_CONTEXT_PATTERN = /\b(sold|sales|units?|deliver(?:ed|ies)|registrations?)\b/i;
+const NATIONAL_SCOPE_PATTERN = /\b(nationwide|national|u\.s\.|united states|in the us|in us)\b/i;
+const PRICE_UNIT_PATTERN = /\$|\busd\b|\bdollars?\b/i;
+const RATE_UNIT_PATTERN = /%|\bpercent(?:age)?\b|\brate\b/i;
+const DATE_OR_SEASON_PATTERN =
+  /\b20\d{2}\b|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b|\bseason\s+\d+\b/i;
 
 const QUICKFACT_TAVILY_TIMEOUT_MS = 7000;
 
-function normalizeQuickFactQuery(query: string) {
+function applyHighConfidenceCorrections(query: string) {
+  let next = query;
+
+  Object.entries(HIGH_CONFIDENCE_TERM_CORRECTIONS).forEach(([misspelling, correction]) => {
+    const pattern = new RegExp(`\\b${misspelling}\\b`, "gi");
+    next = next.replace(pattern, correction);
+  });
+
+  return next;
+}
+
+function normalizeTimePhrases(query: string) {
+  let next = query;
+  const nowYear = new Date().getFullYear();
+  const lastYear = nowYear - 1;
+
+  if (/\blast year\b/i.test(next) && !/\b20\d{2}\b/.test(next)) {
+    next = next.replace(/\blast year\b/gi, `in ${lastYear}`);
+  }
+
+  if (/\bthis year\b/i.test(next) && !/\b20\d{2}\b/.test(next)) {
+    next = next.replace(/\bthis year\b/gi, `in ${nowYear}`);
+  }
+
+  return next;
+}
+
+export function normalizeQuickFactQuery(query: string) {
   const normalized = query.trim().replace(/\s+/g, " ");
   if (!normalized) {
     return "";
   }
 
-  let rewritten = normalized;
+  let rewritten = normalizeTimePhrases(applyHighConfidenceCorrections(normalized));
   if (/\bwho won\b/i.test(rewritten)) {
     rewritten = rewritten.replace(/\blast\b/gi, "most recent");
     if (!/\bwinner\b/i.test(rewritten)) {
@@ -209,6 +286,10 @@ function normalizeQuickFactQuery(query: string) {
   }
 
   return rewritten.replace(/\s+/g, " ").trim();
+}
+
+function isTimeSensitiveQuery(query: string) {
+  return /\b(20\d{2}|most recent|latest|current|this year|last year|season)\b/i.test(query);
 }
 
 function extractDomain(url: string) {
@@ -247,14 +328,14 @@ function isReputableDomain(domain: string) {
 }
 
 function toCompactAnswer(text: string) {
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const normalized = sanitizeForSentenceSplit(text).replace(/\s+/g, " ").trim();
   if (!normalized) {
     return "";
   }
 
   const sentences = normalized.match(/[^.!?]+[.!?]?/g) ?? [normalized];
   return sentences
-    .map((sentence) => sentence.trim())
+    .map((sentence) => restoreSentenceSplitArtifacts(sentence.trim()))
     .filter(Boolean)
     .slice(0, 2)
     .join(" ")
@@ -262,9 +343,24 @@ function toCompactAnswer(text: string) {
 }
 
 function splitSentences(text: string) {
-  return (text.match(/[^.!?]+[.!?]?/g) ?? [text])
-    .map((sentence) => sentence.trim())
+  const normalized = sanitizeForSentenceSplit(text);
+  return (normalized.match(/[^.!?]+[.!?]?/g) ?? [normalized])
+    .map((sentence) => restoreSentenceSplitArtifacts(sentence.trim()))
     .filter(Boolean);
+}
+
+function normalizeCommonAbbreviations(text: string) {
+  return text
+    .replace(/\bU\.\s*S\.(?=\s|$)/gi, "US")
+    .replace(/\bU\.\s*K\.(?=\s|$)/gi, "UK");
+}
+
+function sanitizeForSentenceSplit(text: string) {
+  return normalizeCommonAbbreviations(text).replace(/(\d)\.(\d)/g, "$1__QF_DECIMAL__$2");
+}
+
+function restoreSentenceSplitArtifacts(text: string) {
+  return text.replace(/__QF_DECIMAL__/g, ".");
 }
 
 export function classifyQuickFactQuery(query: string): QuickFactQueryType {
@@ -378,6 +474,164 @@ function queryDemandsRateOrStat(query: string) {
   return /\bhow often\b/.test(normalized) || /\brate\b/.test(normalized) || /\bstat(?:istic)?\b/.test(normalized);
 }
 
+function queryDemandsNumericTotal(query: string, queryType: QuickFactQueryType) {
+  return (
+    queryType === "count" ||
+    queryType === "market_fact" ||
+    /\bhow many\b|\bnumber of\b|\btotal\b/i.test(query)
+  );
+}
+
+function queryDemandsNationalSales(query: string) {
+  return NATIONAL_SCOPE_PATTERN.test(query) && NUMERIC_SALES_CONTEXT_PATTERN.test(query);
+}
+
+function extractNumericValues(text: string) {
+  const matches = text.match(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/g) ?? [];
+  return matches
+    .map((raw) => Number.parseFloat(raw.replace(/,/g, "")))
+    .filter((value) => Number.isFinite(value));
+}
+
+function extractExpectedYear(query: string) {
+  const yearMatch = query.match(/\b(20\d{2})\b/);
+  if (!yearMatch) {
+    return null;
+  }
+  const year = Number.parseInt(yearMatch[1], 10);
+  return Number.isFinite(year) ? year : null;
+}
+
+function extractYears(text: string) {
+  const matches = text.match(/\b(19|20)\d{2}\b/g) ?? [];
+  return matches
+    .map((raw) => Number.parseInt(raw, 10))
+    .filter((value) => Number.isFinite(value));
+}
+
+function validateWinnerAnswer(answer: string) {
+  const hasWinnerCue = /\b(won|winner|was)\b/i.test(answer);
+  const hasNameLikeEntity = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/.test(answer);
+  return hasWinnerCue || hasNameLikeEntity;
+}
+
+function validatePriceUnits(answer: string, query: string) {
+  if (!PRICE_UNIT_PATTERN.test(answer)) {
+    return false;
+  }
+
+  const packMatch = query.match(/\b(\d+)\s*[- ]?(?:pack|count|ct)\b/i);
+  if (!packMatch) {
+    return true;
+  }
+
+  const packSize = packMatch[1];
+  const packPattern = new RegExp(`\\b${packSize}\\s*[- ]?(?:pack|count|ct)\\b`, "i");
+  return packPattern.test(answer) || /\bfor\s+\$/.test(answer);
+}
+
+function isSuspiciousNationalTotal(answer: string, query: string, queryType: QuickFactQueryType) {
+  if (!queryDemandsNumericTotal(query, queryType) || !queryDemandsNationalSales(query)) {
+    return false;
+  }
+
+  const values = extractNumericValues(answer);
+  const primaryValue = values[0];
+  if (typeof primaryValue !== "number") {
+    return true;
+  }
+
+  if (primaryValue > 0 && primaryValue < 2000) {
+    return true;
+  }
+
+  if (PARTIAL_SCOPE_PATTERNS.some((pattern) => pattern.test(answer))) {
+    return true;
+  }
+
+  return false;
+}
+
+export function validateQuickFactAnswer(
+  answer: string,
+  query: string,
+  queryType: QuickFactQueryType
+): QuickFactAnswerValidation {
+  const cleaned = stripNoisePhrases(answer).trim();
+  if (!cleaned) {
+    return { acceptable: false, reasons: ["empty_answer"] };
+  }
+
+  const reasons: string[] = [];
+  if (isLikelyBylineOrNavigation(cleaned)) {
+    reasons.push("navigation_or_byline");
+  }
+
+  if (queryDemandsNumericTotal(query, queryType) && extractNumericValues(cleaned).length === 0) {
+    reasons.push("missing_numeric_value");
+  }
+
+  if (queryDemandsNationalSales(query) && !NATIONAL_SCOPE_PATTERN.test(cleaned)) {
+    reasons.push("missing_national_scope");
+  }
+
+  if (isSuspiciousNationalTotal(cleaned, query, queryType)) {
+    reasons.push("implausible_national_total");
+  }
+
+  if (queryDemandsPrice(query) && !validatePriceUnits(cleaned, query)) {
+    reasons.push("missing_price_units");
+  }
+
+  if (queryDemandsRateOrStat(query) && !RATE_UNIT_PATTERN.test(cleaned)) {
+    reasons.push("missing_stat_units");
+  }
+
+  const expectedYear = extractExpectedYear(query);
+  const requiresExplicitTimeContext = isTimeSensitiveQuery(query) && !queryDemandsPrice(query);
+  if (requiresExplicitTimeContext) {
+    if (!DATE_OR_SEASON_PATTERN.test(cleaned)) {
+      reasons.push("missing_time_context");
+    }
+    if (expectedYear !== null && !new RegExp(`\\b${expectedYear}\\b`).test(cleaned)) {
+      reasons.push("missing_expected_year");
+    }
+  }
+
+  if (/\b(most recent|latest|current)\b/i.test(query) && !queryDemandsPrice(query)) {
+    const years = extractYears(cleaned);
+    if (years.length > 0) {
+      const freshestYear = Math.max(...years);
+      if (freshestYear < new Date().getFullYear() - 2) {
+        reasons.push("stale_time_context");
+      }
+    }
+  }
+
+  if (queryDemandsWinner(query) && !validateWinnerAnswer(cleaned)) {
+    reasons.push("missing_winner_identity");
+  }
+
+  const blockingReasons = new Set([
+    "empty_answer",
+    "navigation_or_byline",
+    "missing_numeric_value",
+    "missing_national_scope",
+    "implausible_national_total",
+    "missing_price_units",
+    "missing_stat_units",
+    "missing_time_context",
+    "missing_expected_year",
+    "stale_time_context",
+    "missing_winner_identity"
+  ]);
+
+  return {
+    acceptable: !reasons.some((reason) => blockingReasons.has(reason)),
+    reasons
+  };
+}
+
 function isQueryAnswerLike(sentence: string, query: string) {
   const normalized = sentence.toLowerCase();
 
@@ -396,65 +650,15 @@ function isQueryAnswerLike(sentence: string, query: string) {
   return hasFactLikeAnswer(sentence);
 }
 
-function normalizeSubjectFromQuery(query: string) {
-  const normalized = query
-    .toLowerCase()
-    .replace(/\bhow many\b/g, "")
-    .replace(/\bwhat year\b/g, "")
-    .replace(/\bwhen was\b/g, "")
-    .replace(/\bwhen did\b/g, "")
-    .replace(/\bwhat is\b/g, "")
-    .replace(/\bwhat are\b/g, "")
-    .replace(/\bwho is\b/g, "")
-    .replace(/\bnewest\b/g, "")
-    .replace(/\blatest\b/g, "")
-    .replace(/\bcurrent\b/g, "")
-    .replace(/\bmodel\b/g, "")
-    .replace(/\bversion\b/g, "")
-    .replace(/\bthis year\b/g, "")
-    .replace(/\blast year\b/g, "")
-    .replace(/\byears?\b/g, "")
-    .replace(/\bdid\b/g, "")
-    .replace(/\bdoes\b/g, "")
-    .replace(/\bdo\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!normalized) {
-    return "That";
-  }
-
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
 function formatQueryAwareAnswer(
   queryType: QuickFactQueryType,
-  query: string,
+  _query: string,
   text: string
 ) {
-  const subject = normalizeSubjectFromQuery(query);
   const sentences = splitSentences(text);
-  const firstSentence = sentences[0] ?? text;
-
-  if (queryType === "count" || queryType === "market_fact" || /\bhow many\b/i.test(query)) {
-    const countMatch = firstSentence.match(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/);
-    if (countMatch) {
-      return `${subject} is ${countMatch[0]}.`;
-    }
-  }
-
-  if (queryType === "date") {
-    const dateMatch =
-      firstSentence.match(
-        /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b/i
-      ) ?? firstSentence.match(/\b\d{4}\b/);
-    if (dateMatch) {
-      return `${subject} was ${dateMatch[0]}.`;
-    }
-  }
 
   if (queryType === "product") {
-    return toCompactAnswer(firstSentence);
+    return toCompactAnswer(sentences[0] ?? text);
   }
 
   return toCompactAnswer(sentences.slice(0, 2).join(" "));
@@ -487,7 +691,17 @@ function normalizeQuickFactAnswer(
     return "";
   }
 
-  return formatQueryAwareAnswer(queryType, query, candidate).trim();
+  const normalizedAnswer = formatQueryAwareAnswer(queryType, query, candidate).trim();
+  if (!normalizedAnswer) {
+    return "";
+  }
+
+  const validation = validateQuickFactAnswer(normalizedAnswer, query, queryType);
+  if (!validation.acceptable) {
+    return "";
+  }
+
+  return normalizedAnswer;
 }
 
 function scoreSource(result: TavilySearchResult) {
@@ -519,11 +733,69 @@ function scoreResultRelevance(
     keywords.length === 0 ? 0.2 : Math.min(1, keywordHits / Math.max(1, Math.min(keywords.length, 3)));
 
   const directAnswerBoost = isQueryAnswerLike(snippet, query) ? 0.4 : 0;
+  const temporalScore = scoreTemporalRelevance(result, query);
   const bylinePenalty = isLikelyBylineOrNavigation(snippet) ? 0.6 : 0;
   const weakSnippetPenalty =
     snippet.length > 0 && !hasFactLikeAnswer(snippet) && queryType !== "general_fact" ? 0.2 : 0;
+  const snippetValidation = validateQuickFactAnswer(snippet, query, queryType);
+  const validationPenalty = snippetValidation.reasons.reduce((total, reason) => {
+    switch (reason) {
+      case "implausible_national_total":
+      case "missing_expected_year":
+      case "stale_time_context":
+      case "missing_winner_identity":
+        return total + 0.9;
+      case "missing_price_units":
+      case "missing_stat_units":
+      case "missing_national_scope":
+      case "missing_time_context":
+      case "missing_numeric_value":
+        return total + 0.45;
+      case "navigation_or_byline":
+        return total + 0.7;
+      default:
+        return total + 0.2;
+    }
+  }, 0);
 
-  return keywordScore + directAnswerBoost - bylinePenalty - weakSnippetPenalty;
+  return keywordScore + directAnswerBoost + temporalScore - bylinePenalty - weakSnippetPenalty - validationPenalty;
+}
+
+function scoreTemporalRelevance(result: TavilySearchResult, query: string) {
+  if (!isTimeSensitiveQuery(query)) {
+    return 0;
+  }
+
+  const joined = `${result.title ?? ""} ${result.content ?? ""} ${result.published_date ?? result.publishedDate ?? ""}`;
+  const years = extractYears(joined);
+  const expectedYear = extractExpectedYear(query);
+
+  if (expectedYear !== null) {
+    if (years.includes(expectedYear)) {
+      return 0.55;
+    }
+    if (years.length > 0) {
+      return -0.45;
+    }
+    return -0.2;
+  }
+
+  if (years.length === 0) {
+    return -0.15;
+  }
+
+  const freshestYear = Math.max(...years);
+  const age = new Date().getFullYear() - freshestYear;
+  if (age <= 1) {
+    return 0.45;
+  }
+  if (age <= 2) {
+    return 0.25;
+  }
+  if (age <= 4) {
+    return 0;
+  }
+  return -0.45;
 }
 
 function inferConfidence(result: TavilySearchResult): QuickFactConfidence {
@@ -564,6 +836,11 @@ function normalizeResult(
     return null;
   }
 
+  const validation = validateQuickFactAnswer(answer, query, queryType);
+  if (!validation.acceptable) {
+    return null;
+  }
+
   return {
     answer,
     sourceName: extractSourceName(result),
@@ -595,11 +872,14 @@ export function buildQuickFactFallback(reason: QuickFactFallback["reason"]): Qui
 
 async function runTavilySearch(query: string, queryType: QuickFactQueryType, fallbackPass = false) {
   const apiKey = await getCurrentOwnerTavilyApiKey();
-  const maxResults = fallbackPass ? 6 : QUICKFACT_MAX_RESULTS;
-  const searchDepth =
-    fallbackPass && (queryType === "product" || queryType === "market_fact" || queryType === "general_fact")
-      ? "advanced"
-      : "basic";
+  const requiresDeeperRetrieval =
+    fallbackPass ||
+    isTimeSensitiveQuery(query) ||
+    queryType === "market_fact" ||
+    queryType === "product" ||
+    queryDemandsNumericTotal(query, queryType);
+  const maxResults = fallbackPass ? 7 : requiresDeeperRetrieval ? 6 : QUICKFACT_MAX_RESULTS;
+  const searchDepth = requiresDeeperRetrieval ? "advanced" : "basic";
 
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), QUICKFACT_TAVILY_TIMEOUT_MS);
@@ -650,6 +930,22 @@ function rankResults(
       const leftScore = scoreSource(left) + scoreResultRelevance(left, query, queryType);
       return rightScore - leftScore;
     });
+}
+
+function dedupeRawResults(results: TavilySearchResult[]) {
+  const seen = new Set<string>();
+  const deduped: TavilySearchResult[] = [];
+
+  results.forEach((result) => {
+    const key = `${result.url ?? ""}|${(result.content ?? "").slice(0, 220)}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(result);
+  });
+
+  return deduped;
 }
 
 function chooseBestSource(results: TavilySearchResult[]) {
@@ -716,22 +1012,137 @@ function extractFactsFromPayload(
 
 function toCleanAnswerFallback(
   cleanResults: QuickFactResult[],
-  queryType: QuickFactQueryType,
-  query: string
+  _queryType: QuickFactQueryType,
+  _query: string
 ) {
   const first = cleanResults[0];
   if (!first) {
     return "";
   }
 
-  if (queryType === "count" || queryType === "market_fact" || /\bhow many\b/i.test(query)) {
-    const countMatch = first.answer.match(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/);
-    if (countMatch) {
-      return `${normalizeSubjectFromQuery(query)} is ${countMatch[0]}.`;
+  return first.answer;
+}
+
+function buildRetrievalQueries(normalizedQuery: string, queryType: QuickFactQueryType) {
+  const queries: string[] = [];
+  const pushQuery = (value: string) => {
+    const compact = value.replace(/\s+/g, " ").trim();
+    if (!compact) {
+      return;
     }
+    if (!queries.some((existing) => existing.toLowerCase() === compact.toLowerCase())) {
+      queries.push(compact);
+    }
+  };
+
+  pushQuery(normalizedQuery);
+
+  if (queryDemandsNationalSales(normalizedQuery)) {
+    pushQuery(`${normalizedQuery} official U.S. annual total sales`);
+  } else if (queryDemandsNumericTotal(normalizedQuery, queryType)) {
+    pushQuery(`${normalizedQuery} official total`);
   }
 
-  return first.answer;
+  if (queryDemandsWinner(normalizedQuery)) {
+    pushQuery(`${normalizedQuery} official winner`);
+  }
+
+  if (queryDemandsPrice(normalizedQuery)) {
+    pushQuery(`${normalizedQuery} USD price`);
+  }
+
+  if (queryDemandsRateOrStat(normalizedQuery)) {
+    pushQuery(`${normalizedQuery} survey percentage`);
+  }
+
+  return queries.slice(0, 2);
+}
+
+function shouldRunSecondPass(params: {
+  normalizedQuery: string;
+  queryType: QuickFactQueryType;
+  cleanResults: QuickFactResult[];
+  retrievalQuality: QuickFactRetrievalQuality;
+  hasSecondQuery: boolean;
+}) {
+  if (!params.hasSecondQuery) {
+    return false;
+  }
+
+  if (params.cleanResults.length === 0 || params.retrievalQuality === "weak" || params.retrievalQuality === "empty") {
+    return true;
+  }
+
+  if (params.retrievalQuality === "strong") {
+    return false;
+  }
+
+  return (
+    queryDemandsNumericTotal(params.normalizedQuery, params.queryType) ||
+    queryDemandsWinner(params.normalizedQuery) ||
+    queryDemandsPrice(params.normalizedQuery) ||
+    queryDemandsRateOrStat(params.normalizedQuery) ||
+    isTimeSensitiveQuery(params.normalizedQuery)
+  );
+}
+
+function combinePayloads(payloads: Array<TavilySearchResponse | null>) {
+  const answers = payloads
+    .map((payload) => payload?.answer?.trim() ?? "")
+    .filter((value) => Boolean(value));
+  const results = dedupeRawResults(
+    payloads.flatMap((payload) => payload?.results ?? [])
+  );
+
+  return {
+    answer: answers[0] || undefined,
+    results
+  } satisfies TavilySearchResponse;
+}
+
+export function evaluateQuickFactStressCase(input: QuickFactTestEvaluationInput): QuickFactStressEvaluation {
+  const normalizedQuery = normalizeQuickFactQuery(input.query);
+  const query = normalizedQuery || input.query.trim();
+  const queryType = classifyQuickFactQuery(query);
+  const payload: TavilySearchResponse = {
+    answer: input.answer ?? undefined,
+    results: input.results
+  };
+  const rankedResults = rankResults(payload, query, queryType);
+  const cleanResults = extractFactsFromPayload(payload, query, queryType);
+  const answer = toCleanAnswerFallback(cleanResults, queryType, query) || payload.answer?.trim() || null;
+  const retrievalQuality = determineRetrievalQuality({
+    rawResults: rankedResults,
+    cleanResults,
+    answer
+  });
+
+  const candidates = rankedResults.slice(0, 5).map((result) => {
+    const normalizedAnswer = normalizeQuickFactAnswer(result.content || payload.answer || "", query, queryType);
+    const validation = validateQuickFactAnswer(
+      normalizedAnswer || result.content || "",
+      query,
+      queryType
+    );
+
+    return {
+      title: result.title?.trim() ?? "",
+      url: result.url?.trim() ?? "",
+      sourceScore: scoreSource(result),
+      relevanceScore: scoreResultRelevance(result, query, queryType),
+      normalizedAnswer,
+      accepted: validation.acceptable,
+      reasons: validation.reasons
+    };
+  });
+
+  return {
+    normalizedQuery,
+    queryType,
+    retrievalQuality,
+    cleanResults,
+    candidates
+  };
 }
 
 export async function fetchTavilyQuickFactBundle(query: string): Promise<TavilyQuickFactBundle> {
@@ -751,31 +1162,40 @@ export async function fetchTavilyQuickFactBundle(query: string): Promise<TavilyQ
   }
 
   const queryType = classifyQuickFactQuery(normalizedQuery);
-  const firstPayload = await runTavilySearch(normalizedQuery, queryType, false);
-  let activePayload = firstPayload;
-  let rawResults = rankResults(firstPayload, normalizedQuery, queryType);
-  let cleanResults = extractFactsFromPayload(firstPayload, normalizedQuery, queryType);
-
-  if (
-    cleanResults.length === 0 &&
-    (queryType === "product" || queryType === "market_fact" || queryType === "general_fact")
-  ) {
-    const secondPayload = await runTavilySearch(normalizedQuery, queryType, true);
-    const secondRawResults = rankResults(secondPayload, normalizedQuery, queryType);
-    const secondCleanResults = extractFactsFromPayload(secondPayload, normalizedQuery, queryType);
-
-    rawResults = [...rawResults, ...secondRawResults].sort((left, right) => scoreSource(right) - scoreSource(left));
-    cleanResults = secondCleanResults.length > 0 ? secondCleanResults : cleanResults;
-    activePayload = secondPayload ?? firstPayload;
-  }
-
-  const bestSource = chooseBestSource(rawResults);
-  const answer = toCleanAnswerFallback(cleanResults, queryType, normalizedQuery) || activePayload?.answer?.trim() || null;
-  const retrievalQuality = determineRetrievalQuality({
+  const retrievalQueries = buildRetrievalQueries(normalizedQuery, queryType);
+  const firstPayload = await runTavilySearch(retrievalQueries[0], queryType, false);
+  let combinedPayload = combinePayloads([firstPayload]);
+  let rawResults = rankResults(combinedPayload, normalizedQuery, queryType);
+  let cleanResults = extractFactsFromPayload(combinedPayload, normalizedQuery, queryType);
+  let answer = toCleanAnswerFallback(cleanResults, queryType, normalizedQuery) || combinedPayload.answer?.trim() || null;
+  let retrievalQuality = determineRetrievalQuality({
     rawResults,
     cleanResults,
     answer
   });
+
+  if (
+    shouldRunSecondPass({
+      normalizedQuery,
+      queryType,
+      cleanResults,
+      retrievalQuality,
+      hasSecondQuery: retrievalQueries.length > 1
+    })
+  ) {
+    const secondPayload = await runTavilySearch(retrievalQueries[1], queryType, true);
+    combinedPayload = combinePayloads([firstPayload, secondPayload]);
+    rawResults = rankResults(combinedPayload, normalizedQuery, queryType);
+    cleanResults = extractFactsFromPayload(combinedPayload, normalizedQuery, queryType);
+    answer = toCleanAnswerFallback(cleanResults, queryType, normalizedQuery) || combinedPayload.answer?.trim() || null;
+    retrievalQuality = determineRetrievalQuality({
+      rawResults,
+      cleanResults,
+      answer
+    });
+  }
+
+  const bestSource = chooseBestSource(rawResults);
 
   if (cleanResults.length === 0) {
     return {

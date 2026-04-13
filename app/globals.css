@@ -1423,7 +1423,7 @@ textarea:focus {
 
 /* Inbox header area */
 .inbox-header, [class*="inbox-header"], [class*="list-header"] {
-  background: var(--surface) !important;
+  background: var(--pane-list-header-bg) !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 12px 14px !important;
 }
@@ -12648,6 +12648,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-rail-bg: var(--theme-atmo-pane-rail-bg);
   --pane-sidebar-seam: var(--theme-atmo-pane-sidebar-seam);
   --pane-list-seam: var(--theme-atmo-pane-list-seam);
+  --pane-list-header-bg: color-mix(in srgb, var(--pane-list-bg) 88%, var(--pane-list-seam) 12%);
 }
 
 :root[data-accent-theme="orange"] {
@@ -14414,7 +14415,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   gap: 6px !important;
   padding: 8px 14px 7px !important;
   border-bottom: 1px solid var(--border) !important;
-  background: var(--surface) !important;
+  background: var(--pane-list-header-bg) !important;
   flex-shrink: 0 !important;
 }
 
@@ -14463,7 +14464,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .inbox-control-band,
 .col-header-bar,
 .filter-strip {
-  background: var(--surface) !important;
+  background: var(--pane-list-header-bg) !important;
 }
 
 .inbox-control-band {

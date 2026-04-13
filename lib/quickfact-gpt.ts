@@ -1,5 +1,6 @@
 import { getCurrentOwnerOpenAiCredential } from "@/lib/ai-settings";
 import type { QuickFactConfidence, QuickFactResult } from "@/lib/quickfact";
+import { validateQuickFactAnswer } from "@/lib/tavily-quickfact";
 import type {
   QuickFactQueryType,
   TavilyQuickFactBundle,
@@ -117,6 +118,9 @@ Do not add filler, commentary, or conversational framing.
 Do not say "according to various sources."
 Do not include raw snippets or page junk.
 Prefer exact dates, counts, names, models, and short factual clarifications.
+Preserve scope, unit, and time context exactly.
+Never guess missing numbers, years, winners, percentages, or prices.
+If retrieval evidence does not support a clean answer, return an empty answer.
 
 User query:
 ${input.query}
@@ -212,10 +216,17 @@ function buildResult(
   bundle: TavilyQuickFactBundle,
   answer: string,
   confidence: QuickFactConfidence,
-  sourceIndex: number | null
+  sourceIndex: number | null,
+  query: string,
+  queryType: QuickFactQueryType
 ): QuickFactResult | null {
   const compactAnswer = compactText(stripNoise(answer));
   if (!compactAnswer) {
+    return null;
+  }
+
+  const validation = validateQuickFactAnswer(compactAnswer, query, queryType);
+  if (!validation.acceptable) {
     return null;
   }
 
@@ -284,6 +295,13 @@ async function callOpenAi(messages: QuickFactCondenseMessage[]) {
 export async function condenseQuickFactWithGPT(
   input: QuickFactCondenseInput
 ): Promise<QuickFactResult[]> {
+  if (
+    input.retrievalConfidence === "empty" ||
+    (input.retrievalConfidence === "weak" && input.bundle.cleanResults.length === 0)
+  ) {
+    return [];
+  }
+
   let content = "";
 
   try {
@@ -306,19 +324,27 @@ export async function condenseQuickFactWithGPT(
     return [];
   }
 
+  const evaluationQuery = input.bundle.normalizedQuery || input.query;
   const parsed = parseCompletion(content);
   const confidence = clampConfidence(
     parsed.confidence,
     input.retrievalConfidence,
     input.retrievalConfidence !== "strong"
   );
-  const result = buildResult(input.bundle, parsed.answer, confidence, parsed.sourceIndex);
+  const result = buildResult(
+    input.bundle,
+    parsed.answer,
+    confidence,
+    parsed.sourceIndex,
+    evaluationQuery,
+    input.queryType
+  );
 
   if (!result) {
     return [];
   }
 
-  if (!seemsRelevantToQuery(result.answer, input.query)) {
+  if (!seemsRelevantToQuery(result.answer, evaluationQuery)) {
     return [];
   }
 
