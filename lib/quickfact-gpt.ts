@@ -15,6 +15,11 @@ export type QuickFactCondenseInput = {
   retrievalConfidence: "strong" | "mixed" | "weak" | "empty";
   bundle: TavilyQuickFactBundle;
 };
+const CONDENSE_STOPWORDS = new Set([
+  "a","an","the","of","in","on","at","to","for","with","and","or","by","from",
+  "is","are","was","were","be","been","being","do","does","did","who","what",
+  "when","where","why","how","much","many","often","last","latest","current"
+]);
 
 type QuickFactCondenseCompletion = {
   answer?: string;
@@ -107,10 +112,10 @@ You are cleaning up a fact-retrieval result for an email-writing tool.
 Answer the user's question as directly as possible.
 Use only the provided retrieval evidence.
 Return 1 to 2 short sentences maximum.
+If evidence is weak, conflicting, or does not directly answer the query, return empty answer.
 Do not add filler, commentary, or conversational framing.
 Do not say "according to various sources."
 Do not include raw snippets or page junk.
-If the evidence is weak, still provide the cleanest cautious factual answer possible.
 Prefer exact dates, counts, names, models, and short factual clarifications.
 
 User query:
@@ -125,6 +130,25 @@ ${input.retrievalConfidence}
 Retrieved evidence:
 ${buildEvidenceBlock(input.bundle)}
 `.trim();
+}
+
+function extractKeywords(query: string) {
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s$%.-]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !CONDENSE_STOPWORDS.has(token));
+}
+
+function seemsRelevantToQuery(answer: string, query: string) {
+  const keywords = extractKeywords(query);
+  if (keywords.length === 0) {
+    return answer.trim().length > 0;
+  }
+
+  const normalized = answer.toLowerCase();
+  return keywords.some((keyword) => normalized.includes(keyword));
 }
 
 function parseCompletion(content: string) {
@@ -290,5 +314,13 @@ export async function condenseQuickFactWithGPT(
   );
   const result = buildResult(input.bundle, parsed.answer, confidence, parsed.sourceIndex);
 
-  return result ? [result] : [];
+  if (!result) {
+    return [];
+  }
+
+  if (!seemsRelevantToQuery(result.answer, input.query)) {
+    return [];
+  }
+
+  return [result];
 }

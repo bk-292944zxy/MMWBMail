@@ -2643,7 +2643,7 @@ function getInitialComposeHeight() {
 }
 
 function getComposeMinWidth() {
-  return 717;
+  return 624;
 }
 
 function getComposeMaxWidth() {
@@ -5771,10 +5771,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
         const width = Math.min(composeWidth, getComposeMaxWidth());
         const height = composeHeight;
+        const nextX = Math.max(0, Math.min(current.x, window.innerWidth - width));
+        const nextY = Math.max(80, Math.min(current.y, window.innerHeight - height));
+
+        if (nextX === current.x && nextY === current.y) {
+          return current;
+        }
 
         return {
-          x: Math.max(0, Math.min(current.x, window.innerWidth - width)),
-          y: Math.max(80, Math.min(current.y, window.innerHeight - height))
+          x: nextX,
+          y: nextY
         };
       });
     };
@@ -9956,7 +9962,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   function insertQuickFactResult(result: QuickFactResult, includeSource: boolean) {
-    insertTextIntoCompose(formatQuickFactForInsert(result, { includeSource }));
+    const quickFactText = formatQuickFactForInsert(result, { includeSource });
+    const existingDraftText = composePlainText
+      ? composePlainTextRef.current?.value ?? composeBody
+      : composeEditorRef.current?.innerText ?? composeBody;
+    const hasExistingDraftText = existingDraftText.trim().length > 0;
+    const insertionText = hasExistingDraftText
+      ? `\n${quickFactText}\n`
+      : quickFactText;
+
+    insertTextIntoCompose(insertionText);
     closeComposeQuickFact();
   }
 
@@ -11820,10 +11835,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
+    const styles = window.getComputedStyle(input);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 21;
+    const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+    const minHeight = Math.ceil(lineHeight + paddingTop + paddingBottom);
+    const maxHeight = Math.ceil(lineHeight * 3 + paddingTop + paddingBottom);
+
     input.style.height = "0px";
-    const nextHeight = Math.min(Math.max(input.scrollHeight, 38), 220);
+    const nextHeight = Math.min(Math.max(input.scrollHeight, minHeight), maxHeight);
     input.style.height = `${nextHeight}px`;
-    input.style.overflowY = input.scrollHeight > 220 ? "auto" : "hidden";
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
   }
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
@@ -16176,7 +16198,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               {(["date", "name", "subject"] as const).map((option) => (
                 <button
                   key={option}
-                  className={`sort-btn ${sortBy === option ? "active" : ""}`}
+                  className={`sort-btn sort-btn-option ${sortBy === option ? "active" : ""}`}
                   onClick={() => setSortBy(option)}
                 >
                   {option.charAt(0).toUpperCase() + option.slice(1)}
@@ -21236,16 +21258,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     80,
                     Math.min(anchoredPos.y, window.innerHeight - composeRenderHeight)
                   );
-          const composeDockThreshold = 4;
           const composeCanResize =
             !activeComposeSession.presentation.isMinimized &&
             !isMobile &&
-            Boolean(activeComposeSession.presentation.position) &&
-            typeof window !== "undefined" &&
-            clampedX > composeDockThreshold &&
-            clampedY > 80 + composeDockThreshold &&
-            clampedX + composeRenderWidth < window.innerWidth - composeDockThreshold &&
-            clampedY + composeRenderHeight < window.innerHeight - composeDockThreshold;
+            typeof window !== "undefined";
           const startComposeResize = (
             event: React.MouseEvent<HTMLDivElement>,
             edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw"
@@ -21274,9 +21290,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
               const dx = moveEvent.clientX - state.startX;
               const dy = moveEvent.clientY - state.startY;
-              const minWidth = getComposeMinWidth();
               const maxWidth = Math.min(getComposeMaxWidth(), window.innerWidth);
-              const minHeight = 300;
+              const minWidth = Math.min(getComposeMinWidth(), maxWidth);
+              const minHeight = getInitialComposeHeight();
               const maxHeight = window.innerHeight - 80;
               let nextX = state.originX;
               let nextY = state.originY;
@@ -21346,7 +21362,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             activeComposeSession.presentation.isMinimized ? "compose-minimized" : ""
           } ${activeComposeSession.presentation.position ? "compose-floating" : ""} ${
             activeComposeSession.presentation.mode === "floating" ? "compose-undocked-shell" : ""
-          } ${aiAssistedComposeLayout ? "compose-ai-layout" : ""}`}
+          } ${aiAssistedComposeLayout ? "compose-ai-layout" : ""} ${
+            composeCanResize ? "compose-can-resize" : ""
+          }`}
           style={{
             "--compose-window-width": `${composeRenderWidth}px`,
             position: "fixed",
