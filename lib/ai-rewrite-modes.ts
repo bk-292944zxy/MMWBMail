@@ -48,6 +48,7 @@ export type AiRewriteModeDefinition = {
   mustNotRules: string[];
   specialRequirement?: string;
   modifierIds: AiRewriteModifierId[];
+  defaultModifierIds?: AiRewriteModifierId[];
 };
 
 export const AI_REWRITE_GLOBAL_GUARDRAILS = [
@@ -153,27 +154,33 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     label: "Deescalate",
     category: "Ease tension",
     description: "Lower the temperature without losing your point.",
-    objective: "Lower emotional temperature while preserving the core point.",
+    objective:
+      "Keep the real complaint and accountability intact while removing escalation signals that make resolution less likely.",
     preserveRules: [
-      "Preserve factual content.",
-      "Preserve the actual concern.",
-      "Preserve necessary boundaries when they matter."
+      "Preserve the core complaint, grievance, or concern.",
+      "Preserve the specific issue that needs to be addressed.",
+      "Preserve legitimate boundaries, expectations, and accountability where present."
     ],
     avoidRules: [
-      "Avoid inflammatory phrasing, courtroom tone, and unnecessary absolutes.",
-      "Avoid fake warmth or forced niceness."
+      "Avoid contempt, ridicule, sarcasm, taunting, and rhetorical attack questions.",
+      "Avoid mind-reading, motive attribution, and identity-based attacks.",
+      "Avoid broad absolutes like 'always' or 'never' unless factually unavoidable."
     ],
     mustNotRules: [
-      "Do not turn the message into vague mush.",
-      "Do not invent concessions or soften away the issue."
+      "Do not soften away the issue, ask, or accountability.",
+      "Do not flatten this into HR-speak, fake niceness, or conflict-avoidant mush.",
+      "Do not preserve verbal aggression just because the source message is emotional."
     ],
+    specialRequirement:
+      "Deescalate means keep the issue and remove the heat: frame the problem as concrete behavior + impact + clear ask/next step, with directness but no humiliation.",
     modifierIds: [
-      "preserve_blunt_honesty",
-      "keep_strong_boundaries",
       "sound_warmer",
       "more_concise",
-      "add_accountability"
-    ]
+      "add_accountability",
+      "keep_strong_boundaries",
+      "preserve_blunt_honesty"
+    ],
+    defaultModifierIds: ["sound_warmer", "more_concise", "add_accountability"]
   },
   {
     id: "reduce_defensiveness",
@@ -198,11 +205,11 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
       "Do not turn the message into conflict-avoidant but useless mush."
     ],
     modifierIds: [
-      "preserve_blunt_honesty",
       "sound_warmer",
       "more_concise",
       "make_the_ask_clearer",
-      "add_accountability"
+      "add_accountability",
+      "preserve_blunt_honesty"
     ]
   },
   {
@@ -265,26 +272,29 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     category: "Strengthen your position",
     description: "Sound clearer, more decisive, and more authoritative.",
     objective:
-      "Make the writing clearer, more decisive, more authoritative, and less self-undermining.",
+      "Lead with the core point, reduce self-undermining language, and project calm authority without aggression.",
     preserveRules: [
-      "Preserve the writer's actual point.",
-      "Improve structure and signal."
+      "Preserve the writer's real decision need, rationale, and intended outcome.",
+      "Preserve personality where it helps clarity and credibility."
     ],
     avoidRules: [
-      "Avoid pompousness, stiffness, and bloated formalism.",
-      "Reduce hedging, filler, and self-undermining phrasing."
+      "Avoid sarcasm, passive-aggressive lines, and cluttered verbal buildup.",
+      "Avoid excessive hedging, apology-heavy framing, and self-minimizing language."
     ],
     mustNotRules: [
-      "Do not turn the message into parody corporate language.",
-      "Do not replace substance with polish."
+      "Do not confuse authority with hostility.",
+      "Do not preserve volatility or messiness under the banner of voice."
     ],
+    specialRequirement:
+      "Move the key point earlier, tighten sentence structure, and replace emotional explanation with direct rationale.",
     modifierIds: [
       "more_concise",
       "reduce_apology",
       "keep_strong_boundaries",
       "safer_for_leadership",
       "keep_my_voice"
-    ]
+    ],
+    defaultModifierIds: ["more_concise", "reduce_apology", "safer_for_leadership"]
   },
   {
     id: "negotiation_leverage",
@@ -292,78 +302,93 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     category: "Strengthen your position",
     description: "Protect your position without sounding combative.",
     objective:
-      "Protect the writer's position and optionality without sounding reactive or combative.",
+      "Protect value and reciprocity with calm constraints, clear asks, and no bluffing.",
     preserveRules: [
-      "Preserve leverage and optionality.",
-      "Preserve commercially aware, controlled positioning."
+      "Preserve leverage, optionality, and reciprocal expectations.",
+      "Preserve clear constraints, consequences, and next steps where present."
     ],
     avoidRules: [
-      "Avoid overexplaining.",
-      "Avoid self-undermining urgency.",
-      "Avoid accidental concession language."
+      "Avoid desperation, overexplaining, and accidental concession language.",
+      "Avoid threat theater; use controlled boundary-and-consequence statements."
     ],
     mustNotRules: [
-      "Do not become aggressive for its own sake.",
-      "Do not invent legal or commercial positions not present in the source."
+      "Do not bluff, invent leverage, or fabricate legal/commercial claims.",
+      "Do not over-soften until the ask or constraints become unclear."
     ],
+    specialRequirement:
+      "Clarify the ask, avoid unnecessary concessions, and require reciprocal movement where appropriate.",
     modifierIds: [
       "preserve_leverage",
       "more_concise",
       "keep_strong_boundaries",
+      "add_accountability",
       "reduce_apology",
-      "safer_for_leadership"
-    ]
+      "safer_for_leadership",
+      "keep_my_voice"
+    ],
+    defaultModifierIds: ["keep_strong_boundaries", "more_concise", "add_accountability"]
   },
   {
     id: "polite_no",
     label: "Polite No",
     category: "Strengthen your position",
     description: "Decline clearly without rambling, guilt, or weakness.",
-    objective: "Decline clearly and cleanly without guilt, apology spirals, or ambiguity.",
+    objective:
+      "Deliver a clear refusal without hostility, loopholes, or ambiguity.",
     preserveRules: [
       "Preserve the no.",
-      "Preserve relationship where possible."
+      "Preserve relationship where possible without weakening the refusal."
     ],
     avoidRules: [
-      "Avoid rambling, overexplaining, and softening into ambiguity.",
-      "Reduce guilt language."
+      "Avoid rambling rationale and softening that converts a no into a maybe.",
+      "Avoid guilt-language and apology spirals."
     ],
     mustNotRules: [
       "Do not reopen what should remain closed.",
       "Do not create false hope unless the original explicitly does."
     ],
+    specialRequirement:
+      "State the no plainly, keep rationale brief, and only offer alternatives when the source clearly intends one.",
     modifierIds: [
       "keep_strong_boundaries",
       "sound_warmer",
       "more_concise",
       "reduce_apology",
-      "preserve_blunt_honesty"
-    ]
+      "preserve_blunt_honesty",
+      "keep_my_voice"
+    ],
+    defaultModifierIds: ["keep_strong_boundaries", "more_concise", "sound_warmer"]
   },
   {
     id: "clarify_the_ask",
     label: "Clarify the Ask",
     category: "Make it easier to act on",
     description: "Make the actual request obvious and easy to act on.",
-    objective: "Make the actual request or needed action obvious.",
+    objective:
+      "Surface the real request early, make expected action explicit, and reduce friction between reading and acting.",
     preserveRules: [
-      "Preserve necessary context for understanding the ask.",
-      "Make response and action easier."
+      "Preserve essential context so the ask remains understandable and appropriate.",
+      "Preserve cooperative tone while making action clearer."
     ],
     avoidRules: [
-      "Avoid hiding the request inside background detail.",
-      "Avoid overexpansion."
+      "Avoid burying the ask under background narrative.",
+      "Avoid abrupt commands that drop necessary context."
     ],
     mustNotRules: [
-      "Do not strip away context that is necessary for understanding the ask."
+      "Do not turn a request into a demand unless the source clearly intends that.",
+      "Do not remove nuance that the ask depends on."
     ],
+    specialRequirement:
+      "Identify the actual request, move it earlier, and express it with direct action language while keeping enough context to act.",
     modifierIds: [
       "make_the_ask_clearer",
       "more_concise",
+      "add_accountability",
+      "sound_warmer",
       "preserve_nuance",
-      "keep_my_voice",
-      "safer_for_leadership"
-    ]
+      "keep_my_voice"
+    ],
+    defaultModifierIds: ["more_concise", "add_accountability", "sound_warmer"]
   },
   {
     id: "decision_ready",
@@ -371,26 +396,32 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     category: "Make it easier to act on",
     description: "Turn this into something easier to review, approve, or respond to quickly.",
     objective:
-      "Turn the message into something easier to review, approve, or respond to quickly.",
+      "Frame the message as a clear decision moment so the recipient can choose and move forward without follow-up clarification.",
     preserveRules: [
-      "Preserve important nuance that changes the decision.",
-      "Clarify next step and decision need."
+      "Preserve real constraints, tradeoffs, and decision-relevant context.",
+      "Preserve audience-appropriate tone while clarifying decision ownership."
     ],
     avoidRules: [
-      "Avoid excessive detail.",
-      "Avoid multiple muddy asks.",
-      "Avoid unclear ownership."
+      "Avoid open-ended discussion framing when a decision is actually needed.",
+      "Avoid narrative sprawl that hides the decision and next step."
     ],
     mustNotRules: [
-      "Do not oversimplify nuance that materially changes the decision."
+      "Do not invent options, recommendations, or constraints not grounded in the source.",
+      "Do not blur a required decision into a vague check-in."
     ],
+    specialRequirement:
+      "State what decision is needed, surface options/recommendation only when supported by the source, and clarify what happens next after the decision.",
     modifierIds: [
       "more_concise",
+      "add_accountability",
+      "keep_strong_boundaries",
+      "sound_warmer",
       "make_the_ask_clearer",
       "preserve_nuance",
       "safer_for_leadership",
       "safer_for_customers"
-    ]
+    ],
+    defaultModifierIds: ["more_concise", "add_accountability"]
   },
   {
     id: "thought_structure_translator",
@@ -398,30 +429,30 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     category: "Translate how it lands",
     description: "Turn layered or bottom-up thinking into a message people can follow faster.",
     objective:
-      "Translate layered, bottom-up, context-first thinking into a more top-down, trackable communication structure.",
+      "Reorganize ideas so the message is easier to follow and process while preserving intent, nuance, and voice.",
     preserveRules: [
-      "Preserve nuance and intelligence.",
-      "Preserve reasoning chains that matter.",
-      "Reorganize supporting detail under clearer structure."
+      "Preserve original ideas, nuance, and intent.",
+      "Preserve important reasoning chains and context."
     ],
     avoidRules: [
-      "Avoid flattening complexity.",
-      "Avoid corporate sanitization.",
-      "Avoid dumbing down the writer's thinking."
+      "Avoid flattening complexity into generic writing.",
+      "Avoid rigid template formatting unless the source clearly calls for it."
     ],
     mustNotRules: [
-      "Do not erase reasoning chains that matter.",
-      "Do not make the writer sound generic or simplistic."
+      "Do not over-summarize away key context.",
+      "Do not change meaning or introduce new arguments."
     ],
     specialRequirement:
-      "This mode is about cognitive structure translation, not tone softening.",
+      "Use top-down flow: main point early, then grouped supporting detail; reduce cognitive load without reducing substance.",
     modifierIds: [
-      "preserve_nuance",
       "more_concise",
+      "keep_my_voice",
+      "add_accountability",
+      "preserve_nuance",
       "keep_strong_boundaries",
-      "make_the_ask_clearer",
-      "keep_my_voice"
-    ]
+      "preserve_blunt_honesty"
+    ],
+    defaultModifierIds: ["more_concise", "keep_my_voice", "add_accountability"]
   },
   {
     id: "social_interpretation_translator",
@@ -429,30 +460,30 @@ export const AI_REWRITE_MODES: AiRewriteModeDefinition[] = [
     category: "Translate how it lands",
     description: "Help your real meaning land the way you intended.",
     objective:
-      "Help the writer's real meaning land the way they intended by reducing social misread risk.",
+      "Align how the message is perceived with what the sender actually means without changing purpose or core stance.",
     preserveRules: [
-      "Preserve the actual meaning.",
-      "Keep necessary boundaries intact.",
-      "Add socially expected framing only where useful."
+      "Preserve core meaning, intent, and key message.",
+      "Preserve needed boundaries and intended edge when relevant."
     ],
     avoidRules: [
-      "Avoid fake warmth, forced niceness, and unnecessary softness.",
-      "Avoid making the writer sound fake or submissive."
+      "Avoid over-softening or over-strengthening beyond intended tone.",
+      "Avoid introducing new arguments or changing message purpose."
     ],
     mustNotRules: [
       "Do not distort meaning.",
-      "Do not erase directness when it matters.",
-      "Do not turn the message into people-pleasing fluff."
+      "Do not remove intended directness when it is part of the message.",
+      "Do not collapse into generic corporate language."
     ],
     specialRequirement:
-      "This mode is about social interpretation translation, not structure repair.",
+      "Adjust tone, implication, and interpersonal signal so the message lands closer to intended meaning.",
     modifierIds: [
-      "preserve_blunt_honesty",
-      "keep_strong_boundaries",
+      "keep_my_voice",
       "sound_warmer",
+      "keep_strong_boundaries",
       "more_concise",
-      "keep_my_voice"
-    ]
+      "preserve_blunt_honesty"
+    ],
+    defaultModifierIds: ["keep_my_voice", "sound_warmer"]
   }
 ];
 
@@ -478,6 +509,14 @@ export function getAiRewriteModifierDefinitionsForMode(modeId: AiRewriteModeId) 
   }
 
   return mode.modifierIds.map((modifierId) => AI_REWRITE_MODIFIERS[modifierId]);
+}
+
+export function getAiRewriteDefaultModifiersForMode(modeId: AiRewriteModeId) {
+  const mode = getAiRewriteModeDefinition(modeId);
+  if (!mode?.defaultModifierIds?.length) {
+    return [] as AiRewriteModifierId[];
+  }
+  return [...mode.defaultModifierIds];
 }
 
 export function areAiRewriteModifiersValid(

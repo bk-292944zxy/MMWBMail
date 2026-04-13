@@ -6886,6 +6886,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 10.75px !important;
 }
 
+.compose-ai-direction-summary {
+  color: rgba(0, 0, 0, 0.56) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.002em !important;
+}
+
 .compose-ai-region-control {
   display: flex !important;
   flex-direction: column !important;

@@ -157,6 +157,7 @@ import {
   AI_REWRITE_CATEGORY_ORDER,
   AI_REWRITE_MAX_INPUT_CHARS,
   AI_REWRITE_MODES,
+  getAiRewriteDefaultModifiersForMode,
   type AiRewriteModeDefinition,
   type AiRewriteModifierDefinition,
   getAiRewriteModifierDefinitionsForMode,
@@ -3574,6 +3575,79 @@ const AI_REWRITE_CATEGORY_DESCRIPTIONS: Record<string, string> = {
   "Make it easier to act on": "Makes the message clearer and easier to act on",
   "Translate how it lands": "Helps interpret how the message may be perceived"
 };
+
+const AI_REWRITE_MODE_BASE_SUMMARIES: Record<AiRewriteModeId, string> = {
+  deescalate: "Lower the heat without losing the point.",
+  reduce_defensiveness: "Keep the issue clear while making pushback less likely.",
+  respectful_but_firm: "Hold the line with calm, clear firmness.",
+  repair_trust: "Own what matters and reopen a productive path forward.",
+  executive_presence: "Make your point sound clearer, sharper, and more decisive.",
+  negotiation_leverage: "Protect your position without sounding combative.",
+  polite_no: "Say no clearly without reopening the decision.",
+  clarify_the_ask: "Make the ask obvious and easier to act on.",
+  decision_ready: "Turn this into a message someone can decide on quickly.",
+  thought_structure_translator: "Make complex thinking easier to follow.",
+  social_interpretation_translator: "Help your intended meaning land more accurately."
+};
+
+const AI_REWRITE_MODIFIER_SUMMARY_FRAGMENTS: Record<AiRewriteModifierId, string> = {
+  preserve_blunt_honesty: "don't sugarcoat it",
+  keep_strong_boundaries: "hold your ground",
+  sound_warmer: "sound warmer",
+  more_concise: "keep it tighter",
+  preserve_leverage: "protect your leverage",
+  reduce_apology: "cut unnecessary apology",
+  add_accountability: "make accountability explicit",
+  safer_for_leadership: "make it easier for leadership to approve",
+  safer_for_customers: "keep it customer-safe",
+  keep_my_voice: "keep your voice",
+  preserve_nuance: "keep the nuance",
+  make_the_ask_clearer: "make the ask clearer"
+};
+
+function capitalizeFirst(value: string) {
+  if (!value) {
+    return value;
+  }
+  return value[0].toUpperCase() + value.slice(1);
+}
+
+function joinSummaryFragments(
+  fragments: string[],
+  conjunction: "and" | "but" = "and"
+) {
+  if (fragments.length === 0) {
+    return "";
+  }
+  if (fragments.length === 1) {
+    return fragments[0];
+  }
+  if (fragments.length === 2) {
+    return `${fragments[0]} ${conjunction} ${fragments[1]}`;
+  }
+  const leading = fragments.slice(0, -1).join(", ");
+  const trailing = fragments[fragments.length - 1];
+  return `${leading}, ${conjunction} ${trailing}`;
+}
+
+function buildAiRewriteDirectionSummary(
+  modeId: AiRewriteModeId,
+  modifierIds: AiRewriteModifierId[]
+) {
+  const baseSummary = AI_REWRITE_MODE_BASE_SUMMARIES[modeId];
+  const uniqueModifierIds = Array.from(new Set(modifierIds));
+  const fragments = uniqueModifierIds
+    .map((modifierId) => AI_REWRITE_MODIFIER_SUMMARY_FRAGMENTS[modifierId])
+    .filter(Boolean);
+
+  if (fragments.length === 0) {
+    return baseSummary;
+  }
+
+  const conjunction = modeId === "deescalate" ? "but" : "and";
+  const chipSummary = joinSummaryFragments(fragments.slice(0, 3), conjunction);
+  return `${baseSummary.replace(/\.$/, "")} — ${capitalizeFirst(chipSummary)}.`;
+}
 
 const AI_POLISH_DESCRIPTION = "Same message. Better presentation.";
 
@@ -11797,6 +11871,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         : null,
     [composeAiMode, composeAiType]
   );
+  const composeAiDirectionSummary = useMemo(() => {
+    if (composeAiType !== "rewrite" || !composeAiSelectedMode) {
+      return null;
+    }
+
+    return buildAiRewriteDirectionSummary(
+      composeAiSelectedMode.id as AiRewriteModeId,
+      composeAiModifiers as AiRewriteModifierId[]
+    );
+  }, [composeAiModifiers, composeAiSelectedMode, composeAiType]);
   const composeAiSelectedCategoryModes = useMemo(
     () => composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [],
     [composeAiCategory, composeAiModeGroups]
@@ -22278,6 +22362,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     setComposeAiMode(mode.id);
                                     if (composeAiType === "polish") {
                                       setComposeAiCultureRegion("global");
+                                      setComposeAiModifiers([]);
+                                    } else {
+                                      setComposeAiModifiers(
+                                        getAiRewriteDefaultModifiersForMode(mode.id as AiRewriteModeId)
+                                      );
                                     }
                                     setComposeAiPreview(null);
                                     setComposeAiError(null);
@@ -22355,13 +22444,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   ))}
                                 </div>
                               )}
-                              <div className="compose-ai-modifier-hint">
-                                {composeAiType === "polish" &&
-                                composeAiSelectedMode?.id === "culture"
-                                  ? "Choose the regional business context you want this presentation tuned for."
-                                  : composeAiModifiers.length >= 3
-                                    ? "Remove one chip to choose a different refinement."
-                                    : "Optional. Pick up to three refinements."}
+                              <div
+                                className={`compose-ai-modifier-hint ${
+                                  composeAiType === "rewrite" ? "compose-ai-direction-summary" : ""
+                                }`}
+                              >
+                                {composeAiType === "rewrite"
+                                  ? composeAiDirectionSummary
+                                  : composeAiType === "polish" &&
+                                      composeAiSelectedMode?.id === "culture"
+                                    ? "Choose the regional business context you want this presentation tuned for."
+                                    : composeAiModifiers.length >= 3
+                                      ? "Remove one chip to choose a different refinement."
+                                      : "Optional. Pick up to three refinements."}
                               </div>
                             </div>
 
