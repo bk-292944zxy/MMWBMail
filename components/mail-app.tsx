@@ -227,7 +227,7 @@ type LightboxBridgedFrame = HTMLIFrameElement & {
   __mmwbmailLightboxCleanup?: () => void;
 };
 
-const WORKSPACE_MIN_SIDEBAR_WIDTH = 330;
+const WORKSPACE_MIN_SIDEBAR_WIDTH = 340;
 const WORKSPACE_MIN_LIST_WIDTH = 450;
 const WORKSPACE_MIN_VIEWER_WIDTH = 340;
 const WORKSPACE_DIVIDER_WIDTH = 8;
@@ -263,8 +263,9 @@ type LoadMessagesOptions = {
   skipServerSync?: boolean;
 };
 type AccentTheme = "orange" | "blue" | "green" | "purple";
+type ThemeMode = "full" | "highlight-only";
 
-const USER_DATA_VERSION = 3;
+const USER_DATA_VERSION = 4;
 const DB_NAME = "mmwbmail";
 const DB_VERSION = 1;
 const STORE_MESSAGES = "messages";
@@ -294,6 +295,7 @@ interface UserData {
     accountMailboxDisclosureStates: Record<string, AccountMailboxDisclosureState>;
     lightweightOnboardingDismissed: boolean;
     accentTheme: AccentTheme;
+    themeMode: ThemeMode;
   };
 }
 
@@ -314,7 +316,8 @@ const DEFAULT_USER_DATA: UserData = {
     collapsedSortFolderVisibility: "essential_only",
     accountMailboxDisclosureStates: {},
     lightweightOnboardingDismissed: false,
-    accentTheme: "orange"
+    accentTheme: "orange",
+    themeMode: "full"
   }
 };
 
@@ -933,6 +936,15 @@ function isEssentialMailboxTarget(
   return isInboxMailboxNode(target.mailboxNode);
 }
 
+function isAlwaysVisibleMailboxTarget(target: SidebarMailboxTarget) {
+  if (target.mailboxNode.systemKey === "trash") {
+    return true;
+  }
+
+  const normalized = `${target.name} ${target.mailboxNode.identity.providerPath}`.toLowerCase();
+  return normalized.includes("trash");
+}
+
 function isQuietSystemMailboxTarget(target: SidebarMailboxTarget) {
   if (target.mailboxNode.systemKey === "archive" || target.mailboxNode.systemKey === "drafts") {
     return true;
@@ -966,8 +978,10 @@ function getAccountMailboxDisclosureTargets(
     includeActiveSortFoldersInCollapsed: boolean;
   }
 ) {
-  const essentialTargets = mailboxTargets.filter((target) =>
-    isEssentialMailboxTarget(target, input.mailboxViewMode)
+  const essentialTargets = mailboxTargets.filter(
+    (target) =>
+      isEssentialMailboxTarget(target, input.mailboxViewMode) ||
+      isAlwaysVisibleMailboxTarget(target)
   );
   const quietSystemTargets = mailboxTargets.filter((target) =>
     isQuietSystemMailboxTarget(target)
@@ -2683,171 +2697,153 @@ function transformCase(type: "upper" | "lower" | "title" | "sentence") {
   selection.removeAllRanges();
 }
 
-function renderFolderGlyph(folderName: string, folderPath: string) {
-  const normalized = `${folderName} ${folderPath}`.toLowerCase();
+function getFolderIcon(folderName: string, specialUse?: string) {
+  const name = folderName.toLowerCase().trim();
 
-  const envelopeGlyph = (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
-      <path d="M1 3.5l6 4.5 6-4.5" />
-    </svg>
-  );
-
-  if (
-    normalized.includes("new mail") ||
-    normalized.includes("read mail") ||
-    normalized.includes("inbox")
-  ) {
-    return envelopeGlyph;
+  if (specialUse === "\\Inbox" || name === "inbox") {
+    return { icon: "inbox", color: "var(--sidebar-icon-primary)" };
+  }
+  if (name === "new mail") {
+    return { icon: "inbox-arrow", color: "var(--sidebar-icon-primary)" };
+  }
+  if (name === "read mail") {
+    return { icon: "mail-open", color: "var(--sidebar-icon-muted)" };
+  }
+  if (specialUse === "\\Sent" || name.includes("sent")) {
+    return { icon: "send", color: "var(--sidebar-icon-muted)" };
+  }
+  if (specialUse === "\\Drafts" || name === "drafts" || name.includes("draft")) {
+    return { icon: "edit", color: "var(--sidebar-icon-muted)" };
+  }
+  if (specialUse === "\\Junk" || name.includes("spam") || name.includes("junk")) {
+    return { icon: "warning", color: "var(--amber)" };
+  }
+  if (specialUse === "\\Trash" || name.includes("trash")) {
+    return { icon: "trash", color: "var(--sidebar-icon-muted)" };
+  }
+  if (specialUse === "\\Archive" || name.includes("archive")) {
+    return { icon: "archive", color: "var(--sidebar-icon-muted)" };
+  }
+  if (name.includes("follow")) {
+    return { icon: "flag", color: "var(--accent)" };
+  }
+  if (name.includes("receipt")) {
+    return { icon: "receipt", color: "var(--sidebar-icon-primary)" };
+  }
+  if (name.includes("travel")) {
+    return { icon: "globe", color: "var(--sidebar-icon-primary)" };
+  }
+  if (name.includes("finance") || name.includes("bill")) {
+    return { icon: "bank", color: "var(--sidebar-icon-primary)" };
+  }
+  if (name.includes("health")) {
+    return { icon: "heart", color: "var(--sidebar-icon-primary)" };
   }
 
-  if (normalized.includes("trash")) {
+  return { icon: "folder", color: "var(--sidebar-icon-primary)" };
+}
+
+function renderFolderIconByKey(iconKey: string) {
+  if (iconKey === "trash") {
+    return <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" />;
+  }
+  if (iconKey === "inbox" || iconKey === "folder") {
     return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" />
-      </svg>
+      <>
+        <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
+        <path d="M1 3.5l6 4.5 6-4.5" />
+      </>
     );
   }
-
-  if (normalized.includes("spam") || normalized.includes("junk")) {
+  if (iconKey === "inbox-arrow") {
     return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
+      <>
+        <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
+        <path d="M1 3.5l6 4.5 6-4.5" />
+        <path d="M7 2v4" />
+      </>
+    );
+  }
+  if (iconKey === "mail-open") {
+    return (
+      <>
+        <path d="M1.5 5.2 7 2l5.5 3.2v6.3a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V5.2z" />
+        <path d="M1.5 5.2 7 8.4l5.5-3.2" />
+      </>
+    );
+  }
+  if (iconKey === "send") {
+    return <path d="M13 7l-4-4v2.5C5 5.5 2.5 7 2 11c1.5-2.5 3.5-3.5 7-3.5V10l4-3z" />;
+  }
+  if (iconKey === "edit") {
+    return (
+      <>
+        <path d="M2 11.2V12.5h1.3l6.2-6.2-1.3-1.3L2 11.2z" />
+        <path d="M8.7 4.9 10 6.2" />
+      </>
+    );
+  }
+  if (iconKey === "warning") {
+    return (
+      <>
         <circle cx="7" cy="7" r="5.5" />
-        <path d="M5 5.2C5.2 3.8 6 3 7 3s2 .9 2 2c0 1.8-2 2.2-2 3.8" />
-        <circle cx="7" cy="10.8" r="0.55" fill="currentColor" stroke="none" />
-      </svg>
+        <path d="M7 4.3v3.2" />
+        <circle cx="7" cy="9.9" r="0.55" fill="currentColor" stroke="none" />
+      </>
     );
   }
-
-  if (normalized.includes("follow-up")) {
+  if (iconKey === "archive") {
     return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <rect x="1" y="2.5" width="12" height="9" rx="1.5" />
-        <path d="M1 5.5h12" />
-        <path d="M4.5 2.5v3" />
-        <path d="M9.5 2.5v3" />
-      </svg>
-    );
-  }
-
-  if (normalized.includes("receipts")) {
-    return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M2 4.5h10M3 2.5h8l1 2H2l1-2zM3 4.5l.8 7h6.4l.8-7" />
-      </svg>
-    );
-  }
-
-  if (normalized.includes("reference")) {
-    return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M3 1.5h6l3 3v9H2v-12z" />
-        <path d="M9 1.5v3h3" />
-      </svg>
-    );
-  }
-
-  if (normalized.includes("travel")) {
-    return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M7 1.5a4 4 0 0 1 4 4c0 3-4 7-4 7s-4-4-4-7a4 4 0 0 1 4-4z" />
-        <circle cx="7" cy="5.5" r="1.3" />
-      </svg>
-    );
-  }
-
-  if (normalized.includes("archive")) {
-    return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
+      <>
         <rect x="1" y="4.5" width="12" height="8" rx="1" />
         <path d="M1 4.5h12M5 7.5h4" />
         <rect x="1" y="2.5" width="12" height="2" rx="0.5" />
-      </svg>
+      </>
     );
   }
-
-  if (normalized.includes("draft")) {
+  if (iconKey === "flag") {
     return (
+      <>
+        <path d="M3 12.5V2.5" />
+        <path d="M3 3h7l-1.2 2.2L10 7.5H3" />
+      </>
+    );
+  }
+  if (iconKey === "receipt") {
+    return <path d="M2 4.5h10M3 2.5h8l1 2H2l1-2zM3 4.5l.8 7h6.4l.8-7" />;
+  }
+  if (iconKey === "globe") {
+    return (
+      <>
+        <circle cx="7" cy="7" r="5.5" />
+        <path d="M1.8 7h10.4M7 1.5c1.4 1.6 2.1 3.4 2.1 5.5S8.4 10.9 7 12.5M7 1.5C5.6 3.1 4.9 4.9 4.9 7S5.6 10.9 7 12.5" />
+      </>
+    );
+  }
+  if (iconKey === "bank") {
+    return (
+      <>
+        <path d="M1.5 5 7 2.5 12.5 5H1.5z" />
+        <path d="M2.5 5v5.5M5 5v5.5M7 5v5.5M9 5v5.5M11.5 5v5.5M1.5 10.5h11" />
+      </>
+    );
+  }
+  if (iconKey === "heart") {
+    return <path d="M7 11.8 2.6 7.4a2.7 2.7 0 0 1 0-3.8 2.7 2.7 0 0 1 3.8 0L7 4.2l.6-.6a2.7 2.7 0 0 1 3.8 0 2.7 2.7 0 0 1 0 3.8L7 11.8z" />;
+  }
+  return (
+    <>
+      <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
+      <path d="M1 3.5l6 4.5 6-4.5" />
+    </>
+  );
+}
+
+function renderFolderGlyph(folderName: string, folderPath: string, specialUse?: string) {
+  const { icon, color } = getFolderIcon(folderName, specialUse);
+  return {
+    color,
+    glyph: (
       <svg
         width="13"
         height="13"
@@ -2859,32 +2855,10 @@ function renderFolderGlyph(folderName: string, folderPath: string) {
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path d="M2 1.5h7l3 3v8.5H2v-11.5z" />
-        <path d="M9 1.5v3h3" />
-        <path d="M4.5 6.5h5M4.5 8.5h3" />
+        {renderFolderIconByKey(icon)}
       </svg>
-    );
-  }
-
-  if (normalized.includes("sent")) {
-    return (
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M13 7l-4-4v2.5C5 5.5 2.5 7 2 11c1.5-2.5 3.5-3.5 7-3.5V10l4-3z" />
-      </svg>
-    );
-  }
-
-  return envelopeGlyph;
+    )
+  };
 }
 
 function renderSortFolderGlyph(preset: SortFolderPreset) {
@@ -3595,11 +3569,10 @@ function getComposeRecipientChipLabel(recipient: string) {
 }
 
 const AI_REWRITE_CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  "Ease tension": "Lower the temperature without losing your point",
-  "Strengthen your position": "Be clearer, more confident, and harder to push back on",
-  "Make it easier to act on":
-    "Turn this into something people can quickly understand and respond to",
-  "Translate how it lands": "Make sure your intent is interpreted the way you mean it"
+  "Ease tension": "Softens tone and lowers tension",
+  "Strengthen your position": "Makes your point firmer and more confident",
+  "Make it easier to act on": "Makes the message clearer and easier to act on",
+  "Translate how it lands": "Helps interpret how the message may be perceived"
 };
 
 const AI_POLISH_DESCRIPTION = "Same message. Better presentation.";
@@ -4077,6 +4050,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return "orange";
     }
     return loadUserData().prefs.accentTheme ?? "orange";
+  });
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") {
+      return "full";
+    }
+    return loadUserData().prefs.themeMode ?? "full";
   });
   const [collapsedSortFolderVisibility, setCollapsedSortFolderVisibility] = useState<
     "essential_only" | "include_active_sort_folders"
@@ -6245,6 +6224,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setPinnedMessages(new Set(data.pinnedMessages));
     setSidebarSize(data.prefs.sidebarSize);
     setAccentTheme(data.prefs.accentTheme ?? "orange");
+    setThemeMode(data.prefs.themeMode ?? "full");
     setDefaultSignature(data.prefs.signature);
     setSignatureDefinitions(data.signatureDefinitions ?? []);
     setPresetDefinitions(data.presetDefinitions ?? []);
@@ -6263,7 +6243,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
     document.documentElement.setAttribute("data-accent-theme", accentTheme);
-  }, [accentTheme]);
+    document.documentElement.setAttribute("data-theme-mode", themeMode);
+
+    // Legacy compatibility: keep old hook in sync while mode migration settles.
+    if (themeMode === "highlight-only") {
+      document.documentElement.setAttribute("data-highlight-only", "true");
+    } else {
+      document.documentElement.removeAttribute("data-highlight-only");
+    }
+  }, [accentTheme, themeMode]);
 
   useEffect(() => {
     if (!userDataReady || !activeAccountId) {
@@ -6295,7 +6283,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         collapsedSortFolderVisibility,
         accountMailboxDisclosureStates,
         lightweightOnboardingDismissed,
-        accentTheme
+        accentTheme,
+        themeMode
       }
     });
 
@@ -6324,6 +6313,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     threadingEnabled,
     lightweightOnboardingDismissed,
     accentTheme,
+    themeMode,
     userDataReady
   ]);
 
@@ -6817,17 +6807,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       const rect = composeWindow.getBoundingClientRect();
       const viewportPadding = 12;
-      const nextWidth = Math.min(
-        Math.max(360, rect.width * 0.76),
-        window.innerWidth - viewportPadding * 2
-      );
-      const nextLeft = Math.min(
-        Math.max(rect.left + (rect.width - nextWidth) / 2, viewportPadding),
-        window.innerWidth - nextWidth - viewportPadding
-      );
-      const centeredTop = rect.top + rect.height / 2 - 120;
+      const nextWidth = rect.width + 20;
+      const nextLeft = rect.left - 10;
+      // Anchor QuickFact in the compose header/form band (upper-left area).
+      const preferredTop = rect.top + 86;
       const nextTop = Math.min(
-        Math.max(centeredTop, viewportPadding),
+        Math.max(preferredTop, viewportPadding),
         window.innerHeight - 180
       );
 
@@ -7613,10 +7598,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           preserveSelection,
           scopeAccountId: resolvedAccountId
         });
+        const preservePrioritizedSelection =
+          senderFilterScope === "prioritized" &&
+          Boolean(senderFilter) &&
+          cachedSelection.selectedUid === null &&
+          (selectedMessage?.from ?? "") === senderFilter &&
+          selectedMessage?.accountId === resolvedAccountId &&
+          selectedMessage?.uid !== null;
         if (canApplyVisibleState()) {
-          setSelectedUid(cachedSelection.selectedUid);
+          setSelectedUid(
+            preservePrioritizedSelection ? selectedMessage?.uid ?? selectedUid : cachedSelection.selectedUid
+          );
         }
-        if (cachedSelection.clearSelectedMessage && canApplyVisibleState()) {
+        if (cachedSelection.clearSelectedMessage && canApplyVisibleState() && !preservePrioritizedSelection) {
           clearVisibleSelection();
         }
         console.log(`mmwbmail: loaded ${cached.length} cached messages for ${folder}`);
@@ -7792,10 +7786,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         preserveSelection,
         scopeAccountId: resolvedAccountId
       });
+      const preservePrioritizedSelection =
+        senderFilterScope === "prioritized" &&
+        Boolean(senderFilter) &&
+        nextSelection.selectedUid === null &&
+        (selectedMessage?.from ?? "") === senderFilter &&
+        selectedMessage?.accountId === resolvedAccountId &&
+        selectedMessage?.uid !== null;
       if (canApplyVisibleState()) {
-        setSelectedUid(nextSelection.selectedUid);
+        setSelectedUid(
+          preservePrioritizedSelection ? selectedMessage?.uid ?? selectedUid : nextSelection.selectedUid
+        );
       }
-      if (nextSelection.clearSelectedMessage && canApplyVisibleState()) {
+      if (nextSelection.clearSelectedMessage && canApplyVisibleState() && !preservePrioritizedSelection) {
         clearVisibleSelection();
       }
       recordMailboxDebugEvent("message_load_applied", {
@@ -10002,33 +10005,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   useEffect(() => {
     setComposeAiPreviewOptionId(composeAiPreview?.options[0]?.id ?? null);
   }, [composeAiPreview]);
-
-  useEffect(() => {
-    if (
-      !composeAiOpen ||
-      composeAiType !== "polish" ||
-      !composeAiMode ||
-      composeAiBusy ||
-      composeAiPreview
-    ) {
-      return;
-    }
-
-    const timeoutId = globalThis.setTimeout(() => {
-      void requestComposeAiRewrite(composeAiWantTwoOptions ? "two_options" : "rewrite");
-    }, 180);
-
-    return () => globalThis.clearTimeout(timeoutId);
-  }, [
-    composeAiBusy,
-    composeAiCultureRegion,
-    composeAiMode,
-    composeAiModifiers,
-    composeAiOpen,
-    composeAiPreview,
-    composeAiType,
-    composeAiWantTwoOptions
-  ]);
 
   async function requestComposeAiRewrite(outputType: AiRewriteOutputType) {
     if (!composeAiMode) {
@@ -13383,21 +13359,31 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       attachmentGuard?.uid === (selectedMessage?.uid ?? selectedUid ?? -1) &&
       attachmentGuard?.accountId === (selectedMessage?.accountId ?? activeAccountId ?? null) &&
       attachmentGuard?.folderPath === currentFolderPath;
+    const prioritizedGuardActive =
+      senderFilterScope === "prioritized" &&
+      Boolean(senderFilter) &&
+      nextSelection.selectedUid === null &&
+      (selectedMessage?.from ?? "") === senderFilter &&
+      selectedMessage?.uid !== null;
 
     if (
       nextSelection.selectedUid !== selectedUid &&
-      !(guardActive && nextSelection.selectedUid === null && selectedUid !== null)
+      !(guardActive && nextSelection.selectedUid === null && selectedUid !== null) &&
+      !(prioritizedGuardActive && nextSelection.selectedUid === null && selectedUid !== null)
     ) {
       setSelectedUid(nextSelection.selectedUid);
     }
 
-    if (nextSelection.clearSelectedMessage && !guardActive) {
+    if (nextSelection.clearSelectedMessage && !guardActive && !prioritizedGuardActive) {
       openMessageSeqRef.current += 1;
       setSelectedMessage(null);
     }
   }, [
     activeAccountId,
     currentFolderPath,
+    senderFilter,
+    senderFilterScope,
+    selectedMessage?.from,
     selectedMessage?.accountId,
     selectedMessage?.uid,
     selectedUid,
@@ -15507,7 +15493,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     className="mailbox-view-toggle"
                     title="New Mail View: An optional attention-first mode where Inbox becomes New Mail, read inbox items appear in a virtual Read Mail folder, and threaded conversations stay complete."
                   >
-                    <span className="mailbox-view-label">New Mail view</span>
+                    <span className="mailbox-view-label">
+                      {mailboxViewMode === "new-mail" ? "New Mail" : "Classic"}
+                    </span>
                     <button
                       type="button"
                       className={`mailbox-view-switch-btn ${
@@ -15515,20 +15503,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       }`}
                       onClick={() => {
                         clearPrioritizedSenderFocus();
-                        if (mailboxViewMode !== "new-mail") {
-                          setMailboxViewMode("new-mail");
-                          if (isInboxMailboxNode(activeMailboxNode)) {
-                            setInboxAttentionView("new-mail");
-                          }
+                        if (mailboxViewMode === "new-mail") {
+                          setMailboxViewMode("classic");
+                          setInboxAttentionView(null);
                           return;
                         }
-                        setMailboxViewMode("classic");
-                        setInboxAttentionView(null);
+
+                        setMailboxViewMode("new-mail");
+                        if (isInboxMailboxNode(activeMailboxNode)) {
+                          setInboxAttentionView("new-mail");
+                        }
                       }}
-                      aria-label="Toggle New Mail view"
+                      aria-label="Toggle between Classic and New Mail view"
                       aria-pressed={mailboxViewMode === "new-mail"}
                     >
-                      <span className="mailbox-view-switch-track" aria-hidden="true">
+                      <span className="mailbox-view-switch-track">
                         <span className="mailbox-view-switch-thumb" />
                       </span>
                     </button>
@@ -15700,6 +15689,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         sortFolderPresentation,
                         isMobileStackedMode
                       });
+                      const folderGlyph = renderFolderGlyph(
+                        mailboxTarget.name,
+                        mailboxNode.identity.providerPath,
+                        mailboxNode.systemKey === "inbox"
+                          ? "\\Inbox"
+                          : mailboxNode.systemKey === "sent"
+                            ? "\\Sent"
+                            : mailboxNode.systemKey === "drafts"
+                              ? "\\Drafts"
+                              : mailboxNode.systemKey === "spam"
+                                ? "\\Junk"
+                                : mailboxNode.systemKey === "trash"
+                                  ? "\\Trash"
+                                  : mailboxNode.systemKey === "archive"
+                                    ? "\\Archive"
+                                    : undefined
+                      );
                       const rowAnimationClass = resolveMailboxRowAnimationClass(
                         mailboxTarget.id,
                         Boolean(options?.quiet)
@@ -15859,18 +15865,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         >
                           <div className="folder-row-main">
                             <span
-                              className={`folder-row-icon ${
+                              className={`folder-row-icon folder-icon ${
                                 sortFolderPresentation
                                   ? `sort-folder-glyph sort-folder-glyph-${sortFolderPresentation.tone}`
                                   : ""
                               }`}
+                              style={sortFolderPresentation ? undefined : { color: folderGlyph.color }}
                             >
                               {sortFolderPresentation
                                 ? renderSortFolderGlyph(sortFolderPresentation)
-                                : renderFolderGlyph(
-                                    mailboxTarget.name,
-                                    mailboxNode.identity.providerPath
-                                  )}
+                                : folderGlyph.glyph}
                             </span>
                             <span className="folder-row-labels">
                               <span className="folder-row-name">{mailboxTarget.name}</span>
@@ -15969,7 +15973,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   )}
                                   {animatedEssentialTargets.length > 0 &&
                                   animatedWorkingTargets.length > 0 ? (
-                                    <div className="sidebar-mailbox-history-divider" />
+                                    <div className="sidebar-mailbox-history-divider sidebar-sep" />
                                   ) : null}
                                   {animatedWorkingTargets.map((mailboxTarget, index) =>
                                     renderMailboxRow(mailboxTarget, {
@@ -15993,7 +15997,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                           disclosureAnimation.currentQuietIds.length === 0
                                         ? "sidebar-mailbox-history-divider-exiting"
                                         : ""
-                                  }`}
+                                  } sidebar-sep`}
                                 />
                                 {animatedQuietTargets.map((mailboxTarget, index) =>
                                   renderMailboxRow(mailboxTarget, {
@@ -16100,7 +16104,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 ) : null}
               </div>
             </div>
-            <div className="inbox-header-actions">
+          </div>
+
+          <div className="inbox-control-band">
+            <div className="inbox-control-main">
               <input
                 className="inbox-search"
                 type="search"
@@ -16155,43 +16162,42 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </button>
               )}
             </div>
-          </div>
-
-          <div className="sort-toolbar">
-            <span className="sort-label">Sort:</span>
-            {(["date", "name", "subject"] as const).map((option) => (
+            <div className="sort-toolbar">
+              <span className="sort-label">Sort:</span>
+              {(["date", "name", "subject"] as const).map((option) => (
+                <button
+                  key={option}
+                  className={`sort-btn ${sortBy === option ? "active" : ""}`}
+                  onClick={() => setSortBy(option)}
+                >
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </button>
+              ))}
+              <div style={{ marginLeft: "auto" }} />
               <button
-                key={option}
-                className={`sort-btn ${sortBy === option ? "active" : ""}`}
-                onClick={() => setSortBy(option)}
+                className={`sort-btn ${threadingEnabled ? "active" : ""}`}
+                onClick={() => setThreadingEnabled((current) => !current)}
+                title={threadingEnabled ? "Switch to flat view" : "Switch to threaded view"}
               >
-                {option.charAt(0).toUpperCase() + option.slice(1)}
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginRight: 3 }}
+                >
+                  <line x1="21" y1="10" x2="7" y2="10" />
+                  <line x1="21" y1="6" x2="3" y2="6" />
+                  <line x1="21" y1="14" x2="3" y2="14" />
+                  <line x1="21" y1="18" x2="7" y2="18" />
+                </svg>
+                {threadingEnabled ? "Threaded" : "Flat"}
               </button>
-            ))}
-            <div style={{ marginLeft: "auto" }} />
-            <button
-              className={`sort-btn ${threadingEnabled ? "active" : ""}`}
-              onClick={() => setThreadingEnabled((current) => !current)}
-              title={threadingEnabled ? "Switch to flat view" : "Switch to threaded view"}
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ marginRight: 3 }}
-              >
-                <line x1="21" y1="10" x2="7" y2="10" />
-                <line x1="21" y1="6" x2="3" y2="6" />
-                <line x1="21" y1="14" x2="3" y2="14" />
-                <line x1="21" y1="18" x2="7" y2="18" />
-              </svg>
-              {threadingEnabled ? "Threaded" : "Flat"}
-            </button>
+            </div>
           </div>
 
           <div className="col-header-bar">
@@ -17794,8 +17800,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         className="cleanup-close"
                         onClick={() => setCleanupMode(false)}
                         style={{
-                          background: "#ff4d00",
-                          color: "#fff",
+                          background: "var(--accent)",
+                          color: "var(--accent-foreground)",
                           border: "none",
                           outline: "none",
                           boxShadow: "none",
@@ -17813,7 +17819,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        padding: "0 18px 12px"
+                        padding: "0 28px 12px"
                       }}
                     >
                       <span style={{ fontSize: 12, color: "var(--text3)", marginRight: 10 }}>
@@ -17864,7 +17870,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      padding: "0 18px",
+                      padding: "0 28px",
                       height: 34,
                       borderBottom: "0.5px solid var(--border)",
                       background: "var(--surface2)"
@@ -17910,7 +17916,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             style={{
                               display: "flex",
                               alignItems: "center",
-                              padding: "0 18px",
+                              padding: "0 28px",
                               height: 56,
                               borderBottom:
                                 groupIndex === sortedSenderGroups.length - 1
@@ -19512,14 +19518,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           Choose the accent color used across the app interface
                         </div>
                       </div>
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          flexWrap: "wrap"
-                        }}
-                      >
+                      <div className="settings-theme-picker">
                         {([
                           { key: "orange", label: "Orange", color: "#ff4d00" },
                           { key: "blue", label: "Blue", color: "#0a84ff" },
@@ -19532,31 +19531,47 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               key={themeOption.key}
                               type="button"
                               onClick={() => setAccentTheme(themeOption.key)}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 6,
-                                border: active
-                                  ? "1px solid var(--accent)"
-                                  : "0.5px solid var(--border)",
-                                background: active ? "var(--accent-soft)" : "var(--surface3)",
-                                borderRadius: 8,
-                                padding: "5px 9px",
-                                fontSize: 12,
-                                fontWeight: active ? 600 : 500,
-                                color: "var(--text2)"
-                              }}
+                              className={`settings-theme-btn ${active ? "active" : ""}`}
+                              aria-pressed={active}
+                              data-theme-key={themeOption.key}
                             >
-                              <span
-                                style={{
-                                  width: 10,
-                                  height: 10,
-                                  minWidth: 10,
-                                  borderRadius: "50%",
-                                  background: themeOption.color
-                                }}
-                              />
-                              <span>{themeOption.label}</span>
+                              <span className="settings-theme-preview" aria-hidden="true">
+                                <span className="settings-theme-dot-wrap">
+                                  <span
+                                    className="settings-theme-dot"
+                                    style={{ "--theme-dot": themeOption.color } as CSSProperties}
+                                  />
+                                </span>
+                              </span>
+                              <span className="settings-theme-label">{themeOption.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="settings-row settings-card-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Theme mode</div>
+                        <div className="settings-row-sub">
+                          Full applies atmosphere + accent; Highlight-only applies accent on
+                          neutral surfaces
+                        </div>
+                      </div>
+                      <div className="settings-theme-mode-picker">
+                        {([
+                          { key: "full", label: "Full" },
+                          { key: "highlight-only", label: "Highlight-only" }
+                        ] as const).map((modeOption) => {
+                          const active = themeMode === modeOption.key;
+                          return (
+                            <button
+                              key={modeOption.key}
+                              type="button"
+                              onClick={() => setThemeMode(modeOption.key)}
+                              className={`settings-theme-mode-btn ${active ? "active" : ""}`}
+                              aria-pressed={active}
+                            >
+                              {modeOption.label}
                             </button>
                           );
                         })}
@@ -22109,28 +22124,67 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             />
             {composeAiOpen && !composeAiPreview ? (
               <div className="compose-ai-region">
-                <div className="compose-ai-panel">
-                  {!composeAiCategory && composeAiType === "rewrite" ? (
-                    <div className="compose-ai-panel-header">
-                      <div className="compose-ai-panel-header-copy">
-                        <div className="compose-ai-panel-title">Not coming out right?</div>
-                        <div className="compose-ai-panel-subtitle">
-                          Got it. What do you most want to change?
-                        </div>
-                        <div className="compose-ai-target">{composeAiSelectionLabel}</div>
-                      </div>
-                      <div className="compose-ai-panel-header-meta">
+                <div
+                  className={`compose-ai-panel ${
+                    composeAiType === "polish"
+                      ? "compose-ai-panel-polish"
+                      : "compose-ai-panel-elevate"
+                  }`}
+                >
+                  <div className="compose-ai-flow-topbar">
+                    <div className="compose-ai-flow-topbar-main">
+                      {composeAiCategory ? (
                         <button
                           type="button"
-                          className="compose-ai-close"
-                          aria-label="Close Elevate"
-                          onClick={closeComposeAiPanel}
+                          className="compose-ai-step-back"
+                          onClick={() => {
+                            if (composeAiSelectedMode) {
+                              setComposeAiMode(null);
+                              setComposeAiModifiers([]);
+                            } else if (composeAiType === "polish") {
+                              closeComposeAiPanel();
+                            } else {
+                              setComposeAiCategory(null);
+                              setComposeAiMode(null);
+                            }
+                            setComposeAiPreview(null);
+                            setComposeAiError(null);
+                          }}
                         >
-                          <span aria-hidden="true">×</span>
+                          <span aria-hidden="true">‹</span>
+                          <span>Back</span>
                         </button>
+                      ) : null}
+                      <div className="compose-ai-flow-title">
+                        {composeAiSelectedMode?.label ??
+                          composeAiCategory ??
+                          (composeAiType === "polish" ? "Polish with AI" : "Elevate with AI")}
                       </div>
                     </div>
-                  ) : null}
+                    <div className="compose-ai-panel-header-meta">
+                      <div className="compose-ai-target">{composeAiSelectionLabel}</div>
+                      <button
+                        type="button"
+                        className="compose-ai-close"
+                        aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
+                        onClick={closeComposeAiPanel}
+                      >
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="compose-ai-flow-intro">
+                    <div className="compose-ai-flow-subtitle">
+                      {composeAiSelectedMode?.description ??
+                        (composeAiCategory
+                          ? composeAiType === "polish"
+                            ? "Choose how to refine the message before generating your polished version."
+                            : "Choose a specific path in this category, then refine before generating."
+                          : composeAiType === "polish"
+                            ? "Shape how your message lands while keeping your intent."
+                            : "What do you want this message to accomplish?")}
+                    </div>
+                  </div>
 
                   {composeAiSettingsLoading ? (
                     <div className="compose-ai-empty-state">
@@ -22202,7 +22256,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       ) : null}
 
                       {!composeAiPreviewActive && !composeAiCategory && composeAiType === "rewrite" ? (
-                        <div className="compose-ai-section">
+                        <div className="compose-ai-section compose-ai-section-category-intro">
                           <div className="compose-ai-section-header">
                             <div className="compose-ai-section-title">Choose a main category</div>
                             <div className="compose-ai-section-copy">
@@ -22215,30 +22269,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 key={category}
                                 type="button"
                                 className="compose-ai-category-card"
-                                aria-label={`${category}. ${AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""}`}
-                                onMouseEnter={(event) =>
-                                  showComposeAiCategoryTooltip(
-                                    event.currentTarget,
-                                    AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""
-                                  )
-                                }
-                                onMouseLeave={hideComposeAiCategoryTooltip}
-                                onFocus={(event) =>
-                                  showComposeAiCategoryTooltip(
-                                    event.currentTarget,
-                                    AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""
-                                  )
-                                }
-                                onBlur={hideComposeAiCategoryTooltip}
+                                aria-label={category}
                                 onClick={() => {
-                                  hideComposeAiCategoryTooltip();
                                   setComposeAiCategory(category);
                                   setComposeAiMode(null);
                                   setComposeAiPreview(null);
                                   setComposeAiError(null);
                                 }}
                               >
-                                <span className="compose-ai-category-card-label">{category}</span>
+                                <span className="compose-ai-category-card-main">
+                                  <span className="compose-ai-category-card-label">{category}</span>
+                                  <span className="compose-ai-category-card-copy">
+                                    {AI_REWRITE_CATEGORY_DESCRIPTIONS[category] ?? ""}
+                                  </span>
+                                </span>
                                 <span className="compose-ai-category-card-chevron" aria-hidden="true">
                                   ›
                                 </span>
@@ -22248,51 +22292,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </div>
                       ) : !composeAiPreviewActive && composeAiCategory ? (
                         <div className="compose-ai-section">
-                          <div className="compose-ai-step-header">
-                            <button
-                              type="button"
-                              className="compose-ai-step-back"
-                              onClick={() => {
-                                if (composeAiSelectedMode) {
-                                  setComposeAiMode(null);
-                                  setComposeAiModifiers([]);
-                                } else if (composeAiType === "polish") {
-                                  closeComposeAiPanel();
-                                } else {
-                                  setComposeAiCategory(null);
-                                  setComposeAiMode(null);
-                                }
-                                setComposeAiPreview(null);
-                                setComposeAiError(null);
-                              }}
-                            >
-                              <span aria-hidden="true">‹</span>
-                              <span>Back</span>
-                            </button>
-                            <div className="compose-ai-step-copy">
-                              <div className="compose-ai-section-title">
-                                {composeAiSelectedMode?.label ?? composeAiCategory}
-                              </div>
-                              {!composeAiSelectedMode && composeAiType === "rewrite" ? (
-                                <div className="compose-ai-section-copy">
-                                  Choose the specific elevate path inside this category to unlock refinements and elevate actions.
-                                </div>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              className="compose-ai-close"
-                              aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
-                              onClick={closeComposeAiPanel}
-                            >
-                              <span aria-hidden="true">×</span>
-                            </button>
-                          </div>
                           {composeAiType === "polish" ? (
                             <p className="compose-ai-description">{AI_POLISH_DESCRIPTION}</p>
                           ) : null}
                           {!composeAiSelectedMode ? (
                             <div className="compose-ai-mode-stage">
+                              <div className="compose-ai-section-header">
+                                <div className="compose-ai-section-title">
+                                  {composeAiType === "polish"
+                                    ? "Choose a polish mode"
+                                    : "Choose a path"}
+                                </div>
+                              </div>
                               {composeAiSelectedCategoryModes.map((mode) => (
                                 <button
                                   key={mode.id}
@@ -22300,23 +22311,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   className={`compose-ai-mode-chip ${
                                     composeAiMode === mode.id ? "active" : ""
                                   }`}
-                                  aria-label={`${mode.label}. ${mode.description}`}
-                                  onMouseEnter={(event) =>
-                                    showComposeAiCategoryTooltip(
-                                      event.currentTarget,
-                                      mode.description
-                                    )
-                                  }
-                                  onMouseLeave={hideComposeAiCategoryTooltip}
-                                  onFocus={(event) =>
-                                    showComposeAiCategoryTooltip(
-                                      event.currentTarget,
-                                      mode.description
-                                    )
-                                  }
-                                  onBlur={hideComposeAiCategoryTooltip}
+                                  aria-label={mode.label}
                                   onClick={() => {
-                                    hideComposeAiCategoryTooltip();
                                     setComposeAiMode(mode.id);
                                     if (composeAiType === "polish") {
                                       setComposeAiCultureRegion("global");
@@ -22325,7 +22321,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     setComposeAiError(null);
                                   }}
                                 >
-                                  <span className="compose-ai-mode-chip-label">{mode.label}</span>
+                                  <span className="compose-ai-mode-chip-main">
+                                    <span className="compose-ai-mode-chip-label">{mode.label}</span>
+                                    <span className="compose-ai-mode-chip-desc">
+                                      {mode.description}
+                                    </span>
+                                  </span>
                                   <span className="compose-ai-category-card-chevron" aria-hidden="true">
                                     ›
                                   </span>
@@ -22333,17 +22334,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               ))}
                             </div>
                           ) : null}
-                        </div>
-                      ) : null}
-
-                      {!composeAiPreviewActive && composeAiSelectedMode ? (
-                        <div className="compose-ai-selected-mode compose-ai-selected-mode-compact">
-                          <div className="compose-ai-selected-mode-title">
-                            {composeAiSelectedMode.label}
-                          </div>
-                          <div className="compose-ai-selected-mode-copy">
-                            {composeAiSelectedMode.description}
-                          </div>
                         </div>
                       ) : null}
 
@@ -22429,6 +22419,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 className="ghostButton compose-ai-action-primary"
                                 disabled={composeAiBusy || !composeAiMode}
                                 onClick={() => {
+                                  // Guardrail: Polish/Elevate preview must only start from this explicit button press.
                                   void requestComposeAiRewrite(
                                     composeAiWantTwoOptions ? "two_options" : "rewrite"
                                   );
@@ -22638,7 +22629,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }`}
                 >
                   <div className="compose-ai-preview-step compose-ai-section">
-                    <div className="compose-ai-step-header compose-ai-preview-step-header">
+                    <div className="compose-ai-step-header compose-ai-preview-step-header compose-ai-flow-topbar">
+                      <div className="compose-ai-flow-topbar-main">
                       <button
                         type="button"
                         className="compose-ai-step-back"
@@ -22647,10 +22639,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <span aria-hidden="true">‹</span>
                         <span>Back</span>
                       </button>
-                      <div className="compose-ai-step-copy">
-                        <div className="compose-ai-section-title">
-                          {composeAiSelectedMode?.label ?? composeAiCategory}
-                        </div>
+                        <div className="compose-ai-flow-title">Preview before inserting</div>
                       </div>
                       <button
                         type="button"
@@ -22662,10 +22651,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       </button>
                     </div>
                     <div className="compose-ai-preview compose-ai-section">
-                      <div className="compose-ai-preview-header">
+                      <div className="compose-ai-preview-header compose-ai-flow-intro">
                         <div>
-                          <div className="compose-ai-preview-title">Preview before inserting</div>
-                          <div className="compose-ai-preview-subtitle">
+                          <div className="compose-ai-flow-subtitle">
                             {composeAiPreview.target === "selection"
                               ? "Your draft stays unchanged until you replace the selected text."
                               : "Your draft stays unchanged until you replace it or insert the rewrite below."}

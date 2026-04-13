@@ -801,7 +801,7 @@ function findPreferredSentFolder(folders: MailFolder[]) {
   return null;
 }
 
-async function resolveSentFolder(connection: MailConnectionPayload): Promise<string> {
+async function resolveSentFolder(connection: MailConnectionPayload): Promise<string | null> {
   try {
     const folders = await listFolders(connection);
 
@@ -817,9 +817,9 @@ async function resolveSentFolder(connection: MailConnectionPayload): Promise<str
       return preferredFolder;
     }
 
-    return inferMailProviderKind(connection) === "gmail" ? "[Gmail]/Sent Mail" : "Sent Messages";
+    return null;
   } catch {
-    return inferMailProviderKind(connection) === "gmail" ? "[Gmail]/Sent Mail" : "Sent Messages";
+    return null;
   }
 }
 
@@ -836,12 +836,7 @@ async function appendToFolder(
     try {
       await client.mailboxOpen(folderPath);
     } catch {
-      try {
-        await client.mailboxCreate(folderPath);
-        await client.mailboxOpen(folderPath);
-      } catch {
-        return;
-      }
+      return;
     }
 
     await client.append(folderPath, rawMessage, ["\\Seen"]);
@@ -913,7 +908,13 @@ export async function sendMessage(payload: MailComposePayload): Promise<{ succes
         message.on("error", reject);
       });
       const sentFolder = await resolveSentFolder(payload);
-      await appendToFolder(payload, sentFolder, rawMessage);
+      if (sentFolder) {
+        await appendToFolder(payload, sentFolder, rawMessage);
+      } else {
+        console.warn(
+          "mmwbmail: no server Sent mailbox found; skipped IMAP sent append to avoid creating a custom folder."
+        );
+      }
     } catch (appendError) {
       console.warn("mmwbmail: failed to append sent message to IMAP:", appendError);
     }
