@@ -333,19 +333,29 @@ class GmailProviderAdapter extends ImapSmtpProviderAdapter {
 }
 
 const GMAIL_ADAPTER = new GmailProviderAdapter();
-const GENERIC_IMAP_SMTP_ADAPTER = new ImapSmtpProviderAdapter("imap-smtp");
+const GENERIC_IMAP_SMTP_ADAPTER = new ImapSmtpProviderAdapter("generic-imap-smtp");
+
+function getMailProviderAdapterForKind(kind: MailProviderKind) {
+  return kind === "gmail" ? GMAIL_ADAPTER : GENERIC_IMAP_SMTP_ADAPTER;
+}
 
 function getMailProviderAdapterForConnection(
-  connection: Pick<MailConnectionPayload, "email" | "imapHost" | "smtpHost">
+  connection: Pick<MailConnectionPayload, "email" | "imapHost" | "smtpHost"> & {
+    provider?: string | null;
+  }
 ) {
-  return inferMailProviderKind(connection) === "gmail"
-    ? GMAIL_ADAPTER
-    : GENERIC_IMAP_SMTP_ADAPTER;
+  return getMailProviderAdapterForKind(inferMailProviderKind(connection));
 }
 
 async function getMailProviderAdapterForAccount(accountId: string) {
-  const { connection } = await requireMailAccountConnection(accountId);
-  return getMailProviderAdapterForConnection(connection);
+  const { account, connection } = await requireMailAccountConnection(accountId);
+  const provider = getMailAccountProviderInfo({
+    provider: account.provider,
+    email: connection.email,
+    imapHost: connection.imapHost,
+    smtpHost: connection.smtpHost
+  });
+  return getMailProviderAdapterForKind(provider.kind);
 }
 
 export async function listAccountMailboxesViaProvider(accountId: string) {

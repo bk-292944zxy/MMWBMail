@@ -31,6 +31,11 @@ export async function GET(_request: Request, context: RouteContext) {
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
+    const existingAccount = await getMailAccount(accountId);
+    if (!existingAccount) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+
     const payload = (await request.json().catch(() => ({}))) as {
       makeDefault?: boolean;
     };
@@ -40,10 +45,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const account = await getMailAccount(accountId);
-
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
 
     return NextResponse.json({ account });
   } catch (error) {

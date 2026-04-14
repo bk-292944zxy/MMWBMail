@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
 import { listSyncedMessages, syncMailAccount } from "@/lib/mail-sync";
 import { searchAccountMessagesViaProvider } from "@/lib/mail-provider";
 
@@ -14,6 +15,11 @@ export const runtime = "nodejs";
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
+    const account = await getOwnedAccount(accountId);
+    if (!account) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+
     const { searchParams } = new URL(request.url);
     const folderPath = searchParams.get("folder")?.trim();
     const query = searchParams.get("q")?.trim() ?? "";

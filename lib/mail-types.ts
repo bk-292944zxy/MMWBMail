@@ -10,7 +10,11 @@ export type MailConnectionPayload = {
   folder?: string;
 };
 
-export type MailProviderKind = "gmail" | "imap-smtp";
+export type MailProviderKind =
+  | "gmail"
+  | "icloud"
+  | "inmotion-hosted"
+  | "generic-imap-smtp";
 
 export type ProviderCapabilities = {
   supportsServerSideThreads: boolean;

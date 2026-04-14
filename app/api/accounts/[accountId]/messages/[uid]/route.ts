@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
 import { recordAccountEvent, updateAccountMessage } from "@/lib/mail-account-actions";
 import { getSyncedMessageDetail } from "@/lib/mail-sync";
 import type { MailUpdatePayload } from "@/lib/mail-types";
@@ -14,6 +15,11 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { accountId, uid } = await context.params;
+    const account = await getOwnedAccount(accountId);
+    if (!account) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+
     const { searchParams } = new URL(request.url);
     const folderPath = searchParams.get("folder")?.trim();
 
@@ -47,6 +53,11 @@ type AccountMessagePatchPayload = Pick<
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { accountId, uid } = await context.params;
+    const account = await getOwnedAccount(accountId);
+    if (!account) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+
     const payload = (await request.json()) as AccountMessagePatchPayload;
     const parsedUid = Number(uid);
 

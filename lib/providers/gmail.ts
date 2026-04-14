@@ -65,6 +65,26 @@ function inferGmailSpecialUse(folder: MailFolder) {
   return null;
 }
 
+function isGmailContainerMailbox(folder: MailFolder) {
+  const normalizedName = folder.name.trim().toLowerCase();
+  const normalizedPath = folder.path.trim().toLowerCase();
+  return (
+    normalizedName === "[gmail]" ||
+    normalizedName === "[googlemail]" ||
+    normalizedPath === "[gmail]" ||
+    normalizedPath === "[googlemail]"
+  );
+}
+
+function isGmailAllMailMailbox(folder: MailFolder) {
+  return (
+    folder.specialUse === "\\Archive" ||
+    folder.specialUse === "\\\\Archive" ||
+    matchesMailboxVariant(folder.name, GMAIL_MAILBOX_VARIANTS.archive.variants) ||
+    matchesMailboxVariant(folder.path, GMAIL_MAILBOX_VARIANTS.archive.variants)
+  );
+}
+
 function normalizeConversationSubject(subject: string) {
   return subject.replace(/^(Re|Fwd|Fw):\s*/gi, "").trim().toLowerCase();
 }
@@ -74,14 +94,27 @@ function isSyntheticThreadId(message: Pick<MailSummary, "threadId" | "messageId"
 }
 
 export function normalizeGmailMailbox(folder: MailFolder): MailFolder {
-  return {
+  const normalizedFolder = {
     ...folder,
     specialUse: inferGmailSpecialUse(folder)
+  };
+
+  if (isGmailAllMailMailbox(normalizedFolder)) {
+    return {
+      ...normalizedFolder,
+      name: "All Mail"
+    };
+  }
+
+  return {
+    ...normalizedFolder
   };
 }
 
 export function normalizeGmailMailboxes(folders: MailFolder[]) {
-  return folders.map(normalizeGmailMailbox);
+  return folders
+    .map(normalizeGmailMailbox)
+    .filter((folder) => !isGmailContainerMailbox(folder));
 }
 
 export function findGmailSystemMailboxPath(
