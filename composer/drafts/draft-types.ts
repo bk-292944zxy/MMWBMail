@@ -105,7 +105,6 @@ export type DraftSnapshotInput = {
 
 export type LoadDraftInput = {
   storageKey: string;
-  draftId?: string | null;
 };
 
 export type LoadDraftResult = {

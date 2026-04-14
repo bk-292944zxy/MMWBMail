@@ -4,10 +4,7 @@ import type {
   ComposeSenderIdentity,
   ResolvedSendIdentity
 } from "@/composer/identity/types";
-import {
-  resolveComposeSessionAccountId,
-  type ComposeSessionContext
-} from "@/composer/identity/session-context";
+import type { ComposeSessionContext } from "@/composer/identity/session-context";
 import type { MailAccountSummary } from "@/lib/mail-types";
 
 function getAccountDisplayName(account: MailAccountSummary) {
@@ -172,7 +169,10 @@ export function resolveSendIdentityForSession(
     return null;
   }
 
-  const accountId = resolveComposeSessionAccountId(sessionContext, identity);
+  const accountId =
+    sessionContext?.ownerAccountId ??
+    identity.ownerAccountId ??
+    identity.sender.accountId;
 
   if (!accountId) {
     return null;

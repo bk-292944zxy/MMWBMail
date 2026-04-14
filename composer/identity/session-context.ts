@@ -210,7 +210,7 @@ export function restoreDraftIdentity(
     sessionId: options?.sessionId ?? "draft-resume",
     accounts,
     ownerAccountId: snapshot?.ownerAccountId,
-    ownerLocked: false,
+    ownerLocked: snapshot?.ownerLocked ?? true,
     initializationSource: "draft_resume",
     sourceAccountId: options?.sourceAccountId,
     sourceMessageId: options?.sourceMessageId,
@@ -249,33 +249,10 @@ export function createDraftIdentitySnapshot(
     return null;
   }
 
-  const resolvedOwnerAccountId = resolveComposeSessionAccountId(sessionContext, identity);
-
   return {
-    ownerAccountId: resolvedOwnerAccountId,
+    ownerAccountId: sessionContext?.ownerAccountId ?? identity?.ownerAccountId,
     senderId: identity?.sender?.id ?? null,
     replyTo: identity?.replyTo ?? "",
     ownerLocked: sessionContext?.ownerLocked ?? identity?.ownerLocked ?? false
   };
-}
-
-export function resolveComposeSessionAccountId(
-  sessionContext: ComposeSessionContext | null,
-  identity: ComposeIdentityState | null
-) {
-  if (sessionContext?.ownerLocked) {
-    return (
-      sessionContext.ownerAccountId ??
-      identity?.ownerAccountId ??
-      identity?.accountId ??
-      identity?.sender?.accountId
-    );
-  }
-
-  return (
-    identity?.sender?.accountId ??
-    identity?.ownerAccountId ??
-    identity?.accountId ??
-    sessionContext?.ownerAccountId
-  );
 }

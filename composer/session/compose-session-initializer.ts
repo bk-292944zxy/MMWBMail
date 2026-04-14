@@ -195,7 +195,7 @@ export function createDraftResumeComposeSession(
       draft.composeSessionContext ?? {
         sessionId: draft.draftId,
         ownerAccountId: draft.accountId,
-        ownerLocked: false,
+        ownerLocked: Boolean(draft.accountId),
         ownerStatus: "ready",
         initializationSource: "draft_resume",
         sourceAccountId: draft.sourceMessageMeta?.accountId ?? null,

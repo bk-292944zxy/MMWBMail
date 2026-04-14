@@ -4,13 +4,6 @@ import type {
   StoredDraftAttachment
 } from "@/composer/drafts/draft-types";
 
-type StoredDraftCollection = {
-  version: 3;
-  activeDraftId: string | null;
-  draftsById: Record<string, StoredComposerDraft>;
-  updatedAt: string;
-};
-
 export interface DraftStorageAdapter {
   load(key: string): Promise<string | null>;
   save(key: string, value: string): Promise<void>;
@@ -73,43 +66,9 @@ export function normalizeStoredDraft(
     return null;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  const parsed = JSON.parse(raw) as Partial<StoredComposerDraft> | LegacyStoredDraft;
 
-  const normalizedCollection = normalizeStoredDraftCollection(raw);
-  if (normalizedCollection.activeDraftId) {
-    const collectionDraft = normalizedCollection.draftsById[normalizedCollection.activeDraftId];
-    if (collectionDraft) {
-      return collectionDraft;
-    }
-  }
-
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "version" in parsed &&
-    (parsed as { version?: unknown }).version === 3
-  ) {
-    return null;
-  }
-
-  return normalizeStoredDraftObject(parsed as Partial<StoredComposerDraft> | LegacyStoredDraft);
-}
-
-function normalizeStoredDraftObject(
-  parsed: Partial<StoredComposerDraft> | LegacyStoredDraft
-): StoredComposerDraft {
   if ("version" in parsed && parsed.version === 2 && "draftId" in parsed) {
-    const accountId =
-      parsed.accountId ??
-      parsed.composeSessionContext?.ownerAccountId ??
-      parsed.composeIdentity?.ownerAccountId ??
-      parsed.composeIdentity?.accountId;
-
     const normalizedContext = parsed.composeSessionContext
       ? {
           sessionId: parsed.composeSessionContext.sessionId ?? parsed.draftId ?? `draft-${Date.now()}`,
@@ -139,7 +98,7 @@ function normalizeStoredDraftObject(
     return {
       version: 2,
       draftId: parsed.draftId ?? `draft-${Date.now()}`,
-      accountId,
+      accountId: parsed.accountId,
       composeSessionContext: normalizedContext,
       draftIdentitySnapshot: parsed.draftIdentitySnapshot ?? null,
       composeIdentity: parsed.composeIdentity ?? null,
@@ -195,71 +154,5 @@ function normalizeStoredDraftObject(
     updatedAt: legacy.savedAt ?? new Date().toISOString(),
     savedAt: legacy.savedAt ?? new Date().toISOString(),
     providerDraftId: null
-  };
-}
-
-export function normalizeStoredDraftCollection(raw: string | null): {
-  activeDraftId: string | null;
-  draftsById: Record<string, StoredComposerDraft>;
-} {
-  if (!raw) {
-    return {
-      activeDraftId: null,
-      draftsById: {}
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      activeDraftId: null,
-      draftsById: {}
-    };
-  }
-
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "version" in parsed &&
-    (parsed as { version?: unknown }).version === 3
-  ) {
-    const collection = parsed as Partial<StoredDraftCollection>;
-    const draftsById = Object.entries(collection.draftsById ?? {}).reduce<
-      Record<string, StoredComposerDraft>
-    >((accumulator, [draftId, draft]) => {
-      if (!draft || typeof draft !== "object") {
-        return accumulator;
-      }
-
-      const normalizedDraft = normalizeStoredDraftObject({
-        ...(draft as Partial<StoredComposerDraft>),
-        draftId
-      });
-      accumulator[normalizedDraft.draftId] = normalizedDraft;
-      return accumulator;
-    }, {});
-
-    const activeDraftId =
-      collection.activeDraftId && draftsById[collection.activeDraftId]
-        ? collection.activeDraftId
-        : Object.keys(draftsById)[0] ?? null;
-
-    return {
-      activeDraftId,
-      draftsById
-    };
-  }
-
-  const normalizedDraft = normalizeStoredDraftObject(
-    parsed as Partial<StoredComposerDraft> | LegacyStoredDraft
-  );
-
-  return {
-    activeDraftId: normalizedDraft.draftId,
-    draftsById: {
-      [normalizedDraft.draftId]: normalizedDraft
-    }
   };
 }
