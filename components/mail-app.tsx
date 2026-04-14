@@ -46,6 +46,7 @@ import {
   canUseIdentity,
   createComposeSessionContext,
   createDraftIdentitySnapshot,
+  resolveComposeSessionAccountId,
   resolveMailboxContext,
   resolveNewComposeOwner,
   resolveReplyOwner,
@@ -4608,7 +4609,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     mailboxViewMode === "new-mail" && activeInboxAttentionView === "new-mail";
   const currentAccountEmail = activeAccount?.email || connection.email;
   const composeSessionAccountId =
-    composeSessionContext?.ownerAccountId ?? composeIdentity?.ownerAccountId ?? undefined;
+    resolveComposeSessionAccountId(composeSessionContext, composeIdentity) ?? undefined;
   const composeSessionAccountEmail =
     composeIdentity?.sender?.address ??
     composeAccount?.email ??
@@ -4813,7 +4814,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         sessionId: composeDraftId ?? `compose-session-${Date.now()}`,
         accounts,
         ownerAccountId,
-        ownerLocked: true,
+        ownerLocked: false,
         initializationSource:
           composeIntent.kind === "reply" ||
           composeIntent.kind === "reply_all" ||
@@ -5532,9 +5533,39 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           return resolved;
         }
 
+        const nextOwnerAccountId =
+          nextSender.accountId ?? resolved.ownerAccountId ?? resolved.accountId;
+
+        setComposeSessionContext((currentContext) => {
+          if (!currentContext) {
+            return currentContext;
+          }
+
+          const nextContextOwner =
+            nextOwnerAccountId ??
+            currentContext.ownerAccountId;
+
+          if (
+            currentContext.ownerAccountId === nextContextOwner &&
+            currentContext.ownerLocked === false &&
+            currentContext.ownerStatus === "ready"
+          ) {
+            return currentContext;
+          }
+
+          return {
+            ...currentContext,
+            ownerAccountId: nextContextOwner,
+            ownerLocked: false,
+            ownerStatus: nextContextOwner ? "ready" : currentContext.ownerStatus
+          };
+        });
+
         const nextIdentity = {
           ...resolved,
-          accountId: nextSender.accountId,
+          accountId: nextOwnerAccountId,
+          ownerAccountId: nextOwnerAccountId,
+          ownerLocked: false,
           sender: nextSender,
           signatureContextId: nextSender.id
         };
@@ -5643,8 +5674,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return {
         draftId: activeComposeSession.draft.draftId,
         accountId:
-          activeComposeSession.context?.ownerAccountId ??
-          activeComposeSession.identity?.ownerAccountId,
+          resolveComposeSessionAccountId(
+            activeComposeSession.context,
+            activeComposeSession.identity
+          ) ?? undefined,
         composeSessionContext: activeComposeSession.context,
         draftIdentitySnapshot: createDraftIdentitySnapshot(
           activeComposeSession.context,
@@ -5683,7 +5716,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   );
 
   const clearPersistedComposeDraft = useCallback(async () => {
-    await draftServiceRef.current.clearDraft(DRAFT_STORAGE_KEY);
+    await draftServiceRef.current.clearDraft(
+      DRAFT_STORAGE_KEY,
+      composeDraftId ?? composeDraft?.draftId ?? null
+    );
     setComposeDraft(null);
     setComposeDraftId(null);
     setComposeSessionContext(null);
@@ -5698,7 +5734,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeLocalRevisionRef.current = 0;
     composeLastSavedRevisionRef.current = 0;
     autosaveServiceRef.current?.cancel();
-  }, [clearComposeEventState]);
+  }, [clearComposeEventState, composeDraft, composeDraftId]);
 
   const handleBlockedSenderSelection = useCallback(
     (sender: string, event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -10471,6 +10507,79 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }, 50);
   }
 
+  function resumeStoredComposeDraft(draft: StoredComposerDraft) {
+    const restoredIdentity = restoreDraftIdentity(
+      accounts,
+      draft.draftIdentitySnapshot ?? {
+        ownerAccountId: draft.composeSessionContext?.ownerAccountId ?? draft.accountId,
+        senderId: draft.composeIdentity?.sender?.id ?? null,
+        replyTo: draft.composeIdentity?.replyTo ?? draft.replyTo ?? "",
+        ownerLocked:
+          draft.composeSessionContext?.ownerLocked ??
+          draft.composeIdentity?.ownerLocked ??
+          false
+      },
+      {
+        sessionId: draft.composeSessionContext?.sessionId ?? draft.draftId,
+        sourceAccountId:
+          draft.composeSessionContext?.sourceAccountId ??
+          draft.sourceMessageMeta?.accountId ??
+          null,
+        sourceMessageId:
+          draft.composeSessionContext?.sourceMessageId ??
+          draft.sourceMessageMeta?.messageId ??
+          null,
+        sourceMessageUid:
+          draft.composeSessionContext?.sourceMessageUid ??
+          draft.sourceMessageMeta?.uid ??
+          null
+      }
+    );
+    const identity = resolveComposeIdentityState({
+      accounts,
+      preferredAccountId: restoredIdentity.context.ownerAccountId,
+      ownerAccountId: restoredIdentity.context.ownerAccountId,
+      ownerLocked: restoredIdentity.context.ownerLocked,
+      persistedIdentity: draft.composeIdentity ?? null,
+      persistedReplyTo:
+        draft.composeIdentity?.replyTo ??
+        draft.draftIdentitySnapshot?.replyTo ??
+        draft.replyTo
+    });
+    const session = createDraftResumeComposeSession({
+      ...draft,
+      composeSessionContext: restoredIdentity.context,
+      composeIdentity: identity
+    });
+    const restoredFiles = draft.attachments.map((attachment) => {
+      const file = dataUrlToFile(attachment);
+      composeAttachmentIdsRef.current.set(file, attachment.attachmentId);
+      return file;
+    });
+    const restoredComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
+      attachments: draft.attachments,
+      composeEvent: draft.composeEvent ?? null,
+      composeEventAttachment: draft.composeEventAttachment ?? null
+    });
+
+    applyComposeSession(session, {
+      restoredDraft: {
+        ...draft,
+        composeEventAttachment: restoredComposeEventAttachment
+      },
+      restoredFiles,
+      savedAt: draft.savedAt ?? draft.updatedAt,
+      localRevision: draft.localRevision,
+      lastSavedRevision: draft.lastSavedRevision
+    });
+
+    if (restoredIdentity.blockedReason) {
+      setStatus(restoredIdentity.blockedReason);
+    } else if (identity.senderStatus === "missing_sender") {
+      setStatus("This draft's selected sender is no longer available.");
+    }
+  }
+
   function openCompose() {
     const draftId = createComposeDraftId();
     const ownerAccountId = resolveNewComposeOwner(accounts, mailboxContext);
@@ -10478,7 +10587,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       sessionId: draftId,
       accounts,
       ownerAccountId,
-      ownerLocked: Boolean(ownerAccountId),
+      ownerLocked: false,
       initializationSource: "new"
     });
     const identity = resolveComposeIdentityState({
@@ -10513,7 +10622,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       sessionId: draftId,
       accounts,
       ownerAccountId,
-      ownerLocked: Boolean(ownerAccountId),
+      ownerLocked: false,
       initializationSource: intentKind,
       sourceAccountId: message.accountId ?? null,
       sourceMessageId: message.messageId ?? null,
@@ -10582,7 +10691,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         sessionId: draftId,
         accounts,
         ownerAccountId,
-        ownerLocked: Boolean(ownerAccountId),
+        ownerLocked: false,
         initializationSource: "new",
         sourceAccountId: message.accountId ?? null,
         sourceMessageId: message.messageId ?? null,
@@ -21239,74 +21348,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <button
                   className="draft-restore-btn"
                   onClick={() => {
-                    const restoredIdentity = restoreDraftIdentity(
-                      accounts,
-                      draft.draftIdentitySnapshot ?? {
-                        ownerAccountId: draft.composeSessionContext?.ownerAccountId ?? draft.accountId,
-                        senderId: draft.composeIdentity?.sender?.id ?? null,
-                        replyTo: draft.composeIdentity?.replyTo ?? draft.replyTo ?? "",
-                        ownerLocked:
-                          draft.composeSessionContext?.ownerLocked ??
-                          draft.composeIdentity?.ownerLocked ??
-                          true
-                      },
-                      {
-                        sessionId: draft.composeSessionContext?.sessionId ?? draft.draftId,
-                        sourceAccountId:
-                          draft.composeSessionContext?.sourceAccountId ??
-                          draft.sourceMessageMeta?.accountId ??
-                          null,
-                        sourceMessageId:
-                          draft.composeSessionContext?.sourceMessageId ??
-                          draft.sourceMessageMeta?.messageId ??
-                          null,
-                        sourceMessageUid:
-                          draft.composeSessionContext?.sourceMessageUid ??
-                          draft.sourceMessageMeta?.uid ??
-                          null
-                      }
-                    );
-                    const identity = resolveComposeIdentityState({
-                      accounts,
-                      preferredAccountId: restoredIdentity.context.ownerAccountId,
-                      ownerAccountId: restoredIdentity.context.ownerAccountId,
-                      ownerLocked: restoredIdentity.context.ownerLocked,
-                      persistedIdentity: draft.composeIdentity ?? null,
-                      persistedReplyTo:
-                        draft.composeIdentity?.replyTo ??
-                        draft.draftIdentitySnapshot?.replyTo ??
-                        draft.replyTo
-                    });
-                    const session = createDraftResumeComposeSession({
-                      ...draft,
-                      composeSessionContext: restoredIdentity.context,
-                      composeIdentity: identity
-                    });
-                    const restoredFiles = draft.attachments.map((attachment) => {
-                      const file = dataUrlToFile(attachment);
-                      composeAttachmentIdsRef.current.set(file, attachment.attachmentId);
-                      return file;
-                    });
-                    const restoredComposeEventAttachment = resolveComposeEventAttachmentFromDraft({
-                      attachments: draft.attachments,
-                      composeEvent: draft.composeEvent ?? null,
-                      composeEventAttachment: draft.composeEventAttachment ?? null
-                    });
-                    applyComposeSession(session, {
-                      restoredDraft: {
-                        ...draft,
-                        composeEventAttachment: restoredComposeEventAttachment
-                      },
-                      restoredFiles,
-                      savedAt: draft.savedAt ?? draft.updatedAt,
-                      localRevision: draft.localRevision,
-                      lastSavedRevision: draft.lastSavedRevision
-                    });
-                    if (restoredIdentity.blockedReason) {
-                      setStatus(restoredIdentity.blockedReason);
-                    } else if (identity.senderStatus === "missing_sender") {
-                      setStatus("This draft's selected sender is no longer available.");
-                    }
+                    resumeStoredComposeDraft(draft);
                   }}
                 >
                   Resume
@@ -21605,7 +21647,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   onClick={() => {
                     setComposeToolbarMenuOpen(false);
                     setComposeToolbarMenuPosition(null);
-                    setComposeMinimized((current) => !current);
+                    setComposeMinimized((current) => {
+                      const next = !current;
+                      if (next) {
+                        void persistComposeDraftNow(false);
+                      }
+                      return next;
+                    });
                   }}
                 >
                   <svg
@@ -21747,10 +21795,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
               <div className="compose-row compose-row-meta">
                 <span className="compose-row-label">From:</span>
-                {composeIdentity && composeIdentity.capabilityFlags.canChooseSender ? (
+                {composeIdentity ? (
                   <select
                     className="compose-from-select"
                     value={composeIdentity.sender?.id ?? ""}
+                    disabled={composeIdentity.availableSenders.length <= 1}
                     onChange={(event) => switchComposeSenderIdentity(event.target.value)}
                   >
                     {composeIdentity.availableSenders.map((sender) => (

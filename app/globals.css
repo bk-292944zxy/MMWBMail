@@ -304,6 +304,11 @@ textarea {
   transition: border-color 160ms ease, transform 160ms ease;
 }
 
+select {
+  width: auto;
+  max-width: 100%;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -4325,7 +4330,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-from-select {
-  flex: 1 !important;
+  flex: 0 1 auto !important;
+  width: fit-content !important;
+  max-width: min(100%, 560px) !important;
   min-width: 0 !important;
   border: 1px solid var(--border) !important;
   border-radius: 6px !important;
@@ -6985,7 +6992,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-region-select {
-  min-width: min(100%, 280px) !important;
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: min(100%, 320px) !important;
   height: 34px !important;
   padding: 0 32px 0 12px !important;
   border-radius: 10px !important;
