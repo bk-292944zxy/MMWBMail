@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
 import { prisma } from "@/lib/prisma";
 
 type RouteContext = {
@@ -13,6 +14,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, context: RouteContext) {
   const { accountId } = await context.params;
+  const account = await getOwnedAccount(accountId);
+  if (!account) {
+    return NextResponse.json({ error: "Account not found." }, { status: 404 });
+  }
+
   const { searchParams } = new URL(request.url);
   const initialSince = searchParams.get("since");
   const mode = searchParams.get("mode");

@@ -11,6 +11,22 @@ datasource db {
   provider = "postgresql"
 }
 
+enum MailAccountProvider {
+  GMAIL
+  ICLOUD
+  INMOTION_HOSTED
+  GENERIC_IMAP_SMTP
+}
+
+model AppUser {
+  id          String        @id @default(cuid())
+  email       String        @unique
+  displayName String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  accounts    MailAccount[]
+}
+
 model DomainVerificationCache {
   id           Int      @id @default(autoincrement())
   domain       String   @unique
@@ -42,6 +58,8 @@ model BrandDomain {
 
 model MailAccount {
   id                String          @id @default(cuid())
+  userId            String
+  provider          MailAccountProvider @default(GENERIC_IMAP_SMTP)
   label             String
   email             String
   imapHost          String
@@ -58,14 +76,17 @@ model MailAccount {
   lastError         String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  user              AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
   folders           MailboxFolder[]
   messages          StoredMessage[]
   syncStates        MailSyncState[]
   events            MailAccountEvent[]
   preferences       UserPreferences?
 
-  @@index([email])
-  @@index([isDefault])
+  @@index([userId], map: "MailAccount_userId_idx")
+  @@index([userId, isDefault], map: "MailAccount_userId_isDefault_idx")
+  @@index([userId, email], map: "MailAccount_userId_email_idx")
+  @@unique([userId, email, imapHost, imapPort, smtpHost, smtpPort], map: "MailAccount_userId_connection_key")
 }
 
 model UserPreferences {

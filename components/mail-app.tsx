@@ -188,6 +188,11 @@ import {
   recordMailboxDebugEvent,
   updateMailboxDebugSnapshot
 } from "@/lib/mailbox-observability";
+import {
+  getMailProviderProfile,
+  getProviderDefaultsForKind,
+  resolveMailProviderKind
+} from "@/lib/mail-provider-profiles";
 import type {
   MailActionCapabilityMap,
   MailActionRequest,
@@ -948,6 +953,25 @@ function isSpamLikeMailboxTarget(target: SidebarMailboxTarget) {
   );
 }
 
+function isGmailAllMailTarget(target: SidebarMailboxTarget) {
+  if (target.isVirtual || target.mailboxNode.identity.providerKind !== "gmail") {
+    return false;
+  }
+
+  if (target.mailboxNode.systemKey === "archive") {
+    return true;
+  }
+
+  const normalizedName = target.name.trim().toLowerCase();
+  const normalizedPath = target.mailboxNode.identity.providerPath.trim().toLowerCase();
+  return (
+    normalizedName === "all mail" ||
+    normalizedPath.endsWith("/all mail") ||
+    normalizedPath === "[gmail]/all mail" ||
+    normalizedPath === "[googlemail]/all mail"
+  );
+}
+
 function isHistoricalMailboxTarget(target: SidebarMailboxTarget) {
   return (
     target.mailboxNode.systemKey === "archive" ||
@@ -960,6 +984,10 @@ function isEssentialMailboxTarget(
   target: SidebarMailboxTarget,
   mailboxViewMode: MailboxViewMode
 ) {
+  if (isGmailAllMailTarget(target)) {
+    return true;
+  }
+
   if (isSpamLikeMailboxTarget(target)) {
     return true;
   }
@@ -983,6 +1011,10 @@ function isAlwaysVisibleMailboxTarget(target: SidebarMailboxTarget) {
 }
 
 function isQuietSystemMailboxTarget(target: SidebarMailboxTarget) {
+  if (isGmailAllMailTarget(target)) {
+    return false;
+  }
+
   if (target.mailboxNode.systemKey === "archive" || target.mailboxNode.systemKey === "drafts") {
     return true;
   }
@@ -1015,11 +1047,34 @@ function getAccountMailboxDisclosureTargets(
     includeActiveSortFoldersInCollapsed: boolean;
   }
 ) {
-  const essentialTargets = mailboxTargets.filter(
-    (target) =>
-      isEssentialMailboxTarget(target, input.mailboxViewMode) ||
-      isAlwaysVisibleMailboxTarget(target)
-  );
+  const essentialTargets = (() => {
+    const filtered = mailboxTargets.filter(
+      (target) =>
+        isEssentialMailboxTarget(target, input.mailboxViewMode) ||
+        isAlwaysVisibleMailboxTarget(target)
+    );
+
+    const allMailIndex = filtered.findIndex((target) => isGmailAllMailTarget(target));
+    if (allMailIndex === -1) {
+      return filtered;
+    }
+
+    const [allMailTarget] = filtered.splice(allMailIndex, 1);
+    const anchorIndex =
+      input.mailboxViewMode === "new-mail"
+        ? filtered.findIndex((target) => target.inboxAttentionView === "read")
+        : filtered.findIndex(
+            (target) => !target.isVirtual && target.mailboxNode.systemKey === "inbox"
+          );
+
+    if (anchorIndex === -1) {
+      filtered.unshift(allMailTarget);
+    } else {
+      filtered.splice(anchorIndex + 1, 0, allMailTarget);
+    }
+
+    return filtered;
+  })();
   const quietSystemTargets = mailboxTargets.filter((target) =>
     isQuietSystemMailboxTarget(target)
   );
@@ -1635,14 +1690,7 @@ const defaultConnection: MailConnectionPayload = {
 };
 
 function getInMotionPreset(): Partial<MailConnectionPayload> {
-  return {
-    imapHost: "mail.makingmyworldbetter.com",
-    imapPort: 993,
-    imapSecure: true,
-    smtpHost: "mail.makingmyworldbetter.com",
-    smtpPort: 465,
-    smtpSecure: true
-  };
+  return getProviderDefaultsForKind("inmotion-hosted");
 }
 
 function getDomainFromEmail(email: string) {
@@ -1651,13 +1699,17 @@ function getDomainFromEmail(email: string) {
 }
 
 function getConnectionPreset(email: string): Partial<MailConnectionPayload> | null {
-  const domain = getDomainFromEmail(email);
+  const kind = resolveMailProviderKind({
+    email,
+    imapHost: "",
+    smtpHost: ""
+  });
 
-  if (domain === "makingmyworldbetter.com") {
-    return getInMotionPreset();
+  if (kind === "generic-imap-smtp") {
+    return null;
   }
 
-  return null;
+  return getProviderDefaultsForKind(kind);
 }
 
 function getActiveEditableElement(): HTMLElement | null {
@@ -3859,6 +3911,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [connection, setConnection] = useState<MailConnectionPayload>(defaultConnection);
   const [folders, setFolders] = useState<MailFolder[]>([]);
   const [foldersByAccount, setFoldersByAccount] = useState<Record<string, MailFolder[]>>({});
+  const foldersByAccountRef = useRef<Record<string, MailFolder[]>>({});
   const [folderOrder, setFolderOrder] = useState<string[]>([]);
   const [draggedFolderPath, setDraggedFolderPath] = useState<string | null>(null);
   const [draggedPrioritizedSenderName, setDraggedPrioritizedSenderName] = useState<string | null>(
@@ -4585,7 +4638,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       activeAccountId
         ? resolveMailboxNodes(folders, {
             accountId: activeAccountId,
-            providerKind: activeAccount?.provider.kind ?? "imap-smtp",
+            providerKind: activeAccount?.provider.kind ?? "generic-imap-smtp",
             providerCapabilities: activeAccount?.provider.capabilities
           })
         : [],
@@ -4721,7 +4774,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     [mailActionStatuses]
   );
   const usingStoredAccountCredentials = Boolean(activeAccount);
-  const hasInMotionPreset = Boolean(getConnectionPreset(connection.email || currentAccountEmail));
+  const hasInMotionPreset =
+    resolveMailProviderKind({
+      email: connection.email || currentAccountEmail,
+      imapHost: "",
+      smtpHost: ""
+    }) === "inmotion-hosted";
   const accountSettingsDirty = useMemo(() => {
     const normalizedConnection = {
       email: connection.email.trim().toLowerCase(),
@@ -5175,12 +5233,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         });
 
         if (folderLoadSeqByAccountRef.current[accountId] !== requestSeq) {
+          const currentActiveAccountId = activeAccountIdRef.current;
+          const currentAccountFolders = foldersByAccountRef.current?.[accountId] ?? [];
+          const shouldPromoteStaleResult =
+            accountId === currentActiveAccountId &&
+            currentAccountFolders.length === 0 &&
+            folderResponse.folders.length > 0;
+
           folderLoadStateByAccountRef.current[accountId] = {
             ...folderLoadStateByAccountRef.current[accountId],
             status: "stale",
             requestSeq,
             folderCount: folderResponse.folders.length
           };
+
+          if (shouldPromoteStaleResult) {
+            applyFoldersForAccount(accountId, folderResponse.folders);
+            recordMailboxDebugEvent(
+              "folder_load_stale_promoted",
+              {
+                accountId,
+                requestSeq,
+                latestRequestSeq: folderLoadSeqByAccountRef.current[accountId],
+                folderCount: folderResponse.folders.length
+              },
+              { level: "warn" }
+            );
+            return folderResponse.folders;
+          }
+
           recordMailboxDebugEvent(
             "folder_load_stale_dropped",
             {
@@ -5192,6 +5273,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             { level: "warn" }
           );
           return folderResponse.folders;
+        }
+
+        if (!options?.sync && folderResponse.folders.length === 0) {
+          folderLoadStateByAccountRef.current[accountId] = {
+            ...folderLoadStateByAccountRef.current[accountId],
+            status: "loading",
+            requestSeq,
+            folderCount: 0
+          };
+          recordMailboxDebugEvent("folder_load_empty_retry_sync", {
+            accountId,
+            requestSeq,
+            activeAccountId: activeAccountIdRef.current
+          });
+          return fetchFoldersForAccount(accountId, { sync: true });
         }
 
         applyFoldersForAccount(accountId, folderResponse.folders);
@@ -5938,6 +6034,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   useEffect(() => {
     activeAccountIdRef.current = activeAccountId;
   }, [activeAccountId]);
+
+  useEffect(() => {
+    foldersByAccountRef.current = foldersByAccount;
+  }, [foldersByAccount]);
 
   useEffect(() => {
     attachmentHydrationAttemptedRef.current.clear();
@@ -7538,6 +7638,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   function applyPresetFromEmail(email: string, announce = true) {
+    const kind = resolveMailProviderKind({
+      email,
+      imapHost: "",
+      smtpHost: ""
+    });
     const preset = getConnectionPreset(email);
 
     if (!preset) {
@@ -7554,7 +7659,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setHasAppliedPreset(true);
 
     if (announce) {
-      setStatus("Applied InMotion defaults for makingmyworldbetter.com.");
+      const profile = getMailProviderProfile(kind);
+      setStatus(`Applied ${profile.label} defaults.`);
     }
 
     return true;
@@ -7989,6 +8095,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   async function saveAccountSettings() {
     const targetFolder = connection.folder?.trim() || activeAccount?.defaultFolder || "INBOX";
+    const inferredProvider = resolveMailProviderKind({
+      email: connection.email,
+      imapHost: connection.imapHost,
+      smtpHost: connection.smtpHost
+    });
     const normalizedEmail = connection.email.trim().toLowerCase();
     const normalizedImapHost = connection.imapHost.trim().toLowerCase();
     const normalizedSmtpHost = connection.smtpHost.trim().toLowerCase();
@@ -8012,7 +8123,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const accountResponse = await postJson<{ account: MailAccountSummary }>("/api/accounts", {
       ...connection,
       folder: targetFolder,
-      label: connection.email.trim() || "Mailbox"
+      label: connection.email.trim() || "Mailbox",
+      provider: inferredProvider
     });
     const createdAccount = !accounts.some((entry) => entry.id === accountResponse.account.id);
     const nextAccount =
@@ -8024,10 +8136,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   async function verifyAccountConnection() {
     const targetFolder = connection.folder?.trim() || activeAccount?.defaultFolder || "INBOX";
 
-    await postJson<{ folders: MailFolder[] }>("/api/account/folders", {
+    const result = await postJson<{
+      folders: MailFolder[];
+      connection?: Partial<MailConnectionPayload>;
+    }>("/api/accounts/verify", {
       ...connection,
       folder: targetFolder
     });
+
+    if (result.connection) {
+      persistConnection({
+        ...connection,
+        ...result.connection,
+        password: connection.password,
+        folder: result.connection.folder ?? targetFolder
+      });
+    }
   }
 
   async function connectMailbox() {

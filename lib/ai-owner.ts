@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getRuntimeUserId } from "@/lib/runtime-user";
 
 export type CurrentAiOwner = {
   scope: string;
@@ -9,7 +10,9 @@ export type CurrentAiOwner = {
 export const AI_OWNER_LEGACY_SCOPE = "local-owner";
 
 export async function resolveCurrentAiOwner(): Promise<CurrentAiOwner> {
+  const userId = await getRuntimeUserId();
   const primaryAccount = await prisma.mailAccount.findFirst({
+    where: { userId },
     orderBy: {
       createdAt: "asc"
     },

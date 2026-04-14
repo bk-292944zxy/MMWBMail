@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
+import { sendAccountMessage } from "@/lib/mail-account-actions";
 import { sendMessage } from "@/lib/mail-client";
 import type { MailComposePayload } from "@/lib/mail-types";
 
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") || "";
-    let payload: MailComposePayload;
+    let payload: MailComposePayload & { accountId?: string };
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
@@ -42,6 +44,7 @@ export async function POST(request: Request) {
       }
 
       payload = {
+        accountId: String(formData.get("accountId") || "") || undefined,
         email: String(formData.get("email") || ""),
         password: String(formData.get("password") || ""),
         imapHost: String(formData.get("imapHost") || ""),
@@ -61,7 +64,29 @@ export async function POST(request: Request) {
         attachments
       };
     } else {
-      payload = (await request.json()) as MailComposePayload;
+      payload = (await request.json()) as MailComposePayload & { accountId?: string };
+    }
+
+    if (payload.accountId?.trim()) {
+      const account = await getOwnedAccount(payload.accountId);
+      if (!account) {
+        return NextResponse.json({ error: "Account not found." }, { status: 404 });
+      }
+
+      const result = await sendAccountMessage(payload.accountId, {
+        folder: payload.folder,
+        fromAddress: payload.fromAddress,
+        fromName: payload.fromName,
+        to: payload.to,
+        cc: payload.cc,
+        bcc: payload.bcc,
+        replyTo: payload.replyTo,
+        subject: payload.subject,
+        text: payload.text,
+        html: payload.html,
+        attachments: payload.attachments
+      });
+      return NextResponse.json(result);
     }
 
     const result = await sendMessage(payload);

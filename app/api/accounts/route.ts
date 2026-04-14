@@ -5,6 +5,7 @@ import type { MailConnectionPayload } from "@/lib/mail-types";
 
 type CreateMailAccountPayload = MailConnectionPayload & {
   label?: string;
+  provider?: string | null;
 };
 
 export async function GET() {

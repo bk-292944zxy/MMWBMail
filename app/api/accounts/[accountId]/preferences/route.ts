@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
 import { prisma } from "@/lib/prisma";
 
 type RouteContext = {
@@ -56,15 +57,6 @@ function mapPreferences(record: {
   };
 }
 
-async function ensureAccountExists(accountId: string) {
-  const account = await prisma.mailAccount.findUnique({
-    where: { id: accountId },
-    select: { id: true }
-  });
-
-  return account;
-}
-
 async function ensurePreferencesRecord(accountId: string) {
   await prisma.$executeRaw`
     INSERT INTO "UserPreferences" (
@@ -104,7 +96,7 @@ async function loadPreferencesRow(accountId: string) {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const account = await ensureAccountExists(accountId);
+    const account = await getOwnedAccount(accountId);
 
     if (!account) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
@@ -132,7 +124,7 @@ export async function GET(_request: Request, context: RouteContext) {
 async function updatePreferences(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const account = await ensureAccountExists(accountId);
+    const account = await getOwnedAccount(accountId);
 
     if (!account) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });

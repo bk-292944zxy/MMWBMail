@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getOwnedAccount } from "@/lib/account-ownership";
 import { recordAccountEvent, sendAccountMessage } from "@/lib/mail-account-actions";
 import type { MailComposePayload } from "@/lib/mail-types";
 
@@ -24,6 +25,11 @@ type AccountComposePayload = Omit<
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
+    const account = await getOwnedAccount(accountId);
+    if (!account) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+
     const contentType = request.headers.get("content-type") || "";
     let payload: AccountComposePayload;
 

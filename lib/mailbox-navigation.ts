@@ -121,6 +121,21 @@ function inferMailboxSourceKind(providerCapabilities?: ProviderCapabilities): Ma
   return "folder";
 }
 
+function isHiddenGmailContainerFolder(folder: MailFolder, providerKind: MailProviderKind) {
+  if (providerKind !== "gmail") {
+    return false;
+  }
+
+  const normalizedName = folder.name.trim().toLowerCase();
+  const normalizedPath = folder.path.trim().toLowerCase();
+  return (
+    normalizedName === "[gmail]" ||
+    normalizedName === "[googlemail]" ||
+    normalizedPath === "[gmail]" ||
+    normalizedPath === "[googlemail]"
+  );
+}
+
 export function createMailboxNode(input: {
   accountId: string;
   providerKind: MailProviderKind;
@@ -195,7 +210,9 @@ export function resolveMailboxNodes(
     providerCapabilities?: ProviderCapabilities;
   }
 ) {
-  const baseNodes = folders.map((folder) =>
+  const baseNodes = folders
+    .filter((folder) => !isHiddenGmailContainerFolder(folder, input.providerKind))
+    .map((folder) =>
     createMailboxNode({
       accountId: input.accountId,
       providerKind: input.providerKind,

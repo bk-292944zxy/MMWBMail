@@ -326,6 +326,10 @@ export async function syncMailAccount(
   let messagesUpserted = 0;
   let messagesDeleted = 0;
   let bodiesFetched = 0;
+  const folderSyncFailures: Array<{
+    folderPath: string;
+    error: string;
+  }> = [];
 
   try {
     const remoteFolders = await listAccountMailboxesViaProvider(accountId);
@@ -358,12 +362,51 @@ export async function syncMailAccount(
         }
       });
 
-      const remoteMessages = (
-        await syncAccountMailboxViaProvider({
-          accountId,
-          folderPath: remoteFolder.path
-        })
-      ).messages;
+      let remoteMessages: MailSummary[];
+      try {
+        remoteMessages = (
+          await syncAccountMailboxViaProvider({
+            accountId,
+            folderPath: remoteFolder.path
+          })
+        ).messages;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to sync folder.";
+        folderSyncFailures.push({
+          folderPath: remoteFolder.path,
+          error: message
+        });
+
+        await prisma.mailSyncState.upsert({
+          where: {
+            folderId: folderRecord.id
+          },
+          create: {
+            accountId,
+            folderId: folderRecord.id,
+            lastSyncedAt: now,
+            lastFullSyncAt: null,
+            lastUid: null,
+            lastError: message
+          },
+          update: {
+            lastSyncedAt: now,
+            lastError: message
+          }
+        });
+
+        await prisma.mailAccountEvent.create({
+          data: {
+            accountId,
+            folderPath: remoteFolder.path,
+            type: "folder.sync_failed",
+            payloadJson: JSON.stringify({
+              reason: message
+            })
+          }
+        });
+        continue;
+      }
       const remoteUidSet = new Set(remoteMessages.map((message) => message.uid));
       const existingMessages = await prisma.storedMessage.findMany({
         where: {
@@ -511,6 +554,13 @@ export async function syncMailAccount(
       });
 
       foldersSynced += 1;
+    }
+
+    if (foldersSynced === 0 && folderSyncFailures.length > 0) {
+      const firstFailure = folderSyncFailures[0];
+      throw new Error(
+        `Unable to sync mailbox folders. ${firstFailure.folderPath}: ${firstFailure.error}`
+      );
     }
 
     await setMailAccountSyncStatus(account.id, { lastSyncedAt: now, lastError: null });

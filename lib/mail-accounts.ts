@@ -1,14 +1,17 @@
-import { Prisma } from "@prisma/client";
+import { MailAccountProvider, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { getMailAccountProviderInfo } from "@/lib/mail-provider-metadata";
+import { normalizeMailConnectionWithProviderDefaults } from "@/lib/mail-provider-profiles";
+import { getRuntimeUserId } from "@/lib/runtime-user";
 import { decryptStoredSecret, encryptStoredSecret } from "@/lib/secret-crypto";
 import type { MailAccountSummary, MailConnectionPayload } from "@/lib/mail-types";
 
-type PersistedMailAccountRecord = Awaited<ReturnType<typeof prisma.mailAccount.findUnique>>;
+type PersistedMailAccountRecord = Awaited<ReturnType<typeof prisma.mailAccount.findFirst>>;
 
 export type CreateMailAccountInput = {
   label?: string;
+  provider?: string | null;
 } & MailConnectionPayload;
 
 function isMissingMailAccountUpdate(error: unknown) {
@@ -20,6 +23,7 @@ function isMissingMailAccountUpdate(error: unknown) {
 
 function toSummary(account: NonNullable<PersistedMailAccountRecord>): MailAccountSummary {
   const provider = getMailAccountProviderInfo({
+    provider: account.provider,
     email: account.email,
     imapHost: account.imapHost,
     smtpHost: account.smtpHost
@@ -47,7 +51,9 @@ function toSummary(account: NonNullable<PersistedMailAccountRecord>): MailAccoun
 }
 
 export async function listMailAccounts() {
+  const userId = await getRuntimeUserId();
   const accounts = await prisma.mailAccount.findMany({
+    where: { userId },
     orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }]
   });
 
@@ -55,8 +61,9 @@ export async function listMailAccounts() {
 }
 
 export async function listActiveMailAccounts() {
+  const userId = await getRuntimeUserId();
   const accounts = await prisma.mailAccount.findMany({
-    where: { isActive: true },
+    where: { userId, isActive: true },
     orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }]
   });
 
@@ -64,18 +71,25 @@ export async function listActiveMailAccounts() {
 }
 
 export async function createMailAccount(input: CreateMailAccountInput) {
-  const accountCount = await prisma.mailAccount.count();
-  const normalizedEmail = input.email.trim().toLowerCase();
-  const normalizedImapHost = input.imapHost.trim().toLowerCase();
-  const normalizedSmtpHost = input.smtpHost.trim().toLowerCase();
-  const trimmedPassword = input.password.trim();
+  const userId = await getRuntimeUserId();
+  const accountCount = await prisma.mailAccount.count({
+    where: { userId }
+  });
+  const normalizedInput = normalizeMailConnectionWithProviderDefaults(input);
+  const normalizedEmail = normalizedInput.connection.email;
+  const normalizedImapHost = normalizedInput.connection.imapHost;
+  const normalizedSmtpHost = normalizedInput.connection.smtpHost;
+  const trimmedPassword = normalizedInput.connection.password.trim();
+  const persistedProvider = normalizedInput.persistedProvider as MailAccountProvider;
+  const targetFolder = normalizedInput.connection.folder?.trim() || "INBOX";
   const existing = await prisma.mailAccount.findFirst({
     where: {
+      userId,
       email: normalizedEmail,
       imapHost: normalizedImapHost,
-      imapPort: input.imapPort,
+      imapPort: normalizedInput.connection.imapPort,
       smtpHost: normalizedSmtpHost,
-      smtpPort: input.smtpPort
+      smtpPort: normalizedInput.connection.smtpPort
     }
   });
 
@@ -93,15 +107,16 @@ export async function createMailAccount(input: CreateMailAccountInput) {
           label: input.label?.trim() || input.email,
           email: normalizedEmail,
           imapHost: normalizedImapHost,
-          imapPort: input.imapPort,
-          imapSecure: input.imapSecure,
+          imapPort: normalizedInput.connection.imapPort,
+          imapSecure: normalizedInput.connection.imapSecure,
           smtpHost: normalizedSmtpHost,
-          smtpPort: input.smtpPort,
-          smtpSecure: input.smtpSecure,
+          smtpPort: normalizedInput.connection.smtpPort,
+          smtpSecure: normalizedInput.connection.smtpSecure,
+          provider: persistedProvider,
           encryptedPassword: trimmedPassword
             ? encryptStoredSecret(trimmedPassword)
             : existing.encryptedPassword,
-          defaultFolder: input.folder?.trim() || existing.defaultFolder || "INBOX",
+          defaultFolder: targetFolder || existing.defaultFolder || "INBOX",
           isActive: true
         }
       });
@@ -115,15 +130,17 @@ export async function createMailAccount(input: CreateMailAccountInput) {
   account ??= await prisma.mailAccount.create({
         data: {
           label: input.label?.trim() || input.email,
+          userId,
+          provider: persistedProvider,
           email: normalizedEmail,
           imapHost: normalizedImapHost,
-          imapPort: input.imapPort,
-          imapSecure: input.imapSecure,
+          imapPort: normalizedInput.connection.imapPort,
+          imapSecure: normalizedInput.connection.imapSecure,
           smtpHost: normalizedSmtpHost,
-          smtpPort: input.smtpPort,
-          smtpSecure: input.smtpSecure,
+          smtpPort: normalizedInput.connection.smtpPort,
+          smtpSecure: normalizedInput.connection.smtpSecure,
           encryptedPassword: encryptStoredSecret(trimmedPassword),
-          defaultFolder: input.folder?.trim() || "INBOX",
+          defaultFolder: targetFolder,
           isActive: true,
           isDefault: accountCount === 0
         }
@@ -133,29 +150,41 @@ export async function createMailAccount(input: CreateMailAccountInput) {
 }
 
 export async function getMailAccount(accountId: string) {
-  const account = await prisma.mailAccount.findUnique({
-    where: { id: accountId }
+  const userId = await getRuntimeUserId();
+  const account = await prisma.mailAccount.findFirst({
+    where: { id: accountId, userId }
   });
 
   return account ? toSummary(account) : null;
 }
 
 export async function setDefaultMailAccount(accountId: string) {
+  const userId = await getRuntimeUserId();
+  const target = await prisma.mailAccount.findFirst({
+    where: { id: accountId, userId },
+    select: { id: true }
+  });
+
+  if (!target) {
+    throw new Error("Mail account not found.");
+  }
+
   await prisma.$transaction([
     prisma.mailAccount.updateMany({
       data: { isDefault: false },
-      where: {}
+      where: { userId }
     }),
-    prisma.mailAccount.update({
-      where: { id: accountId },
+    prisma.mailAccount.updateMany({
+      where: { id: accountId, userId },
       data: { isDefault: true }
     })
   ]);
 }
 
 export async function deleteMailAccount(accountId: string) {
-  const account = await prisma.mailAccount.findUnique({
-    where: { id: accountId }
+  const userId = await getRuntimeUserId();
+  const account = await prisma.mailAccount.findFirst({
+    where: { id: accountId, userId }
   });
 
   if (!account) {
@@ -164,6 +193,7 @@ export async function deleteMailAccount(accountId: string) {
 
   const remainingCandidates = await prisma.mailAccount.findMany({
     where: {
+      userId,
       NOT: { id: accountId }
     },
     orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }]
@@ -237,7 +267,7 @@ export async function deleteMailAccount(accountId: string) {
     if (account.isDefault && nextAccount) {
       await tx.mailAccount.updateMany({
         data: { isDefault: false },
-        where: {}
+        where: { userId }
       });
       await tx.mailAccount.update({
         where: { id: nextAccount.id },
@@ -253,8 +283,9 @@ export async function deleteMailAccount(accountId: string) {
 }
 
 export async function requireMailAccountConnection(accountId: string, folder?: string) {
-  const account = await prisma.mailAccount.findUnique({
-    where: { id: accountId }
+  const userId = await getRuntimeUserId();
+  const account = await prisma.mailAccount.findFirst({
+    where: { id: accountId, userId }
   });
 
   if (!account) {
@@ -281,8 +312,9 @@ export async function setMailAccountSyncStatus(
   accountId: string,
   input: { lastSyncedAt?: Date | null; lastError?: string | null }
 ) {
-  await prisma.mailAccount.update({
-    where: { id: accountId },
+  const userId = await getRuntimeUserId();
+  await prisma.mailAccount.updateMany({
+    where: { id: accountId, userId },
     data: {
       lastSyncedAt: input.lastSyncedAt,
       lastError: input.lastError ?? null
