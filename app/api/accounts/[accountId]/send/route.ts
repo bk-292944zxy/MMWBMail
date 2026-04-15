@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { getOwnedAccount } from "@/lib/account-ownership";
-import { recordAccountEvent, sendAccountMessage } from "@/lib/mail-account-actions";
+import {
+  sendAccountMessageService,
+  type AccountComposePayload
+} from "@/lib/services/account-mail-service";
 import type { MailComposePayload } from "@/lib/mail-types";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 type RouteContext = {
   params: Promise<{
@@ -10,25 +16,9 @@ type RouteContext = {
   }>;
 };
 
-type AccountComposePayload = Omit<
-  MailComposePayload,
-  | "email"
-  | "password"
-  | "imapHost"
-  | "imapPort"
-  | "imapSecure"
-  | "smtpHost"
-  | "smtpPort"
-  | "smtpSecure"
->;
-
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const account = await getOwnedAccount(accountId);
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
 
     const contentType = request.headers.get("content-type") || "";
     let payload: AccountComposePayload;
@@ -83,18 +73,12 @@ export async function POST(request: Request, context: RouteContext) {
       payload = (await request.json()) as AccountComposePayload;
     }
 
-    const result = await sendAccountMessage(accountId, payload);
-    await recordAccountEvent(accountId, {
-      type: "message.sent",
-      folderPath: payload.folder ?? "INBOX",
-      payloadJson: JSON.stringify({
-        to: payload.to,
-        subject: payload.subject
-      })
-    });
+    const result = await sendAccountMessageService(accountId, payload);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to send email.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to send email.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 
-import { verifyMailAccountConnection } from "@/lib/mail-account-verify";
-import type { MailConnectionPayload } from "@/lib/mail-types";
-
-type VerifyAccountPayload = MailConnectionPayload & {
-  provider?: string | null;
-};
+import {
+  verifyAccountService,
+  type CreateMailAccountPayload as VerifyAccountPayload
+} from "@/lib/services/account-management-service";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as VerifyAccountPayload;
-    const result = await verifyMailAccountConnection(payload);
+    const result = await verifyAccountService(payload);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to verify account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to verify account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }
-

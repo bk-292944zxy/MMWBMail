@@ -1,6 +1,7 @@
 node_modules
 .next
 .DS_Store
+.cache
 *.log
 *.pid
 *.tgz
@@ -14,6 +15,7 @@ dev.db?*
 prisma/dev.db
 prisma/dev.db-shm
 prisma/dev.db-wal
+.maximail-secrets/
 
 /lib/generated/prisma
 tsconfig.tsbuildinfo

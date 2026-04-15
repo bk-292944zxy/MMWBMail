@@ -1,14 +1,12 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
 }
 
 enum MailAccountProvider {
@@ -25,6 +23,7 @@ model AppUser {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   accounts    MailAccount[]
+  composeDrafts ComposeDraft[]
 }
 
 model DomainVerificationCache {
@@ -82,11 +81,34 @@ model MailAccount {
   syncStates        MailSyncState[]
   events            MailAccountEvent[]
   preferences       UserPreferences?
+  composeDrafts     ComposeDraft[]
 
   @@index([userId], map: "MailAccount_userId_idx")
   @@index([userId, isDefault], map: "MailAccount_userId_isDefault_idx")
   @@index([userId, email], map: "MailAccount_userId_email_idx")
   @@unique([userId, email, imapHost, imapPort, smtpHost, smtpPort], map: "MailAccount_userId_connection_key")
+}
+
+model ComposeDraft {
+  id               String      @id @default(cuid())
+  userId           String
+  accountId        String
+  draftId          String
+  composeSessionId String
+  subject          String
+  dataJson         String
+  localRevision    Int         @default(0)
+  lastSavedRevision Int        @default(0)
+  savedAt          DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  user             AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account          MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, draftId], map: "ComposeDraft_userId_draftId_key")
+  @@unique([userId, composeSessionId], map: "ComposeDraft_userId_composeSessionId_key")
+  @@index([userId, updatedAt], map: "ComposeDraft_userId_updatedAt_idx")
+  @@index([userId, accountId, updatedAt], map: "ComposeDraft_userId_accountId_updatedAt_idx")
 }
 
 model UserPreferences {

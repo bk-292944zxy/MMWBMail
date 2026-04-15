@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 
 import {
-  deleteMailAccount,
-  getMailAccount,
-  setDefaultMailAccount
-} from "@/lib/mail-accounts";
+  deleteAccountService,
+  getAccountService,
+  updateAccountService
+} from "@/lib/services/account-management-service";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 type RouteContext = {
   params: Promise<{
@@ -15,48 +19,38 @@ type RouteContext = {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const account = await getMailAccount(accountId);
-
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
+    const account = await getAccountService(accountId);
 
     return NextResponse.json({ account });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to load account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const existingAccount = await getMailAccount(accountId);
-    if (!existingAccount) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
-
     const payload = (await request.json().catch(() => ({}))) as {
       makeDefault?: boolean;
     };
-
-    if (payload.makeDefault) {
-      await setDefaultMailAccount(accountId);
-    }
-
-    const account = await getMailAccount(accountId);
+    const account = await updateAccountService(accountId, payload);
 
     return NextResponse.json({ account });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to update account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to update account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const result = await deleteMailAccount(accountId);
+    const result = await deleteAccountService(accountId);
 
     return NextResponse.json({
       success: true,
@@ -64,7 +58,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
       nextAccountId: result.nextAccountId
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to delete account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to delete account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

@@ -1,30 +1,36 @@
 import { NextResponse } from "next/server";
 
-import { createMailAccount, listMailAccounts } from "@/lib/mail-accounts";
-import type { MailConnectionPayload } from "@/lib/mail-types";
-
-type CreateMailAccountPayload = MailConnectionPayload & {
-  label?: string;
-  provider?: string | null;
-};
+import {
+  createAccountService,
+  listAccountsService,
+  type CreateMailAccountPayload
+} from "@/lib/services/account-management-service";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 export async function GET() {
   try {
-    const accounts = await listMailAccounts();
+    const accounts = await listAccountsService();
     return NextResponse.json({ accounts });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load accounts.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to load accounts.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }
 
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as CreateMailAccountPayload;
-    const account = await createMailAccount(payload);
+    const account = await createAccountService(payload);
     return NextResponse.json({ account }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to create account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to create account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

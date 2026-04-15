@@ -177,9 +177,15 @@ ARCHITECTURE / FEATURE PROGRESS
     - Storage key: maximail-compose-toolbar
     - Status: COMPLETE (landing page mmwbmail.html not yet updated — do when working on web page)
 
+23. Electron shell + typed IPC first slice foundation
+    - Added Electron main + preload bridge (context-isolated, narrow surface)
+    - IPC slice implemented for account list/create/verify, folders, messages list/detail, send
+    - IPC handlers call shared Layer-3 services; renderer uses IPC with route fallback outside Electron
+    - Status: COMPLETE (Layer 4 foundation)
+
 [IN PROGRESS / PARTIAL]
 
-23. Account settings UI redesign
+24. Account settings UI redesign
    - Prompt written: Add Account button, edit glyph per row, inline form collapses
    - accountFormMode state pattern designed
    - Status: PROMPT READY — apply in Codex
@@ -407,6 +413,23 @@ KNOWN BUGS / ACTIVE ISSUES
          - If app shell blanks or `/api/accounts` fails, stop immediately and restore last-known-good
            before continuing
     - Status: ACTIVE LESSON — preserve this guardrail on next retry
+
+55. Draft restore editor body hydration trace
+    - Targeted restore-cycle tracing added behind debug URL flag:
+      `?debugDraftRestoreTrace=1`
+    - Optional server-side draft trace logs are gated behind:
+      `MMWB_DRAFT_TRACE=1`
+    - Confirmed via runtime trace:
+      - SQLite load returns non-empty `textBody`/`htmlBody`
+      - compose state receives non-empty body
+      - editor DOM may still be empty immediately after state assignment (deferred mount race)
+      - deferred hydration then applies and persists the correct body
+    - Hardening applied:
+      - do not clear pending restore body on non-open transition
+      - wait for a connected editor node before hydration
+      - skip editor text-flush while pending restore hydration is active
+      - clear stale editor-sync/draft-snapshot timers at restore boundary
+    - Status: ACTIVE — monitor; diagnostics available for fast repro
 
 ==================================================================
 IMPLEMENTATION RULES FOR AI ASSISTANTS

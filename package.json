@@ -4,7 +4,14 @@
   "private": true,
   "scripts": {
     "predev": "rm -rf .next",
-    "dev": "./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev",
+    "native:rebuild:node": "node ./scripts/rebuild-node-native.cjs",
+    "dev": "npm run native:rebuild:node && ./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev",
+    "electron": "env -u ELECTRON_RUN_AS_NODE electron ./electron/main.cjs",
+    "electron:dev": "npm run electron:rebuild && npm run electron:shell",
+    "electron:shell": "env -u ELECTRON_RUN_AS_NODE ELECTRON_START_URL=http://localhost:3000 electron ./electron/main.cjs",
+    "electron:server": "npm run electron:rebuild && ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./node_modules/next/dist/bin/next dev",
+    "electron:rebuild": "node ./scripts/rebuild-electron-native.cjs",
+    "electron:check-native": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./scripts/check-electron-sqlite-abi.cjs",
     "build": "node ./node_modules/next/dist/bin/next build --webpack",
     "start": "node app.js",
     "lint": "node ./node_modules/next/dist/bin/next lint",
@@ -17,8 +24,10 @@
   },
   "dependencies": {
     "@next/env": "^16.2.2",
-    "@prisma/client": "^7.6.0",
+    "@prisma/adapter-better-sqlite3": "^7.6.0",
     "@prisma/adapter-pg": "^7.6.0",
+    "@prisma/client": "^7.6.0",
+    "better-sqlite3": "^12.9.0",
     "browserslist": "^4.25.4",
     "dotenv": "^17.4.1",
     "imapflow": "^1.0.181",
@@ -31,11 +40,13 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^24.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "electron": "^41.2.0",
     "node": "24.14.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
