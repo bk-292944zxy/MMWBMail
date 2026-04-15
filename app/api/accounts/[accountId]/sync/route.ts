@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getOwnedAccount } from "@/lib/account-ownership";
-import { syncAccountOnDemand } from "@/lib/mail-sync-runtime";
+import { syncAccountService } from "@/lib/services/account-mail-service";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 type RouteContext = {
   params: Promise<{
@@ -20,18 +23,16 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const payload = (await request.json().catch(() => ({}))) as SyncPayload;
     const { accountId } = await context.params;
-    const account = await getOwnedAccount(accountId);
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
-
-    const result = await syncAccountOnDemand(accountId, {
+    const result = await syncAccountService({
+      accountId,
       folderPaths: Array.isArray(payload.folderPaths) ? payload.folderPaths : undefined,
       includeBodies: payload.includeBodies === true
     });
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to sync account.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to sync account.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

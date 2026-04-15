@@ -10,34 +10,35 @@ function readEnv(name: string) {
   return process.env[name]?.trim() || "";
 }
 
-function assertHostedDatabaseUrl(value: string, variableName: string) {
-  if (isProductionRuntime() && value.startsWith("file:")) {
-    throw new Error(
-      `${variableName} must point to a hosted Postgres database in production. SQLite file URLs are not supported for Vercel hosting.`
-    );
+function normalizeDatabaseUrl(value: string) {
+  const trimmed = value.trim();
+
+  if (trimmed.startsWith("file:")) {
+    const [pathOnly] = trimmed.split("?");
+    return pathOnly;
   }
+
+  return trimmed;
 }
 
 export function getDatabaseUrl() {
-  const value = readEnv("DATABASE_URL");
+  const value = readEnv("DATABASE_URL") || "file:./dev.db";
 
   if (!value) {
     throw new Error("DATABASE_URL is not configured.");
   }
 
-  assertHostedDatabaseUrl(value, "DATABASE_URL");
-  return value;
+  return normalizeDatabaseUrl(value);
 }
 
 export function getDirectDatabaseUrl() {
-  const value = readEnv("DIRECT_URL") || readEnv("DATABASE_URL");
+  const value = readEnv("DIRECT_URL") || readEnv("DATABASE_URL") || "file:./dev.db";
 
   if (!value) {
     throw new Error("DIRECT_URL or DATABASE_URL must be configured for Prisma.");
   }
 
-  assertHostedDatabaseUrl(value, "DIRECT_URL");
-  return value;
+  return normalizeDatabaseUrl(value);
 }
 
 export function getMailAccountSecret() {

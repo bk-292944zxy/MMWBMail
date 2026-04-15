@@ -123,16 +123,28 @@ export function reconcileVisibleSelection(
     selectedUid: number | null;
     selectedMessageUid: number | null;
     selectedMessageAccountId?: string | null;
+    selectedMessageMessageId?: string | null;
+    selectedUidMessageId?: string | null;
     preserveSelection: boolean;
     scopeAccountId?: string | null;
   }
 ) {
   const visibleUids = new Set(messages.map((message) => message.uid));
   const currentUid = input.selectedUid ?? input.selectedMessageUid;
+  const currentMessageId =
+    input.selectedMessageMessageId?.trim() ||
+    input.selectedUidMessageId?.trim() ||
+    null;
   const selectionMatchesScope =
     !input.selectedMessageAccountId ||
     !input.scopeAccountId ||
     input.selectedMessageAccountId === input.scopeAccountId;
+  const currentlyVisibleMessage =
+    currentUid !== null ? messages.find((message) => message.uid === currentUid) ?? null : null;
+  const currentMessageStillMatches =
+    !currentMessageId ||
+    !currentlyVisibleMessage ||
+    currentlyVisibleMessage.messageId === currentMessageId;
 
   if (
     input.preserveSelection &&
@@ -150,7 +162,8 @@ export function reconcileVisibleSelection(
     input.preserveSelection &&
     selectionMatchesScope &&
     currentUid !== null &&
-    visibleUids.has(currentUid)
+    visibleUids.has(currentUid) &&
+    currentMessageStillMatches
   ) {
     return {
       selectedUid: currentUid,
@@ -159,9 +172,16 @@ export function reconcileVisibleSelection(
   }
 
   const nextUid = messages[0]?.uid ?? null;
+  const shouldClearForMessageMismatch =
+    currentUid !== null &&
+    Boolean(currentMessageId) &&
+    Boolean(currentlyVisibleMessage) &&
+    !currentMessageStillMatches;
 
   return {
     selectedUid: nextUid,
-    clearSelectedMessage: currentUid !== null && currentUid !== nextUid
+    clearSelectedMessage:
+      shouldClearForMessageMismatch ||
+      (currentUid !== null && currentUid !== nextUid)
   };
 }

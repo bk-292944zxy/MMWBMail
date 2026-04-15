@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { getOwnedAccount } from "@/lib/account-ownership";
-import { recordAccountEvent, updateAccountMessage } from "@/lib/mail-account-actions";
-import { getSyncedMessageDetail } from "@/lib/mail-sync";
+import {
+  getAccountMessageDetailService,
+  updateAccountMessageService
+} from "@/lib/services/account-mail-service";
 import type { MailUpdatePayload } from "@/lib/mail-types";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 type RouteContext = {
   params: Promise<{
@@ -15,33 +20,23 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { accountId, uid } = await context.params;
-    const account = await getOwnedAccount(accountId);
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
 
     const { searchParams } = new URL(request.url);
     const folderPath = searchParams.get("folder")?.trim();
 
-    if (!folderPath) {
-      return NextResponse.json({ error: "Missing folder query parameter." }, { status: 400 });
-    }
-
     const parsedUid = Number(uid);
-    if (!Number.isFinite(parsedUid)) {
-      return NextResponse.json({ error: "Invalid message uid." }, { status: 400 });
-    }
-
-    const message = await getSyncedMessageDetail(accountId, folderPath, parsedUid);
-
-    if (!message) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
-    }
+    const message = await getAccountMessageDetailService({
+      accountId,
+      folderPath,
+      uid: parsedUid
+    });
 
     return NextResponse.json({ message });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load message.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to load message.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }
 
@@ -53,37 +48,15 @@ type AccountMessagePatchPayload = Pick<
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { accountId, uid } = await context.params;
-    const account = await getOwnedAccount(accountId);
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
-
     const payload = (await request.json()) as AccountMessagePatchPayload;
     const parsedUid = Number(uid);
-
-    if (!payload.folder?.trim()) {
-      return NextResponse.json({ error: "Missing folder." }, { status: 400 });
-    }
-
-    if (!Number.isFinite(parsedUid)) {
-      return NextResponse.json({ error: "Invalid message uid." }, { status: 400 });
-    }
-
-    const result = await updateAccountMessage(accountId, payload, parsedUid);
-    await recordAccountEvent(accountId, {
-      type: payload.action === "delete" ? "message.deleted" : "message.updated",
-      folderPath: payload.folder,
-      messageUid: parsedUid,
-      payloadJson: JSON.stringify({
-        action: payload.action,
-        destinationFolder: payload.destinationFolder ?? null,
-        seen: payload.seen ?? null
-      })
-    });
+    const result = await updateAccountMessageService(accountId, payload, parsedUid);
 
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to update message.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to update message.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

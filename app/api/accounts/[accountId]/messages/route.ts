@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getOwnedAccount } from "@/lib/account-ownership";
-import { listSyncedMessages, syncMailAccount } from "@/lib/mail-sync";
-import { searchAccountMessagesViaProvider } from "@/lib/mail-provider";
+import { listAccountMessagesService } from "@/lib/services/account-mail-service";
+import {
+  getServiceErrorMessage,
+  getServiceErrorStatus
+} from "@/lib/services/service-error";
 
 type RouteContext = {
   params: Promise<{
@@ -15,10 +17,6 @@ export const runtime = "nodejs";
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { accountId } = await context.params;
-    const account = await getOwnedAccount(accountId);
-    if (!account) {
-      return NextResponse.json({ error: "Account not found." }, { status: 404 });
-    }
 
     const { searchParams } = new URL(request.url);
     const folderPath = searchParams.get("folder")?.trim();
@@ -28,35 +26,20 @@ export async function GET(request: Request, context: RouteContext) {
     const systemKey = searchParams.get("systemKey")?.trim();
     const shouldSync = searchParams.get("sync") === "true";
 
-    if (!folderPath) {
-      return NextResponse.json({ error: "Missing folder query parameter." }, { status: 400 });
-    }
-
-    if (shouldSync) {
-      await syncMailAccount(accountId, {
-        folderPaths: [folderPath]
-      });
-    }
-
-    if (query) {
-      const result = await searchAccountMessagesViaProvider({
-        accountId,
-        folderPath,
-        mailboxType:
-          mailboxType === "system" || mailboxType === "folder" || mailboxType === "label"
-            ? mailboxType
-            : undefined,
-        sourceKind: sourceKind === "folder" || sourceKind === "label" ? sourceKind : undefined,
-        mailboxSystemKey: systemKey || undefined,
-        query
-      });
-      return NextResponse.json({ messages: result.messages });
-    }
-
-    const messages = await listSyncedMessages(accountId, folderPath);
+    const messages = await listAccountMessagesService({
+      accountId,
+      folderPath,
+      query,
+      mailboxType,
+      sourceKind,
+      mailboxSystemKey: systemKey,
+      shouldSync
+    });
     return NextResponse.json({ messages });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load messages.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: getServiceErrorMessage(error, "Unable to load messages.") },
+      { status: getServiceErrorStatus(error) }
+    );
   }
 }

@@ -4,6 +4,7 @@ import {
   Fragment,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type FormEvent,
   type MouseEvent as ReactMouseEvent,
   startTransition,
   useCallback,
@@ -63,6 +64,7 @@ import type {
 import { createLocalStorageDraftAdapter, dataUrlToFile, fileToDataUrl } from "@/composer/drafts/draft-adapters";
 import { createAutosaveService, type AutosaveService } from "@/composer/drafts/autosave-service";
 import { createDraftService } from "@/composer/drafts/draft-service";
+import { createDesktopDraftService } from "@/composer/drafts/draft-service-desktop";
 import type {
   DraftAutosaveStatus,
   DraftSnapshotInput,
@@ -172,6 +174,15 @@ import type { QuickFactFallback, QuickFactResult } from "@/lib/quickfact";
 import { formatQuickFactForInsert } from "@/lib/quickfact";
 import { fetchQuickFacts } from "@/lib/quickfact-client";
 import { getPreviewBranchName, shouldShowPreviewBranchBadge } from "@/lib/preview-branch";
+import {
+  createAccountClient,
+  listAccountsClient,
+  loadFoldersClient,
+  loadMessageDetailClient,
+  loadMessagesClient,
+  sendMessageClient,
+  verifyAccountClient
+} from "@/lib/electron/renderer-mail-client";
 import {
   buildVisibleMessageRequestKey,
   createPendingMailMutation,
@@ -1710,6 +1721,48 @@ function getConnectionPreset(email: string): Partial<MailConnectionPayload> | nu
   }
 
   return getProviderDefaultsForKind(kind);
+}
+
+function isAccountNotFoundError(error: unknown) {
+  if (!(error instanceof Error) || !error.message) {
+    return false;
+  }
+
+  const normalized = error.message.trim().toLowerCase();
+  return (
+    normalized.includes("account not found") ||
+    normalized.includes("mail account not found") ||
+    normalized.includes("no record was found")
+  );
+}
+
+function renderComposeTextBodyAsHtml(textBody: string) {
+  return textBody
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\n/g, "<br/>");
+}
+
+function describeComposeEditorNode(node: HTMLDivElement | null) {
+  if (!node) {
+    return {
+      exists: false
+    };
+  }
+
+  const rect = node.getBoundingClientRect();
+  return {
+    exists: true,
+    isConnected: node.isConnected,
+    isVisible: rect.width > 0 && rect.height > 0,
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    textLength: node.innerText.length,
+    htmlLength: node.innerHTML.length
+  };
 }
 
 function getActiveEditableElement(): HTMLElement | null {
@@ -4169,6 +4222,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [accountFormTarget, setAccountFormTarget] = useState<string | null>(null);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
   const [accountFormSuccess, setAccountFormSuccess] = useState<string | null>(null);
+  const [addAccountConfirmationEmail, setAddAccountConfirmationEmail] = useState<string | null>(
+    null
+  );
   const [storedPasswordHintVisible, setStoredPasswordHintVisible] = useState(false);
   const [blockedSearch, setBlockedSearch] = useState("");
   const [selectedBlockedSenders, setSelectedBlockedSenders] = useState<Set<string>>(new Set());
@@ -4184,7 +4240,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeQuickFactInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composeWindowRef = useRef<HTMLDivElement | null>(null);
   const draftServiceRef = useRef(
-    createDraftService(createLocalStorageDraftAdapter())
+    createDesktopDraftService(createDraftService(createLocalStorageDraftAdapter()))
   );
   const autosaveServiceRef = useRef<AutosaveService | null>(null);
   const composeDraftSnapshotTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(
@@ -4193,6 +4249,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeEditorSyncTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const composeSelectionSyncFrameRef = useRef<number | null>(null);
   const composeBodyRef = useRef("");
+  const pendingComposeEditorHydrationBodyRef = useRef<string | null>(null);
+  const composeRestoreDebugAutoResumeRef = useRef(false);
+  const composeRestoreTraceRef = useRef<{
+    active: boolean;
+    sequence: number;
+    draftId: string | null;
+  }>({
+    active: false,
+    sequence: 0,
+    draftId: null
+  });
   const composeAiSelectionSnapshotRef = useRef<ComposeAiSelectionSnapshot | null>(null);
   const composeAiRequestSeqRef = useRef(0);
   const composeAiInFlightRef = useRef(false);
@@ -4245,6 +4312,114 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [blockSender, setBlockSender] = useState(false);
   const [blockedSenders, setBlockedSenders] = useState<Set<string>>(new Set());
   const [pinnedMessages, setPinnedMessages] = useState<Set<string>>(new Set());
+  const logDraftTrace = useCallback((prefix: string, payload: Record<string, unknown>) => {
+    if (typeof window === "undefined" || typeof console === "undefined") {
+      return;
+    }
+
+    const isDebugTraceEnabled =
+      new URLSearchParams(window.location.search).get("debugDraftRestoreTrace") === "1";
+    if (!isDebugTraceEnabled) {
+      return;
+    }
+
+    let serializedPayload = "";
+    try {
+      serializedPayload = JSON.stringify(payload);
+    } catch {
+      serializedPayload = "[unserializable]";
+    }
+    console.info(`${prefix} ${serializedPayload}`);
+  }, []);
+  const getComposeEditorCandidates = useCallback(() => {
+    if (typeof document === "undefined") {
+      return [] as HTMLDivElement[];
+    }
+
+    return Array.from(
+      document.querySelectorAll<HTMLDivElement>(".compose-body-editor[contenteditable='true']")
+    );
+  }, []);
+  const resolveVisibleComposeEditorNode = useCallback(
+    (reason: string) => {
+      const refNode = composeEditorRef.current;
+      const nodes = getComposeEditorCandidates();
+      const visibleNode =
+        nodes.find((node) => {
+          const rect = node.getBoundingClientRect();
+          return node.isConnected && rect.width > 0 && rect.height > 0;
+        }) ?? null;
+      const resolvedNode =
+        refNode && refNode.isConnected
+          ? refNode
+          : visibleNode;
+
+      logDraftTrace("[DRAFT_VISIBLE_NODE]", {
+        reason,
+        refNode: describeComposeEditorNode(refNode),
+        visibleNode: describeComposeEditorNode(visibleNode),
+        resolvedNode: describeComposeEditorNode(resolvedNode),
+        nodeCount: nodes.length,
+        refMatchesVisible: Boolean(refNode && visibleNode && refNode === visibleNode)
+      });
+
+      return resolvedNode;
+    },
+    [getComposeEditorCandidates, logDraftTrace]
+  );
+  const writeComposeBodyState = useCallback(
+    (value: string, trigger: string) => {
+      logDraftTrace("[DRAFT_BODY_WRITE]", {
+        trigger,
+        draftId: composeRestoreTraceRef.current.draftId,
+        value,
+        valueLength: value.length
+      });
+      composeBodyRef.current = value;
+      startTransition(() => {
+        setComposeBody((current) => (current === value ? current : value));
+        updateComposeCounts(value);
+      });
+    },
+    [logDraftTrace]
+  );
+  const setComposeEditorNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      composeEditorRef.current = node;
+      logDraftTrace("[DRAFT_VISIBLE_NODE]", {
+        reason: "ref-assign",
+        assignedNode: describeComposeEditorNode(node),
+        composeOpen,
+        composePlainText
+      });
+
+      if (!node || !node.isConnected || composePlainText || !composeOpen) {
+        return;
+      }
+
+      const pendingBody = pendingComposeEditorHydrationBodyRef.current;
+      if (pendingBody === null) {
+        return;
+      }
+
+      logDraftTrace("[DRAFT_EDITOR_WRITE]", {
+        trigger: "ref-assign-pending-restore",
+        draftId: composeRestoreTraceRef.current.draftId,
+        htmlBefore: node.innerHTML,
+        pendingBody
+      });
+      node.innerHTML = "";
+      node.innerHTML = renderComposeTextBodyAsHtml(pendingBody);
+      pendingComposeEditorHydrationBodyRef.current = null;
+      logDraftTrace("[DRAFT_RESTORE_FINAL]", {
+        stage: "ref-assign-after-apply",
+        draftId: composeRestoreTraceRef.current.draftId,
+        htmlAfter: node.innerHTML,
+        textAfter: node.innerText
+      });
+    },
+    [composeOpen, composePlainText, logDraftTrace]
+  );
   const [prioritizedSenders, setPrioritizedSenders] = useState<
     {
       name: string;
@@ -5221,9 +5396,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       });
 
       try {
-        const folderResponse = await getJson<{ folders: MailFolder[] }>(
-          `/api/accounts/${accountId}/folders${buildFolderRefreshQuery(options)}`
-        );
+        const folderResponse = await loadFoldersClient({
+          accountId,
+          sync: Boolean(options?.sync),
+          folderPaths: options?.folderPaths ?? []
+        });
         recordMailboxDebugEvent("folder_load_succeeded", {
           accountId,
           requestSeq,
@@ -5307,6 +5484,45 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         });
         return folderResponse.folders;
       } catch (error) {
+        if (isAccountNotFoundError(error)) {
+          setAccounts((current) => current.filter((account) => account.id !== accountId));
+          setFoldersByAccount((current) => {
+            if (!(accountId in current)) {
+              return current;
+            }
+            const { [accountId]: _removed, ...rest } = current;
+            return rest;
+          });
+
+          if (activeAccountIdRef.current === accountId) {
+            activeAccountIdRef.current = null;
+            setActiveAccountId(null);
+            setFolders([]);
+            setMessages([]);
+            setSelectedUid(null);
+            setSelectedMessage(null);
+          }
+
+          folderLoadStateByAccountRef.current[accountId] = {
+            ...folderLoadStateByAccountRef.current[accountId],
+            status: "failed",
+            requestSeq,
+            lastError: "Account no longer exists."
+          };
+
+          recordMailboxDebugEvent(
+            "folder_load_account_not_found",
+            {
+              accountId,
+              requestSeq,
+              sync: Boolean(options?.sync),
+              folderPaths: options?.folderPaths ?? []
+            },
+            { level: "warn" }
+          );
+          return [];
+        }
+
         folderLoadStateByAccountRef.current[accountId] = {
           ...folderLoadStateByAccountRef.current[accountId],
           status: "failed",
@@ -5344,7 +5560,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         explicitActiveAccountId: explicitActiveAccountIdRef.current,
         activeAccountId: activeAccountIdRef.current
       });
-      const response = await getJson<{ accounts: MailAccountSummary[] }>("/api/accounts");
+      const response = await listAccountsClient();
       const nextAccounts = response.accounts;
       recordMailboxDebugEvent("account_list_load_succeeded", {
         accountCount: nextAccounts.length,
@@ -5694,6 +5910,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             window.setTimeout(() => {
               const editor = composeEditorRef.current;
               if (editor && !composePlainText) {
+                logDraftTrace("[DRAFT_EDITOR_WRITE]", {
+                  trigger: "signature-context-sync",
+                  htmlBefore: editor.innerHTML,
+                  value: nextBody.replace(/\n/g, "<br/>")
+                });
                 editor.innerHTML = nextBody.replace(/\n/g, "<br/>");
               }
             }, 0);
@@ -5722,12 +5943,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return composeBodyRef.current;
     }
 
-    return composeEditorRef.current?.innerText ?? composeBodyRef.current;
-  }, [composePlainText]);
+    const editor = resolveVisibleComposeEditorNode("read-compose-editor-text-snapshot");
+    return editor?.innerText ?? composeBodyRef.current;
+  }, [composePlainText, resolveVisibleComposeEditorNode]);
 
   const buildComposeDraftSnapshot = useCallback(
     async (localRevision = composeLocalRevisionRef.current): Promise<DraftSnapshotInput | null> => {
-      if (!activeComposeSession.presentation.isOpen || !activeComposeSession.draft.draftId) {
+      if (!composeOpen || !composeDraftId) {
         return null;
       }
 
@@ -5736,7 +5958,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         ? composeBodyRef.current.replace(/\n/g, "<br/>")
         : editor?.innerHTML ?? composeBodyRef.current;
       const textBody = composePlainText ? composeBodyRef.current : readComposeEditorTextSnapshot();
-      const attachmentState = getComposeAttachmentState(activeComposeSession.draft.draftId);
+      const attachmentState = getComposeAttachmentState(composeDraftId);
       const attachments = await Promise.all(
         composeAttachments.map(async (file, index) => ({
           ...attachmentState[index],
@@ -5766,44 +5988,75 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeEvent,
         composeEventAttachment
       });
+      const resolvedDraftAccountId =
+        resolveComposeSessionAccountId(
+          composeSessionContext,
+          composeIdentity
+        ) ??
+        composeSessionContext?.ownerAccountId ??
+        composeIdentity?.sender?.accountId ??
+        composeIdentity?.ownerAccountId ??
+        composeIdentity?.accountId ??
+        activeAccountId ??
+        composeDraft?.accountId ??
+        undefined;
+
+      logDraftTrace("[DRAFT_SAVE]", {
+        stage: "snapshot",
+        draftId: composeDraftId,
+        accountId: resolvedDraftAccountId ?? null,
+        textBody,
+        htmlBody,
+        composeBodyAtSave: composeBodyRef.current
+      });
 
       return {
-        draftId: activeComposeSession.draft.draftId,
-        accountId:
-          resolveComposeSessionAccountId(
-            activeComposeSession.context,
-            activeComposeSession.identity
-          ) ?? undefined,
-        composeSessionContext: activeComposeSession.context,
+        draftId: composeDraftId,
+        accountId: resolvedDraftAccountId,
+        composeSessionContext,
         draftIdentitySnapshot: createDraftIdentitySnapshot(
-          activeComposeSession.context,
-          activeComposeSession.identity
+          composeSessionContext,
+          composeIdentity
         ),
-        composeIdentity: activeComposeSession.identity,
-        composeContentState: activeComposeSession.content,
-        composeIntent: activeComposeSession.intent,
-        sourceMessageMeta: activeComposeSession.sourceMessageMeta,
+        composeIdentity,
+        composeContentState,
+        composeIntent,
+        sourceMessageMeta: composeSourceMessageMeta,
         composeEvent,
         composeEventAttachment: resolvedComposeEventAttachment,
-        subject: activeComposeSession.subject,
-        to: activeComposeSession.recipients.to,
-        cc: activeComposeSession.recipients.cc,
-        bcc: activeComposeSession.recipients.bcc,
-        replyTo: activeComposeSession.recipients.replyTo,
+        subject: composeSubject,
+        to: composeRecipients.to,
+        cc: composeRecipients.cc,
+        bcc: composeRecipients.bcc,
+        replyTo: composeReplyTo,
         htmlBody,
         textBody,
-        signature: activeComposeSession.signature,
+        signature,
         attachments,
         localRevision,
         lastSavedRevision: composeLastSavedRevisionRef.current
       };
     },
     [
+      activeAccountId,
       composeAttachments,
-      activeComposeSession,
+      composeContentState,
+      composeDraft?.accountId,
+      composeDraftId,
       composeEvent,
       composeEventAttachment,
+      composeIdentity,
+      composeIntent,
+      composeOpen,
       composePlainText,
+      composeRecipients.bcc,
+      composeRecipients.cc,
+      composeRecipients.to,
+      composeReplyTo,
+      composeSessionContext,
+      composeSourceMessageMeta,
+      composeSubject,
+      logDraftTrace,
       createDraftIdentitySnapshot,
       getComposeAttachmentState,
       readComposeEditorTextSnapshot,
@@ -5928,9 +6181,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   useEffect(() => {
     if (settingsOpen) {
-      if (settingsTab === "account" && accountFormMode === null && accounts.length === 0) {
-        openAddAccount();
-      }
       return;
     }
 
@@ -6165,7 +6415,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     accounts.forEach((account) => {
       if (!foldersByAccount[account.id]) {
-        void loadFoldersForAccount(account.id, !account.lastSyncedAt);
+        void loadFoldersForAccount(account.id, !account.lastSyncedAt).catch((error) => {
+          if (!isAccountNotFoundError(error)) {
+            console.error("Folder preload failed:", error);
+          }
+        });
       }
     });
   }, [accounts, foldersByAccount, loadFoldersForAccount]);
@@ -6581,6 +6835,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           return;
         }
 
+        logDraftTrace("[DRAFT_LOAD]", {
+          stage: "recover-draft-on-mount",
+          draftId: draft.draftId,
+          restoredTextBody: draft.textBody ?? null,
+          restoredHtmlBody: draft.htmlBody ?? null
+        });
+
         setComposeDraft(draft);
         setComposeDraftId(draft.draftId);
         setComposeDraftStatus("saved");
@@ -6592,6 +6853,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         // Ignore malformed saved draft state.
       });
   }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      composeRestoreDebugAutoResumeRef.current ||
+      composeOpen ||
+      !composeDraft
+    ) {
+      return;
+    }
+
+    const search = new URLSearchParams(window.location.search);
+    if (search.get("debugDraftRestoreTrace") !== "1") {
+      return;
+    }
+
+    composeRestoreDebugAutoResumeRef.current = true;
+    logDraftTrace("[DRAFT_RESTORE]", {
+      stage: "debug-auto-resume-triggered",
+      draftId: composeDraft.draftId
+    });
+    resumeStoredComposeDraft(composeDraft);
+  }, [composeDraft, composeOpen, logDraftTrace]);
 
   useEffect(() => {
     autosaveServiceRef.current = createAutosaveService({
@@ -6632,15 +6916,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   useEffect(() => {
     if (
       typeof window === "undefined" ||
-      !activeComposeSession.presentation.isOpen ||
-      !activeComposeSession.draft.draftId
+      !composeOpen ||
+      !composeDraftId
     ) {
       return;
     }
 
     composeLocalRevisionRef.current += 1;
     draftServiceRef.current.markLocalDirty({
-      draftId: activeComposeSession.draft.draftId,
+      draftId: composeDraftId,
       localRevision: composeLocalRevisionRef.current
     });
 
@@ -6675,14 +6959,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       }
     };
   }, [
-    activeComposeSession.draft.draftId,
-    activeComposeSession.presentation.isOpen,
     buildComposeDraftSnapshot,
+    composeDraftId,
     composeBccList,
     composeBody,
     composeCcList,
     composeEvent,
     composeEventAttachment,
+    composeOpen,
     composePlainText,
     composeReplyTo,
     composeSubject,
@@ -6694,8 +6978,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   useEffect(() => {
     if (
       typeof window === "undefined" ||
-      !activeComposeSession.presentation.isOpen ||
-      !activeComposeSession.draft.draftId
+      !composeOpen ||
+      !composeDraftId
     ) {
       return;
     }
@@ -6720,18 +7004,140 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       window.removeEventListener("beforeunload", flushDraft);
     };
   }, [
-    activeComposeSession.draft.draftId,
-    activeComposeSession.presentation.isOpen,
-    buildComposeDraftSnapshot
+    buildComposeDraftSnapshot,
+    composeDraftId,
+    composeOpen
   ]);
 
   useEffect(() => {
-    if (!composeOpen || !composeEditorRef.current) {
+    if (!composeOpen) {
       return;
     }
 
-    composeEditorRef.current.innerHTML = composeBody.replace(/\n/g, "<br/>");
-  }, [composeOpen]);
+    if (composePlainText) {
+      if (pendingComposeEditorHydrationBodyRef.current !== null) {
+        logDraftTrace("[DRAFT_BODY_RESET]", {
+          stage: "editor-hydration-effect",
+          reason: "cleared-pending-restore-body-because-plain-text",
+          pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current
+        });
+      }
+      pendingComposeEditorHydrationBodyRef.current = null;
+      return;
+    }
+
+    const pendingBody = pendingComposeEditorHydrationBodyRef.current;
+    if (pendingBody === null) {
+      return;
+    }
+
+    let cancelled = false;
+    let waitLogged = false;
+
+    const applyPendingBody = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const editor = resolveVisibleComposeEditorNode("pending-restore-effect");
+      if (!editor || !editor.isConnected) {
+        if (!waitLogged) {
+          waitLogged = true;
+          logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+            stage: "waiting-for-editor-ref",
+            draftId: composeRestoreTraceRef.current.draftId,
+            hasEditorRef: Boolean(editor),
+            editorIsConnected: Boolean(editor?.isConnected),
+            pendingRestoreBody: pendingBody
+          });
+        }
+        window.requestAnimationFrame(applyPendingBody);
+        return;
+      }
+
+      logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+        stage: "effect-before-apply",
+        draftId: composeRestoreTraceRef.current.draftId,
+        hasEditorRef: true,
+        editorIsConnected: editor.isConnected,
+        editorHtmlBefore: editor.innerHTML,
+        pendingRestoreBody: pendingBody
+      });
+      logDraftTrace("[DRAFT_EDITOR_CLEAR]", {
+        trigger: "pending-restore-effect",
+        draftId: composeRestoreTraceRef.current.draftId,
+        htmlBefore: editor.innerHTML
+      });
+      editor.innerHTML = "";
+      logDraftTrace("[DRAFT_EDITOR_WRITE]", {
+        trigger: "pending-restore-effect",
+        draftId: composeRestoreTraceRef.current.draftId,
+        value: renderComposeTextBodyAsHtml(pendingBody)
+      });
+      editor.innerHTML = renderComposeTextBodyAsHtml(pendingBody);
+      pendingComposeEditorHydrationBodyRef.current = null;
+      logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+        stage: "effect-after-apply",
+        draftId: composeRestoreTraceRef.current.draftId,
+        editorHtmlAfter: editor.innerHTML,
+        composeBodyAfterApply: composeBodyRef.current
+      });
+
+      window.setTimeout(() => {
+        const postEditor = resolveVisibleComposeEditorNode("pending-restore-effect-posttick-1");
+        logDraftTrace("[DRAFT_EDITOR_POSTTICK]", {
+          stage: "after-effect-apply",
+          draftId: composeRestoreTraceRef.current.draftId,
+          hasEditorRef: Boolean(postEditor),
+          editorIsConnected: Boolean(postEditor?.isConnected),
+          editorHtmlPostTick: postEditor?.innerHTML ?? null,
+          composeBodyPostTick: composeBodyRef.current,
+          pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current
+        });
+        if (composeRestoreTraceRef.current.active) {
+          composeRestoreTraceRef.current = {
+            ...composeRestoreTraceRef.current,
+            active: false
+          };
+        }
+      }, 0);
+      window.setTimeout(() => {
+        const postEditor = resolveVisibleComposeEditorNode("pending-restore-effect-posttick-2");
+        logDraftTrace("[DRAFT_RESTORE_FINAL]", {
+          stage: "after-effect-apply-second-tick",
+          draftId: composeRestoreTraceRef.current.draftId,
+          editorHtmlSecondTick: postEditor?.innerHTML ?? null,
+          editorTextSecondTick: postEditor?.innerText ?? null,
+          composeBodySecondTick: composeBodyRef.current
+        });
+      }, 32);
+    };
+
+    window.requestAnimationFrame(applyPendingBody);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    composeDraftId,
+    composeOpen,
+    composePlainText,
+    logDraftTrace,
+    resolveVisibleComposeEditorNode
+  ]);
+
+  useEffect(() => {
+    if (!composeRestoreTraceRef.current.active) {
+      return;
+    }
+
+    logDraftTrace("[DRAFT_EDITOR_POSTTICK]", {
+      stage: "compose-body-state-change",
+      draftId: composeRestoreTraceRef.current.draftId,
+      composeOpen,
+      richTextMode: !composePlainText,
+      composeBody
+    });
+  }, [composeBody, composeOpen, composePlainText, logDraftTrace]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -7852,6 +8258,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           selectedUid,
           selectedMessageUid: selectedMessage?.uid ?? null,
           selectedMessageAccountId: selectedMessage?.accountId ?? null,
+          selectedMessageMessageId: selectedMessage?.messageId ?? null,
+          selectedUidMessageId:
+            selectedUid !== null
+              ? messages.find(
+                  (message) =>
+                    message.uid === selectedUid &&
+                    (message.accountId ?? resolvedAccountId) === resolvedAccountId
+                )?.messageId ?? null
+              : null,
           preserveSelection,
           scopeAccountId: resolvedAccountId
         });
@@ -7894,26 +8309,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         return cached;
       }
 
-      const searchParams = new URLSearchParams({
-        folder
+      const response = await loadMessagesClient({
+        accountId: resolvedAccountId,
+        folderPath: folder,
+        shouldSync: force && !skipServerSync,
+        query: serverSearchActive ? activeQueryForFolder?.normalizedSearchText ?? "" : "",
+        mailboxType: serverSearchActive ? activeQueryForFolder?.target.mailboxType ?? null : null,
+        sourceKind: serverSearchActive ? activeQueryForFolder?.target.sourceKind ?? null : null,
+        mailboxSystemKey: serverSearchActive ? activeQueryForFolder?.target.systemKey ?? null : null
       });
-      if (force && !skipServerSync) {
-        searchParams.set("sync", "true");
-      }
-      if (serverSearchActive) {
-        searchParams.set("q", activeQueryForFolder?.normalizedSearchText ?? "");
-        if (activeQueryForFolder) {
-          searchParams.set("mailboxType", activeQueryForFolder.target.mailboxType);
-          searchParams.set("sourceKind", activeQueryForFolder.target.sourceKind);
-          if (activeQueryForFolder.target.systemKey) {
-            searchParams.set("systemKey", activeQueryForFolder.target.systemKey);
-          }
-        }
-      }
-
-      const response = await getJson<{ messages: MailSummary[] }>(
-        `/api/accounts/${resolvedAccountId}/messages?${searchParams.toString()}`
-      );
       const fresh = reconcileMessagesWithPendingMutations(
         stampMessageAccountList(response.messages, resolvedAccountId),
         pendingMailMutationsRef.current,
@@ -8040,6 +8444,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         selectedUid,
         selectedMessageUid: selectedMessage?.uid ?? null,
         selectedMessageAccountId: selectedMessage?.accountId ?? null,
+        selectedMessageMessageId: selectedMessage?.messageId ?? null,
+        selectedUidMessageId:
+          selectedUid !== null
+            ? messages.find(
+                (message) =>
+                  message.uid === selectedUid &&
+                  (message.accountId ?? resolvedAccountId) === resolvedAccountId
+              )?.messageId ?? null
+            : null,
         preserveSelection,
         scopeAccountId: resolvedAccountId
       });
@@ -8120,7 +8533,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return { account: activeAccount, folder: targetFolder };
     }
 
-    const accountResponse = await postJson<{ account: MailAccountSummary }>("/api/accounts", {
+    const accountResponse = await createAccountClient({
       ...connection,
       folder: targetFolder,
       label: connection.email.trim() || "Mailbox",
@@ -8136,10 +8549,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   async function verifyAccountConnection() {
     const targetFolder = connection.folder?.trim() || activeAccount?.defaultFolder || "INBOX";
 
-    const result = await postJson<{
-      folders: MailFolder[];
-      connection?: Partial<MailConnectionPayload>;
-    }>("/api/accounts/verify", {
+    const result = await verifyAccountClient({
       ...connection,
       folder: targetFolder
     });
@@ -8187,7 +8597,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setStatus(successMessage);
       showToast(accountFormMode === "add" ? "Account added" : "Account updated");
       setSettingsTab("account");
-      closeAccountForm();
+      if (accountFormMode === "add") {
+        setAddAccountConfirmationEmail(account.email);
+      } else {
+        closeAccountForm();
+      }
       return true;
     } catch (error) {
       if (shouldRollbackCreatedAccount && createdAccountId) {
@@ -8243,11 +8657,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setStatus("Loading message...");
 
     try {
-      const response = await getJson<{ message: MailDetail }>(
-        `/api/accounts/${resolvedAccountId}/messages/${message.uid}?folder=${encodeURIComponent(
-          resolvedFolderPath
-        )}`
-      );
+      const response = await loadMessageDetailClient({
+        accountId: resolvedAccountId,
+        uid: message.uid,
+        folderPath: resolvedFolderPath
+      });
       if (openMessageSeqRef.current !== requestSeq) {
         return;
       }
@@ -8263,11 +8677,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         globalThis.setTimeout(() => {
           void (async () => {
             try {
-              const retryResponse = await getJson<{ message: MailDetail }>(
-                `/api/accounts/${resolvedAccountId}/messages/${message.uid}?folder=${encodeURIComponent(
-                  resolvedFolderPath
-                )}`
-              );
+              const retryResponse = await loadMessageDetailClient({
+                accountId: resolvedAccountId,
+                uid: message.uid,
+                folderPath: resolvedFolderPath
+              });
 
               if (openMessageSeqRef.current !== requestSeq) {
                 return;
@@ -8343,6 +8757,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       accountId: string;
       folderPath: string;
     }) => {
+      if (!input.accountId) {
+        return;
+      }
+
+      const accountStillExists = accounts.some((account) => account.id === input.accountId);
+      if (!accountStillExists) {
+        return;
+      }
+
+      if (activeAccountIdRef.current && input.accountId !== activeAccountIdRef.current) {
+        return;
+      }
+
       const targetMessage =
         (selectedMessage?.uid === input.uid ? selectedMessage : null) ??
         messages.find((message) => message.uid === input.uid) ??
@@ -8375,6 +8802,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           folderPaths: [input.folderPath]
         });
       } catch (error) {
+        const normalizedMessage =
+          error instanceof Error && error.message ? error.message.trim().toLowerCase() : "";
+        const accountMissingDuringDelay =
+          normalizedMessage.includes("account not found") ||
+          normalizedMessage.includes("mail account not found") ||
+          normalizedMessage.includes("no record was found");
+
+        if (accountMissingDuringDelay) {
+          return;
+        }
+
         console.error("Flag update failed:", error);
         setMessages((current) =>
           current.map((entry) => (entry.uid === input.uid ? { ...entry, seen: false } : entry))
@@ -8388,7 +8826,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         );
       }
     },
-    [messages, refreshFolderCounts, selectedMessage]
+    [accounts, messages, refreshFolderCounts, selectedMessage]
   );
 
   async function openMessage(uid: number) {
@@ -8423,11 +8861,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       throw new Error("No active account.");
     }
 
-    const response = await getJson<{ message: MailDetail }>(
-      `/api/accounts/${activeAccountId}/messages/${uid}?folder=${encodeURIComponent(
-        currentFolderPath
-      )}`
-    );
+    const response = await loadMessageDetailClient({
+      accountId: activeAccountId,
+      uid,
+      folderPath: currentFolderPath
+    });
     const resolvedMessage = stampMessageAccount(response.message, activeAccountId);
     setCleanupPreviewCache((current) => ({ ...current, [uid]: resolvedMessage }));
     return resolvedMessage;
@@ -8873,15 +9311,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       });
       formData.append("inline_count", String(imageAttachments.length));
 
-      const response = await fetch(`/api/accounts/${resolvedSendIdentity.accountId}/send`, {
-        method: "POST",
-        body: formData
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error || "Unable to send message.");
-      }
+      await sendMessageClient(resolvedSendIdentity.accountId, formData);
 
       if (sendingAccountId) {
         await refreshFolderCounts(sendingAccountId, {
@@ -8917,6 +9347,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       clearComposeEventState();
       setComposeWordCount({ words: 0, chars: 0 });
       composeBodyRef.current = "";
+      logDraftTrace("[DRAFT_BODY_RESET]", {
+        stage: "handle-send",
+        reason: "clearing-compose-body-after-send",
+        draftId: composeRestoreTraceRef.current.draftId
+      });
+      pendingComposeEditorHydrationBodyRef.current = null;
+      composeRestoreTraceRef.current = {
+        ...composeRestoreTraceRef.current,
+        active: false
+      };
       setComposeMinimized(false);
       setComposePlainText(false);
       closeComposeQuickFact();
@@ -8931,6 +9371,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       savedRangeRef.current = null;
       void clearPersistedComposeDraft();
       if (composeEditorRef.current) {
+        logDraftTrace("[DRAFT_BODY_RESET]", {
+          stage: "handle-send",
+          reason: "reset-editor-innerhtml",
+          draftId: composeRestoreTraceRef.current.draftId,
+          editorHtmlBeforeReset: composeEditorRef.current.innerHTML
+        });
+        logDraftTrace("[DRAFT_EDITOR_CLEAR]", {
+          trigger: "handle-send",
+          draftId: composeRestoreTraceRef.current.draftId,
+          htmlBefore: composeEditorRef.current.innerHTML
+        });
         composeEditorRef.current.innerHTML = "";
       }
       setStatus("Message sent successfully.");
@@ -9019,6 +9470,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeReplyTo("");
     setComposeSubject("");
     setComposeBody("");
+    composeBodyRef.current = "";
+    logDraftTrace("[DRAFT_BODY_RESET]", {
+      stage: "close-compose-draft",
+      reason: "clearing-compose-body-on-close",
+      draftId: composeRestoreTraceRef.current.draftId
+    });
+    pendingComposeEditorHydrationBodyRef.current = null;
+    composeRestoreTraceRef.current = {
+      ...composeRestoreTraceRef.current,
+      active: false
+    };
     setComposeAttachments([]);
     clearComposeEventState();
     setComposeWordCount({ words: 0, chars: 0 });
@@ -9036,6 +9498,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     void clearPersistedComposeDraft();
 
     if (composeEditorRef.current) {
+      logDraftTrace("[DRAFT_BODY_RESET]", {
+        stage: "close-compose-draft",
+        reason: "reset-editor-innerhtml",
+        draftId: composeRestoreTraceRef.current.draftId,
+        editorHtmlBeforeReset: composeEditorRef.current.innerHTML
+      });
+      logDraftTrace("[DRAFT_EDITOR_CLEAR]", {
+        trigger: "close-compose-draft",
+        draftId: composeRestoreTraceRef.current.draftId,
+        htmlBefore: composeEditorRef.current.innerHTML
+      });
       composeEditorRef.current.innerHTML = "";
     }
   }
@@ -9114,13 +9587,30 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     const text = nextText ?? readComposeEditorTextSnapshot();
-    composeBodyRef.current = text;
+    if (
+      !composePlainText &&
+      pendingComposeEditorHydrationBodyRef.current !== null
+    ) {
+      logDraftTrace("[DRAFT_BODY_RESET]", {
+        stage: "flush-compose-editor-text-sync",
+        reason: "skipped-while-pending-restore-hydration",
+        pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current,
+        attemptedText: text,
+        composeBodyBefore: composeBodyRef.current
+      });
+      return;
+    }
 
-    startTransition(() => {
-      setComposeBody((current) => (current === text ? current : text));
-      updateComposeCounts(text);
-    });
-  }, [readComposeEditorTextSnapshot]);
+    if (composeRestoreTraceRef.current.active) {
+      logDraftTrace("[DRAFT_RESTORE]", {
+        stage: "flush-compose-editor-text-sync",
+        draftId: composeRestoreTraceRef.current.draftId,
+        textFromEditor: text,
+        composeBodyBefore: composeBodyRef.current
+      });
+    }
+    writeComposeBodyState(text, "flush-compose-editor-text-sync");
+  }, [composePlainText, logDraftTrace, readComposeEditorTextSnapshot, writeComposeBodyState]);
 
   const scheduleComposeEditorTextSync = useCallback(() => {
     if (composeEditorSyncTimerRef.current !== null) {
@@ -9130,7 +9620,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeEditorSyncTimerRef.current = globalThis.setTimeout(() => {
       composeEditorSyncTimerRef.current = null;
       flushComposeEditorTextSync();
-    }, 140);
+    }, 260);
   }, [flushComposeEditorTextSync]);
 
   async function persistComposeDraftNow(showFeedback = false) {
@@ -10497,14 +10987,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     const html = convertRewriteTextToHtml(optionText);
 
-    if (strategy === "replace") {
-      if (snapshot.hasSelection && snapshot.range) {
-        savedRangeRef.current = snapshot.range.cloneRange();
-        insertHtmlIntoCompose(html);
-      } else {
-        editor.innerHTML = html;
-        updateComposeRichTextSnapshot();
-      }
+      if (strategy === "replace") {
+        if (snapshot.hasSelection && snapshot.range) {
+          savedRangeRef.current = snapshot.range.cloneRange();
+          insertHtmlIntoCompose(html);
+        } else {
+          logDraftTrace("[DRAFT_EDITOR_WRITE]", {
+            trigger: "apply-compose-ai-preview-replace",
+            htmlBefore: editor.innerHTML,
+            value: html
+          });
+          editor.innerHTML = html;
+          updateComposeRichTextSnapshot();
+        }
     } else {
       if (snapshot.range) {
         const insertionRange = snapshot.range.cloneRange();
@@ -10561,6 +11056,45 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   ) {
     const restoredDraft = options?.restoredDraft ?? null;
+    const canonicalRestoredBody = restoredDraft?.textBody ?? session.textBody ?? "";
+    const restoreSequence = composeRestoreTraceRef.current.sequence + 1;
+    composeRestoreTraceRef.current = {
+      active: Boolean(restoredDraft),
+      sequence: restoreSequence,
+      draftId: restoredDraft?.draftId ?? session.draftId ?? null
+    };
+
+    if (composeEditorSyncTimerRef.current !== null) {
+      globalThis.clearTimeout(composeEditorSyncTimerRef.current);
+      composeEditorSyncTimerRef.current = null;
+      logDraftTrace("[DRAFT_BODY_RESET]", {
+        stage: "apply-compose-session",
+        reason: "cleared-pending-editor-sync-timer",
+        restoreSequence
+      });
+    }
+
+    if (composeDraftSnapshotTimerRef.current !== null) {
+      globalThis.clearTimeout(composeDraftSnapshotTimerRef.current);
+      composeDraftSnapshotTimerRef.current = null;
+      logDraftTrace("[DRAFT_BODY_RESET]", {
+        stage: "apply-compose-session",
+        reason: "cleared-pending-draft-snapshot-timer",
+        restoreSequence
+      });
+    }
+
+    if (restoredDraft) {
+      logDraftTrace("[DRAFT_RESTORE]", {
+        stage: "apply-start",
+        restoreSequence,
+        draftId: restoredDraft.draftId,
+        accountId: restoredDraft.accountId ?? null,
+        restoredTextBody: restoredDraft.textBody ?? null,
+        restoredHtmlBody: restoredDraft.htmlBody ?? null
+      });
+    }
+
     const restoredFiles = options?.restoredFiles ?? [];
     const recipients = normalizeRecipientGroups({
       to: session.to,
@@ -10601,9 +11135,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeEventAttachment(restoredDraft?.composeEventAttachment ?? null);
     setComposeEventBuilderOpen(false);
     setComposeSubject(session.subject);
-    setComposeBody(session.textBody);
+    writeComposeBodyState(canonicalRestoredBody, "apply-compose-session");
+    pendingComposeEditorHydrationBodyRef.current = session.ui.plainText
+      ? null
+      : canonicalRestoredBody;
+    if (restoredDraft) {
+      logDraftTrace("[DRAFT_RESTORE]", {
+        stage: "state-assigned",
+        restoreSequence,
+        draftId: restoredDraft.draftId,
+        composeBodyAssigned: canonicalRestoredBody,
+        pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current,
+        composeOpenBeforeSet: composeOpen,
+        richTextMode: !session.ui.plainText
+      });
+    }
     setSignature(session.signature);
-    updateComposeCounts(session.textBody);
     setComposeHeight(getInitialComposeHeight());
     setComposeMinimized(false);
     setComposePlainText(session.ui.plainText);
@@ -10617,18 +11164,84 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setDiscardConfirmOpen(false);
     setComposeOpen(true);
 
-    window.setTimeout(() => {
-      const editor = composeEditorRef.current;
-      if (!editor) {
-        return;
+    const liveEditor = resolveVisibleComposeEditorNode("apply-compose-session-immediate");
+    if (!session.ui.plainText && liveEditor && liveEditor.isConnected) {
+      if (restoredDraft) {
+        logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+          stage: "apply-compose-session-immediate",
+          restoreSequence,
+          draftId: restoredDraft.draftId,
+          hasEditorRef: true,
+          editorIsConnected: liveEditor.isConnected,
+          editorHtmlBefore: liveEditor.innerHTML
+        });
       }
+      logDraftTrace("[DRAFT_EDITOR_CLEAR]", {
+        trigger: "apply-compose-session-immediate",
+        draftId: restoredDraft?.draftId ?? session.draftId,
+        htmlBefore: liveEditor.innerHTML
+      });
+      liveEditor.innerHTML = "";
+      logDraftTrace("[DRAFT_EDITOR_WRITE]", {
+        trigger: "apply-compose-session-immediate",
+        draftId: restoredDraft?.draftId ?? session.draftId,
+        value: renderComposeTextBodyAsHtml(canonicalRestoredBody)
+      });
+      liveEditor.innerHTML = renderComposeTextBodyAsHtml(canonicalRestoredBody);
+      if (restoredDraft) {
+        logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+          stage: "apply-compose-session-immediate-complete",
+          restoreSequence,
+          draftId: restoredDraft.draftId,
+          editorHtmlAfter: liveEditor.innerHTML
+        });
+      }
+    } else if (restoredDraft) {
+      logDraftTrace("[DRAFT_EDITOR_APPLY]", {
+        stage: "apply-compose-session-deferred",
+        restoreSequence,
+        draftId: restoredDraft.draftId,
+        hasEditorRef: Boolean(liveEditor),
+        editorIsConnected: Boolean(liveEditor?.isConnected)
+      });
+    }
 
-      if (session.htmlBody) {
-        editor.innerHTML = session.htmlBody;
-      } else if (!session.ui.plainText) {
-        editor.innerHTML = session.textBody.replace(/\n/g, "<br/>");
-      }
-    }, 50);
+    if (restoredDraft && typeof window !== "undefined") {
+      window.setTimeout(() => {
+        const editor = resolveVisibleComposeEditorNode("apply-compose-session-posttick-1");
+        logDraftTrace("[DRAFT_EDITOR_POSTTICK]", {
+          stage: "after-apply-compose-session",
+          restoreSequence,
+          draftId: restoredDraft.draftId,
+          hasEditorRef: Boolean(editor),
+          editorIsConnected: Boolean(editor?.isConnected),
+          editorHtmlPostTick: editor?.innerHTML ?? null,
+          composeBodyPostTick: composeBodyRef.current,
+          pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current
+        });
+        if (
+          composeRestoreTraceRef.current.active &&
+          composeRestoreTraceRef.current.sequence === restoreSequence &&
+          pendingComposeEditorHydrationBodyRef.current === null
+        ) {
+          composeRestoreTraceRef.current = {
+            ...composeRestoreTraceRef.current,
+            active: false
+          };
+        }
+      }, 0);
+      window.setTimeout(() => {
+        const editor = resolveVisibleComposeEditorNode("apply-compose-session-posttick-2");
+        logDraftTrace("[DRAFT_RESTORE_FINAL]", {
+          stage: "after-apply-compose-session-second-tick",
+          restoreSequence,
+          draftId: restoredDraft.draftId,
+          editorHtmlSecondTick: editor?.innerHTML ?? null,
+          editorTextSecondTick: editor?.innerText ?? null,
+          composeBodySecondTick: composeBodyRef.current
+        });
+      }, 32);
+    }
   }
 
   function resumeStoredComposeDraft(draft: StoredComposerDraft) {
@@ -10684,6 +11297,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       attachments: draft.attachments,
       composeEvent: draft.composeEvent ?? null,
       composeEventAttachment: draft.composeEventAttachment ?? null
+    });
+    logDraftTrace("[DRAFT_RESTORE]", {
+      stage: "resume-stored-draft",
+      draftId: draft.draftId,
+      accountId: draft.accountId ?? null,
+      restoredTextBody: draft.textBody ?? null,
+      restoredHtmlBody: draft.htmlBody ?? null
     });
 
     applyComposeSession(session, {
@@ -11489,6 +12109,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     });
     setAccountFormError(null);
     setAccountFormSuccess(null);
+    setAddAccountConfirmationEmail(null);
+    setHasAppliedPreset(false);
     setAccountFormTarget(account.id);
     setAccountFormMode("edit");
   }
@@ -11507,6 +12129,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     });
     setAccountFormError(null);
     setAccountFormSuccess(null);
+    setAddAccountConfirmationEmail(null);
+    setHasAppliedPreset(false);
     setAccountFormTarget(null);
     setAccountFormMode("add");
   }
@@ -11521,6 +12145,217 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setAccountFormError(null);
     setAccountFormMode(null);
     setAccountFormTarget(null);
+    setAddAccountConfirmationEmail(null);
+    setHasAppliedPreset(false);
+  }
+
+  async function handleAccountFormSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await handleConnect();
+  }
+
+  function renderAccountFormContent(mode: "add" | "edit") {
+    const title =
+      mode === "add"
+        ? "New Account"
+        : `Edit: ${
+            accountFormTarget
+              ? (accounts.find((account) => account.id === accountFormTarget)?.email ?? "")
+              : ""
+          }`;
+    const emailId = `settings-account-${mode}-email`;
+    const passwordId = `settings-account-${mode}-password`;
+    const imapHostId = `settings-account-${mode}-imap-host`;
+    const imapPortId = `settings-account-${mode}-imap-port`;
+    const smtpHostId = `settings-account-${mode}-smtp-host`;
+    const smtpPortId = `settings-account-${mode}-smtp-port`;
+
+    return (
+      <>
+        <div className="settings-section-label">{title}</div>
+
+        {accountFormError ? (
+          <div className="settings-account-feedback error">{accountFormError}</div>
+        ) : null}
+
+        <form
+          className="settings-account-form"
+          autoComplete="on"
+          onSubmit={(event) => {
+            void handleAccountFormSubmit(event);
+          }}
+        >
+          <div className="settings-section">
+            <div className="settings-section-label">IMAP / Incoming Mail</div>
+            <div className="settings-field-group">
+              <div className="settings-field">
+                <label htmlFor={emailId}>Email address</label>
+                <input
+                  id={emailId}
+                  name="email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  value={connection.email}
+                  onChange={(event) => {
+                    const email = event.target.value;
+                    const nextConnection = { ...connection, email };
+                    persistConnection(nextConnection);
+                  }}
+                  onBlur={(event) => {
+                    applyPresetFromEmail(event.target.value, false);
+                  }}
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div className="settings-field">
+                <label htmlFor={passwordId}>Password</label>
+                <input
+                  id={passwordId}
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={connection.password}
+                  onChange={(event) =>
+                    persistConnection({ ...connection, password: event.target.value })
+                  }
+                  placeholder="App password"
+                />
+                {storedPasswordHintVisible ? (
+                  <div className="settings-field-hint">
+                    Password is already stored securely for this account. Leave this blank to keep
+                    using it, or enter a new one to replace it.
+                  </div>
+                ) : null}
+              </div>
+              <div className="settings-field-row">
+                <div className="settings-field">
+                  <label htmlFor={imapHostId}>IMAP host</label>
+                  <input
+                    id={imapHostId}
+                    name="imapHost"
+                    autoComplete="off"
+                    value={connection.imapHost}
+                    onChange={(event) =>
+                      persistConnection({ ...connection, imapHost: event.target.value })
+                    }
+                    placeholder="imap.mailserver.com"
+                  />
+                </div>
+                <div className="settings-field settings-field-short">
+                  <label htmlFor={imapPortId}>Port</label>
+                  <input
+                    id={imapPortId}
+                    name="imapPort"
+                    autoComplete="off"
+                    type="number"
+                    value={connection.imapPort}
+                    onChange={(event) =>
+                      persistConnection({
+                        ...connection,
+                        imapPort: Number(event.target.value)
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <label className="settings-field-checkbox">
+                <input
+                  type="checkbox"
+                  checked={connection.imapSecure}
+                  onChange={(event) =>
+                    persistConnection({
+                      ...connection,
+                      imapSecure: event.target.checked
+                    })
+                  }
+                />
+                <span>Secure IMAP</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section-label">SMTP / Outgoing Mail</div>
+            <div className="settings-field-group">
+              <div className="settings-field-row">
+                <div className="settings-field">
+                  <label htmlFor={smtpHostId}>SMTP host</label>
+                  <input
+                    id={smtpHostId}
+                    name="smtpHost"
+                    autoComplete="off"
+                    value={connection.smtpHost}
+                    onChange={(event) =>
+                      persistConnection({ ...connection, smtpHost: event.target.value })
+                    }
+                    placeholder="smtp.mailserver.com"
+                  />
+                </div>
+                <div className="settings-field settings-field-short">
+                  <label htmlFor={smtpPortId}>Port</label>
+                  <input
+                    id={smtpPortId}
+                    name="smtpPort"
+                    autoComplete="off"
+                    type="number"
+                    value={connection.smtpPort}
+                    onChange={(event) =>
+                      persistConnection({
+                        ...connection,
+                        smtpPort: Number(event.target.value)
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <label className="settings-field-checkbox">
+                <input
+                  type="checkbox"
+                  checked={connection.smtpSecure}
+                  onChange={(event) =>
+                    persistConnection({
+                      ...connection,
+                      smtpSecure: event.target.checked
+                    })
+                  }
+                />
+                <span>Secure SMTP</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section-label">Presets</div>
+            {hasInMotionPreset ? (
+              <div className="settings-preset-hint">
+                InMotion defaults are available for this address and are applied automatically when
+                needed.
+              </div>
+            ) : null}
+            <button
+              className="ghostButton"
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                applyInMotionPreset();
+              }}
+            >
+              {hasInMotionPreset ? "Reapply InMotion preset" : "Use InMotion preset"}
+            </button>
+          </div>
+
+          <div className="settings-footer-actions">
+            <button className="modal-btn-cancel" type="button" onClick={closeAccountForm}>
+              Cancel
+            </button>
+            <button className="modal-btn-confirm" type="submit">
+              {mode === "add" ? "Add Account" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </>
+    );
   }
 
   async function loadAiSettings() {
@@ -13053,11 +13888,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     attachmentHydrationAttemptedRef.current.add(hydrationKey);
 
     try {
-      const response = await getJson<{ message: MailDetail }>(
-        `/api/accounts/${resolvedAccountId}/messages/${message.uid}?folder=${encodeURIComponent(
-          currentFolderPath
-        )}`
-      );
+      const response = await loadMessageDetailClient({
+        accountId: resolvedAccountId,
+        uid: message.uid,
+        folderPath: currentFolderPath
+      });
       const refreshed = stampMessageAccount(response.message, resolvedAccountId);
       setSelectedMessage((current) =>
         current && current.uid === refreshed.uid ? refreshed : current
@@ -13733,6 +14568,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       selectedUid,
       selectedMessageUid: selectedMessage?.uid ?? null,
       selectedMessageAccountId: selectedMessage?.accountId ?? null,
+      selectedMessageMessageId: selectedMessage?.messageId ?? null,
+      selectedUidMessageId:
+        selectedUid !== null
+          ? sortedMessages.find((message) => message.uid === selectedUid)?.messageId ?? null
+          : null,
       preserveSelection: true,
       scopeAccountId: activeAccountId
     });
@@ -15044,6 +15884,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             setDiscardConfirmOpen(true);
           } else {
             lastEditableRef.current = null;
+            logDraftTrace("[DRAFT_BODY_RESET]", {
+              stage: "escape-close-compose",
+              reason: "compose-closed-without-content",
+              draftId: composeRestoreTraceRef.current.draftId
+            });
+            pendingComposeEditorHydrationBodyRef.current = null;
+            composeRestoreTraceRef.current = {
+              ...composeRestoreTraceRef.current,
+              active: false
+            };
             setComposeOpen(false);
           }
           return;
@@ -20216,185 +21066,57 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   )}
                 </div>
 
-                {accountFormMode !== null ? (
+                {accountFormMode === "edit" ? (
                   <div className="settings-section settings-account-form-section">
-                    <div className="settings-section-label">
-                      {accountFormMode === "add"
-                        ? "New Account"
-                        : `Edit: ${
-                            accountFormTarget
-                              ? (accounts.find((account) => account.id === accountFormTarget)
-                                  ?.email ?? "")
-                              : ""
-                          }`}
-                    </div>
+                    {renderAccountFormContent("edit")}
+                  </div>
+                ) : null}
 
-                    {accountFormError ? (
-                      <div className="settings-account-feedback error">{accountFormError}</div>
-                    ) : null}
-
-                    <div className="settings-section">
-                      <div className="settings-section-label">IMAP / Incoming Mail</div>
-                      <div className="settings-field-group">
-                        <div className="settings-field">
-                          <label>Email address</label>
-                          <input
-                            value={connection.email}
-                            onChange={(event) => {
-                              const email = event.target.value;
-                              const nextConnection = { ...connection, email };
-                              persistConnection(nextConnection);
-
-                              if (!hasAppliedPreset) {
-                                applyPresetFromEmail(email);
-                              }
-                            }}
-                            onBlur={(event) => {
-                              applyPresetFromEmail(event.target.value, false);
-                            }}
-                            placeholder="you@example.com"
-                          />
-                        </div>
-                        <div className="settings-field">
-                          <label>Password</label>
-                          <input
-                            type="password"
-                            value={connection.password}
-                            onChange={(event) =>
-                              persistConnection({ ...connection, password: event.target.value })
-                            }
-                            placeholder="App password"
-                          />
-                          {storedPasswordHintVisible ? (
-                            <div className="settings-field-hint">
-                              Password is already stored securely for this account. Leave this
-                              blank to keep using it, or enter a new one to replace it.
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="settings-field-row">
-                          <div className="settings-field">
-                            <label>IMAP host</label>
-                            <input
-                              value={connection.imapHost}
-                              onChange={(event) =>
-                                persistConnection({ ...connection, imapHost: event.target.value })
-                              }
-                              placeholder="imap.mailserver.com"
-                            />
-                          </div>
-                          <div className="settings-field settings-field-short">
-                            <label>Port</label>
-                            <input
-                              type="number"
-                              value={connection.imapPort}
-                              onChange={(event) =>
-                                persistConnection({
-                                  ...connection,
-                                  imapPort: Number(event.target.value)
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-                        <label className="settings-field-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={connection.imapSecure}
-                            onChange={(event) =>
-                              persistConnection({
-                                ...connection,
-                                imapSecure: event.target.checked
-                              })
-                            }
-                          />
-                          <span>Secure IMAP</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="settings-section">
-                      <div className="settings-section-label">SMTP / Outgoing Mail</div>
-                      <div className="settings-field-group">
-                        <div className="settings-field-row">
-                          <div className="settings-field">
-                            <label>SMTP host</label>
-                            <input
-                              value={connection.smtpHost}
-                              onChange={(event) =>
-                                persistConnection({ ...connection, smtpHost: event.target.value })
-                              }
-                              placeholder="smtp.mailserver.com"
-                            />
-                          </div>
-                          <div className="settings-field settings-field-short">
-                            <label>Port</label>
-                            <input
-                              type="number"
-                              value={connection.smtpPort}
-                              onChange={(event) =>
-                                persistConnection({
-                                  ...connection,
-                                  smtpPort: Number(event.target.value)
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-                        <label className="settings-field-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={connection.smtpSecure}
-                            onChange={(event) =>
-                              persistConnection({
-                                ...connection,
-                                smtpSecure: event.target.checked
-                              })
-                            }
-                          />
-                          <span>Secure SMTP</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="settings-section">
-                      <div className="settings-section-label">Presets</div>
-                      {hasInMotionPreset ? (
-                        <div className="settings-preset-hint">
-                          InMotion defaults are available for this address and are applied
-                          automatically when needed.
-                        </div>
-                      ) : null}
+                {accountFormMode === "add" ? (
+                  <div className="settings-account-modal-overlay" onClick={closeAccountForm}>
+                    <div
+                      className="settings-account-modal"
+                      onClick={(event) => event.stopPropagation()}
+                    >
                       <button
-                        className="ghostButton"
                         type="button"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          applyInMotionPreset();
-                        }}
-                      >
-                        {hasInMotionPreset ? "Reapply InMotion preset" : "Use InMotion preset"}
-                      </button>
-                    </div>
-
-                    <div className="settings-footer-actions">
-                      <button
-                        className="modal-btn-cancel"
-                        type="button"
+                        className="settings-account-modal-close"
+                        aria-label="Close add account dialog"
                         onClick={closeAccountForm}
                       >
-                        Cancel
+                        ✕
                       </button>
-                      <button
-                        className="modal-btn-confirm"
-                        type="button"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          void handleConnect();
-                        }}
-                      >
-                        {accountFormMode === "add" ? "Add Account" : "Save Changes"}
-                      </button>
+                      {addAccountConfirmationEmail ? (
+                        <div className="settings-account-success-state">
+                          <div className="settings-section-label">Account added</div>
+                          <div className="settings-account-feedback success">
+                            {addAccountConfirmationEmail} was added successfully.
+                          </div>
+                          <div className="settings-account-success-copy">
+                            You can add another account now, or click Done to close this dialog.
+                          </div>
+                          <div className="settings-footer-actions">
+                            <button
+                              type="button"
+                              className="modal-btn-cancel"
+                              onClick={() => {
+                                openAddAccount();
+                              }}
+                            >
+                              Add another
+                            </button>
+                            <button
+                              type="button"
+                              className="modal-btn-confirm"
+                              onClick={closeAccountForm}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        renderAccountFormContent("add")
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -22765,9 +23487,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   className="compose-body-plain"
                   value={composeBody}
                   onChange={(event) => {
-                    composeBodyRef.current = event.target.value;
-                    setComposeBody(event.target.value);
-                    updateComposeCounts(event.target.value);
+                    const nextValue = event.target.value;
+                    logDraftTrace("[DRAFT_BODY_WRITE]", {
+                      trigger: "plain-text-onchange",
+                      draftId: composeRestoreTraceRef.current.draftId,
+                      value: nextValue,
+                      valueLength: nextValue.length
+                    });
+                    composeBodyRef.current = nextValue;
+                    setComposeBody(nextValue);
+                    updateComposeCounts(nextValue);
                   }}
                   onKeyDown={(event) => {
                     void handleComposeShortcutKeyDown(event);
@@ -22791,7 +23520,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 />
               ) : (
                 <div
-                  ref={composeEditorRef}
+                  ref={setComposeEditorNode}
                   className={`compose-body-editor ${composeDragOver ? "drag-over" : ""}`}
                   contentEditable
                   suppressContentEditableWarning
@@ -22869,8 +23598,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     });
                   }}
                   onInput={(event) => {
-                    composeBodyRef.current =
+                    const nextEditorText =
                       (event.currentTarget as HTMLDivElement).textContent ?? "";
+                    if (composeRestoreTraceRef.current.active) {
+                      logDraftTrace("[DRAFT_RESTORE]", {
+                        stage: "editor-on-input-during-restore",
+                        draftId: composeRestoreTraceRef.current.draftId,
+                        nextEditorText,
+                        currentComposeBody: composeBodyRef.current
+                      });
+                    }
+                    logDraftTrace("[DRAFT_BODY_WRITE]", {
+                      trigger: "editor-oninput-ref-sync",
+                      draftId: composeRestoreTraceRef.current.draftId,
+                      value: nextEditorText,
+                      valueLength: nextEditorText.length
+                    });
+                    composeBodyRef.current = nextEditorText;
                     scheduleComposeEditorTextSync();
                   }}
                   onBlur={() => {

@@ -11847,6 +11847,63 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   animation: settingsFormIn 0.15s ease !important;
 }
 
+.settings-account-form {
+  display: block !important;
+}
+
+.settings-account-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2100 !important;
+  background: rgba(15, 23, 42, 0.26) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+}
+
+.settings-account-modal {
+  width: min(680px, calc(100vw - 32px)) !important;
+  max-height: calc(100vh - 64px) !important;
+  overflow: auto !important;
+  background: var(--surface2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  padding: 16px 16px 14px !important;
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.2) !important;
+}
+
+.settings-account-modal-close {
+  margin-left: auto !important;
+  width: 30px !important;
+  height: 30px !important;
+  border: none !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--text2) !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.settings-account-modal-close:hover {
+  background: var(--hover) !important;
+  color: var(--text) !important;
+}
+
+.settings-account-success-state {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.settings-account-success-copy {
+  font-size: 13px !important;
+  color: var(--text2) !important;
+  line-height: 1.45 !important;
+}
+
 @keyframes settingsFormIn {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }

@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { getRuntimeUserId } from "@/lib/runtime-user";
+import { getLocalOwnerId } from "@/lib/local-owner";
 
 export async function getOwnedAccount(accountId: string) {
-  const userId = await getRuntimeUserId();
+  const userId = await getLocalOwnerId();
   return prisma.mailAccount.findFirst({
     where: {
       id: accountId,
@@ -15,4 +15,3 @@ export async function getOwnedAccount(accountId: string) {
     }
   });
 }
-

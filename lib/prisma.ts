@@ -1,19 +1,17 @@
 import "dotenv/config";
 
-import { createRequire } from "node:module";
 import { PrismaClient } from "@prisma/client";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 import { getDatabaseUrl } from "@/lib/env";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
-const require = createRequire(import.meta.url);
-const { PrismaPg } = require("@prisma/adapter-pg") as typeof import("@prisma/adapter-pg");
 
 function getPrismaClient() {
   const databaseUrl = getDatabaseUrl();
-  const adapter = new PrismaPg(databaseUrl);
+  const adapter = new PrismaBetterSqlite3({ url: databaseUrl });
 
   return new PrismaClient({ adapter });
 }
@@ -21,6 +19,14 @@ function getPrismaClient() {
 export const prisma =
   globalForPrisma.prisma ??
   getPrismaClient();
+
+const databaseUrl = getDatabaseUrl();
+if (databaseUrl.startsWith("file:")) {
+  // Keep local SQLite responsive under concurrent reads/writes during sync.
+  void prisma.$executeRawUnsafe("PRAGMA journal_mode=WAL;");
+  void prisma.$executeRawUnsafe("PRAGMA synchronous=NORMAL;");
+  void prisma.$executeRawUnsafe("PRAGMA busy_timeout=5000;");
+}
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
