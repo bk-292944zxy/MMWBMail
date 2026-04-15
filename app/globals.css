@@ -1455,7 +1455,8 @@ textarea:focus {
 }
 
 /* Inbox header area */
-.inbox-header, [class*="inbox-header"], [class*="list-header"] {
+.inbox-header,
+.list-header {
   background: var(--pane-list-header-bg) !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 12px 14px !important;
@@ -6011,8 +6012,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .img-resize-overlay {
-  position: absolute !important;
-  z-index: 90 !important;
+  position: fixed !important;
+  z-index: 12060 !important;
   pointer-events: none !important;
 }
 
@@ -9583,6 +9584,74 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex-shrink: 0 !important;
 }
 
+.prioritized-new-mail-toggle-switch {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  color: var(--text) !important;
+  cursor: pointer !important;
+  transition: color 140ms ease !important;
+}
+
+.prioritized-new-mail-toggle-switch:hover {
+  color: var(--text) !important;
+}
+
+.prioritized-new-mail-toggle-switch.is-on {
+  color: var(--accent-strong) !important;
+}
+
+.prioritized-new-mail-toggle-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  letter-spacing: 0.005em !important;
+  white-space: nowrap !important;
+}
+
+.prioritized-new-mail-toggle-track {
+  position: relative !important;
+  width: 30px !important;
+  height: 17px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--text3) 35%, transparent) !important;
+  transition: background-color 140ms ease !important;
+}
+
+.prioritized-new-mail-toggle-switch.is-on .prioritized-new-mail-toggle-track {
+  background: color-mix(in srgb, var(--accent) 65%, white 35%) !important;
+}
+
+.prioritized-new-mail-toggle-thumb {
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 13px !important;
+  height: 13px !important;
+  border-radius: 999px !important;
+  background: white !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.28) !important;
+  transition: transform 140ms ease !important;
+}
+
+.prioritized-new-mail-toggle-switch.is-on .prioritized-new-mail-toggle-thumb {
+  transform: translateX(13px) !important;
+}
+
+.inbox.prioritized-sender-view .inbox-header {
+  border-bottom: none !important;
+}
+
+.inbox.prioritized-sender-view .inbox-control-band,
+.inbox.prioritized-sender-view .col-header-bar,
+.inbox.prioritized-sender-view .filter-strip {
+  background: transparent !important;
+}
+
 .mobile-stacked-back-btn {
   display: inline-flex !important;
   align-items: center !important;
@@ -12527,23 +12596,45 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .sidebar-count-badge {
   margin-left: auto !important;
   flex-shrink: 0 !important;
-  font-size: 11px !important;
+  font-size: 10.5px !important;
   line-height: 1 !important;
+  font-variant-numeric: tabular-nums !important;
 }
 
 .sidebar-count-badge-pill {
-  background: var(--accent) !important;
-  color: #fff !important;
-  border-radius: 10px !important;
-  padding: 1px 7px !important;
-  font-weight: 600 !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--text2) 62%, var(--text3) 38%) !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-weight: 560 !important;
 }
 
 .sidebar-count-badge-muted {
   background: transparent !important;
-  color: var(--text3) !important;
+  color: color-mix(in srgb, var(--text2) 56%, var(--text3) 44%) !important;
   padding: 0 !important;
-  font-weight: 500 !important;
+  font-weight: 540 !important;
+}
+
+.sidebar-count-badge.sidebar-count-badge-emphasis {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  color: color-mix(in srgb, var(--text2) 64%, var(--text3) 36%) !important;
+  padding: 0 !important;
+  font-weight: 590 !important;
+}
+
+.sidebar-count-badge.sidebar-count-badge-dramatic {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  color: color-mix(in srgb, var(--accent) 68%, var(--text) 32%) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border) 74%) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-weight: 640 !important;
+  letter-spacing: 0.005em !important;
+  box-shadow: none !important;
 }
 
 .sidebar-cleanup-btn-wrap {
@@ -12681,32 +12772,32 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 /* Mailbox counts: plain light-grey text, no chip background */
 .folder-row .sidebar-count-badge {
-  color: rgba(60, 60, 67, 0.45) !important;
+  color: color-mix(in srgb, var(--text2) 56%, var(--text3) 44%) !important;
   margin-left: auto !important;
 }
 
 .folder-row .sidebar-count-badge-pill {
   background: transparent !important;
-  color: rgba(60, 60, 67, 0.45) !important;
+  color: color-mix(in srgb, var(--text2) 56%, var(--text3) 44%) !important;
   padding: 0 !important;
   border-radius: 0 !important;
   border: none !important;
-  font-weight: 500 !important;
+  font-weight: 560 !important;
 }
 
 .folder-row-active-new-mail .sidebar-count-badge,
 .folder-row-active-new-mail .sidebar-count-badge-muted,
 .folder-row-active-new-mail .sidebar-count-badge-pill {
-  color: rgba(60, 60, 67, 0.45) !important;
+  color: color-mix(in srgb, var(--accent) 56%, var(--text2) 44%) !important;
 }
 
 .folder-row .sidebar-count-badge.sidebar-count-badge-emphasis {
-  color: rgba(60, 60, 67, 0.45) !important;
+  color: color-mix(in srgb, var(--text2) 60%, var(--text3) 40%) !important;
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
   padding: 0 !important;
-  font-weight: 500 !important;
+  font-weight: 580 !important;
   line-height: 1 !important;
 }
 
@@ -13775,9 +13866,15 @@ body {
 
 .folder-row-count,
 .priority-count {
-  background: rgba(60, 60, 67, 0.06) !important;
-  min-width: 22px !important;
-  padding: 1px 7px !important;
+  background: transparent !important;
+  color: var(--text) !important;
+  min-width: auto !important;
+  padding: 0 !important;
+}
+
+.folder-row-count.active {
+  background: transparent !important;
+  color: var(--text) !important;
 }
 
 .sidebar-section {
@@ -14858,15 +14955,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .inbox-control-band .sort-toolbar {
-  gap: 2px !important;
+  gap: 0 !important;
 }
 
 .inbox-control-band .sort-label {
-  margin-right: 2px !important;
+  margin-right: 4px !important;
 }
 
 .inbox-control-band .sort-btn {
-  padding: 2px 6px !important;
+  padding: 1px 5px !important;
 }
 
 /* Mail list header polish: remove orphan gap and use text-only active sort state */
@@ -14879,10 +14976,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  min-width: 52px !important;
-  height: 24px !important;
-  padding: 0 8px !important;
-  border-radius: 4px !important;
+  min-width: 0 !important;
+  height: 22px !important;
+  padding: 0 6px !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
   background: transparent !important;
   color: var(--text3) !important;
   font-weight: 500 !important;
@@ -14897,6 +14996,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: transparent !important;
   color: var(--text) !important;
   font-weight: 700 !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 /* Settings: polished theme picker */

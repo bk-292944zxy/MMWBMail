@@ -2270,7 +2270,7 @@ function getPriorityAvatarPalette(seed: string) {
 
 function renderSidebarCountBadge(
   value: number | null | undefined,
-  options?: { emphasize?: boolean; dramatic?: boolean }
+  options?: { emphasize?: boolean }
 ) {
   if (!value || value <= 0) {
     return null;
@@ -2281,9 +2281,7 @@ function renderSidebarCountBadge(
       key={`unread-${value}`}
       className={`sidebar-count-badge ${
         value > 1 ? "sidebar-count-badge-pill" : "sidebar-count-badge-muted"
-      } ${options?.emphasize ? "sidebar-count-badge-emphasis" : ""} ${
-        options?.dramatic ? "sidebar-count-badge-dramatic" : ""
-      } unread-badge`}
+      } ${options?.emphasize ? "sidebar-count-badge-emphasis" : ""} unread-badge`}
     >
       {value}
     </span>
@@ -3994,7 +3992,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [threadingEnabled, setThreadingEnabled] = useState(true);
   const [mailboxViewMode, setMailboxViewMode] = useState<MailboxViewMode>("classic");
   const [inboxAttentionView, setInboxAttentionView] = useState<InboxAttentionView | null>(null);
-  const [prioritizedNewMailOnly, setPrioritizedNewMailOnly] = useState(false);
   const [expandedConversationIds, setExpandedConversationIds] = useState<Set<string>>(
     new Set()
   );
@@ -4251,9 +4248,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   );
   const composeEditorSyncTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const composeSelectionSyncFrameRef = useRef<number | null>(null);
-  const composeImageRectFrameRef = useRef<number | null>(null);
   const composeBodyRef = useRef("");
-  const pendingComposeEditorHydrationHtmlRef = useRef<string | null>(null);
   const pendingComposeEditorHydrationBodyRef = useRef<string | null>(null);
   const composeRestoreDebugAutoResumeRef = useRef(false);
   const composeRestoreTraceRef = useRef<{
@@ -4317,19 +4312,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [blockSender, setBlockSender] = useState(false);
   const [blockedSenders, setBlockedSenders] = useState<Set<string>>(new Set());
   const [pinnedMessages, setPinnedMessages] = useState<Set<string>>(new Set());
-  const previousPrioritizedSenderRef = useRef<string | null>(null);
-  const draftTraceEnabledRef = useRef(false);
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      draftTraceEnabledRef.current = false;
+  const logDraftTrace = useCallback((prefix: string, payload: Record<string, unknown>) => {
+    if (typeof window === "undefined" || typeof console === "undefined") {
       return;
     }
 
-    draftTraceEnabledRef.current =
+    const isDebugTraceEnabled =
       new URLSearchParams(window.location.search).get("debugDraftRestoreTrace") === "1";
-  }, []);
-  const logDraftTrace = useCallback((prefix: string, payload: Record<string, unknown>) => {
-    if (typeof window === "undefined" || typeof console === "undefined" || !draftTraceEnabledRef.current) {
+    if (!isDebugTraceEnabled) {
       return;
     }
 
@@ -4340,26 +4330,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       serializedPayload = "[unserializable]";
     }
     console.info(`${prefix} ${serializedPayload}`);
-  }, []);
-  const syncSelectedImageRect = useCallback((image: HTMLImageElement | null) => {
-    if (composeImageRectFrameRef.current !== null) {
-      window.cancelAnimationFrame(composeImageRectFrameRef.current);
-      composeImageRectFrameRef.current = null;
-    }
-
-    if (!image || !image.isConnected) {
-      setImgRect(null);
-      return;
-    }
-
-    composeImageRectFrameRef.current = window.requestAnimationFrame(() => {
-      composeImageRectFrameRef.current = null;
-      if (!image.isConnected) {
-        setImgRect(null);
-        return;
-      }
-      setImgRect(image.getBoundingClientRect());
-    });
   }, []);
   const getComposeEditorCandidates = useCallback(() => {
     if (typeof document === "undefined") {
@@ -4427,15 +4397,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         return;
       }
 
-      const pendingHtml = pendingComposeEditorHydrationHtmlRef.current;
-      if (pendingHtml !== null) {
-        node.innerHTML = "";
-        node.innerHTML = pendingHtml;
-        pendingComposeEditorHydrationHtmlRef.current = null;
-        pendingComposeEditorHydrationBodyRef.current = null;
-        return;
-      }
-
       const pendingBody = pendingComposeEditorHydrationBodyRef.current;
       if (pendingBody === null) {
         return;
@@ -4449,7 +4410,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       });
       node.innerHTML = "";
       node.innerHTML = renderComposeTextBodyAsHtml(pendingBody);
-      pendingComposeEditorHydrationHtmlRef.current = null;
       pendingComposeEditorHydrationBodyRef.current = null;
       logDraftTrace("[DRAFT_RESTORE_FINAL]", {
         stage: "ref-assign-after-apply",
@@ -4596,11 +4556,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const pendingMailMutationTimersRef = useRef<Record<string, number>>({});
   const prevMessageUidsRef = useRef<Set<number>>(new Set());
   const openMessageSeqRef = useRef(0);
-  const folderAutoOpenContextRef = useRef<{
-    key: string | null;
-    didAutoOpen: boolean;
-    armed: boolean;
-  } | null>(null);
   const attachmentSelectionGuardRef = useRef<{
     uid: number;
     accountId: string | null;
@@ -5988,13 +5943,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return composeBodyRef.current;
     }
 
-    const editor = composeEditorRef.current;
-    if (editor && editor.isConnected) {
-      return editor.innerText ?? composeBodyRef.current;
-    }
-
-    const fallbackEditor = resolveVisibleComposeEditorNode("read-compose-editor-text-snapshot");
-    return fallbackEditor?.innerText ?? composeBodyRef.current;
+    const editor = resolveVisibleComposeEditorNode("read-compose-editor-text-snapshot");
+    return editor?.innerText ?? composeBodyRef.current;
   }, [composePlainText, resolveVisibleComposeEditorNode]);
 
   const buildComposeDraftSnapshot = useCallback(
@@ -7072,7 +7022,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current
         });
       }
-      pendingComposeEditorHydrationHtmlRef.current = null;
       pendingComposeEditorHydrationBodyRef.current = null;
       return;
     }
@@ -7126,7 +7075,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         value: renderComposeTextBodyAsHtml(pendingBody)
       });
       editor.innerHTML = renderComposeTextBodyAsHtml(pendingBody);
-      pendingComposeEditorHydrationHtmlRef.current = null;
       pendingComposeEditorHydrationBodyRef.current = null;
       logDraftTrace("[DRAFT_EDITOR_APPLY]", {
         stage: "effect-after-apply",
@@ -7709,25 +7657,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
-    const update = () => syncSelectedImageRect(selectedImg);
+    const update = () => setImgRect(selectedImg.getBoundingClientRect());
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
-    update();
 
     return () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [selectedImg, syncSelectedImageRect]);
-
-  useEffect(() => {
-    return () => {
-      if (composeImageRectFrameRef.current !== null) {
-        window.cancelAnimationFrame(composeImageRectFrameRef.current);
-        composeImageRectFrameRef.current = null;
-      }
-    };
-  }, []);
+  }, [selectedImg]);
 
   useEffect(() => {
     if (!composeOpen || composePlainText) {
@@ -8010,16 +7948,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     };
   }, [activeAccountId, currentFolderPath, getJson, loadMessages, refreshFolderCounts]);
 
-  function persistConnection(
-    nextConnection:
-      | MailConnectionPayload
-      | ((current: MailConnectionPayload) => MailConnectionPayload)
-  ) {
-    setConnection((current) =>
-      typeof nextConnection === "function"
-        ? nextConnection(current)
-        : nextConnection
-    );
+  function persistConnection(nextConnection: MailConnectionPayload) {
+    setConnection(nextConnection);
     setAccountFormError(null);
   }
 
@@ -9422,7 +9352,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         reason: "clearing-compose-body-after-send",
         draftId: composeRestoreTraceRef.current.draftId
       });
-      pendingComposeEditorHydrationHtmlRef.current = null;
       pendingComposeEditorHydrationBodyRef.current = null;
       composeRestoreTraceRef.current = {
         ...composeRestoreTraceRef.current,
@@ -9482,7 +9411,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   function applyPrioritizedSenderFocus(senderName: string) {
     setSenderFilter(senderName);
     setSenderFilterScope("prioritized");
-    setPrioritizedNewMailOnly(false);
     setSubjectFilter(null);
     setSubjectPattern(null);
   }
@@ -9548,7 +9476,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       reason: "clearing-compose-body-on-close",
       draftId: composeRestoreTraceRef.current.draftId
     });
-    pendingComposeEditorHydrationHtmlRef.current = null;
     pendingComposeEditorHydrationBodyRef.current = null;
     composeRestoreTraceRef.current = {
       ...composeRestoreTraceRef.current,
@@ -9970,7 +9897,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         settled = true;
         window.requestAnimationFrame(() => {
           if (targetImg.isConnected) {
-            syncSelectedImageRect(targetImg);
+            setImgRect(targetImg.getBoundingClientRect());
           }
 
           const editorText = composeEditorRef.current?.innerText ?? composeBody;
@@ -11130,10 +11057,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ) {
     const restoredDraft = options?.restoredDraft ?? null;
     const canonicalRestoredBody = restoredDraft?.textBody ?? session.textBody ?? "";
-    const canonicalRestoredHtml =
-      restoredDraft?.htmlBody ??
-      session.htmlBody ??
-      renderComposeTextBodyAsHtml(canonicalRestoredBody);
     const restoreSequence = composeRestoreTraceRef.current.sequence + 1;
     composeRestoreTraceRef.current = {
       active: Boolean(restoredDraft),
@@ -11213,8 +11136,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeEventBuilderOpen(false);
     setComposeSubject(session.subject);
     writeComposeBodyState(canonicalRestoredBody, "apply-compose-session");
-    pendingComposeEditorHydrationHtmlRef.current = session.ui.plainText ? null : canonicalRestoredHtml;
-    pendingComposeEditorHydrationBodyRef.current = session.ui.plainText ? canonicalRestoredBody : null;
+    pendingComposeEditorHydrationBodyRef.current = session.ui.plainText
+      ? null
+      : canonicalRestoredBody;
     if (restoredDraft) {
       logDraftTrace("[DRAFT_RESTORE]", {
         stage: "state-assigned",
@@ -11261,9 +11185,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       logDraftTrace("[DRAFT_EDITOR_WRITE]", {
         trigger: "apply-compose-session-immediate",
         draftId: restoredDraft?.draftId ?? session.draftId,
-        value: canonicalRestoredHtml
+        value: renderComposeTextBodyAsHtml(canonicalRestoredBody)
       });
-      liveEditor.innerHTML = canonicalRestoredHtml;
+      liveEditor.innerHTML = renderComposeTextBodyAsHtml(canonicalRestoredBody);
       if (restoredDraft) {
         logDraftTrace("[DRAFT_EDITOR_APPLY]", {
           stage: "apply-compose-session-immediate-complete",
@@ -13593,21 +13517,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     ? null
     : activeInboxAttentionView;
   const isPrioritizedSenderView = prioritizedSenderMatchesActiveFilter;
-  const prioritizedFolderName = isPrioritizedSenderView ? senderFilter : null;
-  const displayedMessages = useMemo(
-    () =>
-      isPrioritizedSenderView && prioritizedNewMailOnly
-        ? sortedMessages.filter((message) => !message.seen)
-        : sortedMessages,
-    [isPrioritizedSenderView, prioritizedNewMailOnly, sortedMessages]
-  );
-  const displayedConversationSummaries = useMemo(
-    () =>
-      isPrioritizedSenderView && prioritizedNewMailOnly
-        ? renderedConversationSummaries.filter((summary) => summary.unreadCount > 0)
-        : renderedConversationSummaries,
-    [isPrioritizedSenderView, prioritizedNewMailOnly, renderedConversationSummaries]
-  );
   const sortedUnreadCount = sortedMessages.filter((message) => !message.seen).length;
   function clearNewMailExitAnimationTargets(input: {
     messageUids?: number[];
@@ -13804,10 +13713,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       getMailboxResultState({
         isBusy,
         visibleCount: threadingEnabled
-          ? displayedConversationSummaries.length
-          : displayedMessages.length
+          ? renderedConversationSummaries.length
+          : sortedMessages.length
       }),
-    [displayedConversationSummaries.length, displayedMessages.length, isBusy, threadingEnabled]
+    [isBusy, renderedConversationSummaries.length, sortedMessages.length, threadingEnabled]
   );
   useEffect(() => {
     if (
@@ -13846,9 +13755,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const selectableVisibleMessageUids = useMemo(
     () =>
       threadingEnabled
-        ? displayedConversationSummaries.map((summary) => summary.latestMessage.uid)
-        : displayedMessages.map((message) => message.uid),
-    [displayedConversationSummaries, displayedMessages, threadingEnabled]
+        ? renderedConversationSummaries.map((summary) => summary.latestMessage.uid)
+        : sortedMessages.map((message) => message.uid),
+    [renderedConversationSummaries, sortedMessages, threadingEnabled]
   );
   const selectAll = useCallback(() => {
     setSelectedUids(new Set(selectableVisibleMessageUids));
@@ -14607,28 +14516,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [activeInboxAttentionView, clearSelection, mailboxViewMode]);
 
   useEffect(() => {
-    if (!isPrioritizedSenderView && prioritizedNewMailOnly) {
-      setPrioritizedNewMailOnly(false);
-    }
-  }, [isPrioritizedSenderView, prioritizedNewMailOnly]);
-
-  useEffect(() => {
-    if (!isPrioritizedSenderView) {
-      previousPrioritizedSenderRef.current = null;
-      return;
-    }
-
-    if (
-      previousPrioritizedSenderRef.current !== null &&
-      previousPrioritizedSenderRef.current !== senderFilter &&
-      prioritizedNewMailOnly
-    ) {
-      setPrioritizedNewMailOnly(false);
-    }
-    previousPrioritizedSenderRef.current = senderFilter ?? null;
-  }, [isPrioritizedSenderView, prioritizedNewMailOnly, senderFilter]);
-
-  useEffect(() => {
     const previous = newMailReadDelayRef.current;
     const nextContext =
       isScopedNewMailReadDelayActive &&
@@ -14677,14 +14564,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ]);
 
   useEffect(() => {
-    const nextSelection = reconcileVisibleSelection(displayedMessages, {
+    const nextSelection = reconcileVisibleSelection(sortedMessages, {
       selectedUid,
       selectedMessageUid: selectedMessage?.uid ?? null,
       selectedMessageAccountId: selectedMessage?.accountId ?? null,
       selectedMessageMessageId: selectedMessage?.messageId ?? null,
       selectedUidMessageId:
         selectedUid !== null
-          ? displayedMessages.find((message) => message.uid === selectedUid)?.messageId ?? null
+          ? sortedMessages.find((message) => message.uid === selectedUid)?.messageId ?? null
           : null,
       preserveSelection: true,
       scopeAccountId: activeAccountId
@@ -14724,85 +14611,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     selectedMessage?.accountId,
     selectedMessage?.uid,
     selectedUid,
-    displayedMessages
+    sortedMessages
   ]);
 
   useEffect(() => {
-    const contextKey = `${activeAccountId ?? "none"}:${currentFolderPath}:${
-      threadingEnabled ? "threaded" : "flat"
-    }:${mailboxQuery.scopeKey}`;
-    if (!activeAccountId) {
-      return;
-    }
-
-    const autoOpenState = folderAutoOpenContextRef.current;
-    if (!autoOpenState || !autoOpenState.armed || autoOpenState.didAutoOpen) {
-      return;
-    }
-
-    if (isBusy) {
-      return;
-    }
-
-    if (autoOpenState.key === null) {
-      autoOpenState.key = contextKey;
-    }
-
-    if (autoOpenState.key !== contextKey) {
-      return;
-    }
-
-    const visibleUids = new Set(
-      threadingEnabled
-        ? displayedConversationSummaries.map((summary) => summary.latestMessage.uid)
-        : displayedMessages.map((message) => message.uid)
-    );
-    const selectedVisible =
-      (selectedUid !== null && visibleUids.has(selectedUid)) ||
-      (selectedMessage?.uid !== null && visibleUids.has(selectedMessage?.uid ?? -1));
-
-    if (selectedVisible) {
-      autoOpenState.didAutoOpen = true;
-      autoOpenState.armed = false;
-      return;
-    }
-
-    if (selectedMessage !== null || selectedUid !== null) {
-      return;
-    }
-
-    const firstVisibleUid = threadingEnabled
-      ? displayedConversationSummaries[0]?.latestMessage.uid ?? null
-      : displayedMessages[0]?.uid ?? null;
-    if (firstVisibleUid === null) {
-      return;
-    }
-
-    autoOpenState.didAutoOpen = true;
-    autoOpenState.armed = false;
-    void openMessage(firstVisibleUid);
-  }, [
-    activeAccountId,
-    currentFolderPath,
-    isBusy,
-    mailboxQuery.scopeKey,
-    displayedConversationSummaries,
-    displayedMessages,
-    openMessage,
-    selectedMessage,
-    selectedUid,
-    threadingEnabled
-  ]);
-
-  useEffect(() => {
-    const visibleUids = new Set(displayedMessages.map((message) => message.uid));
+    const visibleUids = new Set(sortedMessages.map((message) => message.uid));
     setSelectedUids((current) => {
       const next = new Set(
         Array.from(current).filter((uid) => visibleUids.has(uid))
       );
       return next.size === current.size ? current : next;
     });
-  }, [displayedMessages]);
+  }, [sortedMessages]);
 
   const menuWidth = 220;
   const menuHeight = 280;
@@ -14817,20 +14637,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const currentFolderLabel = orderedFolders.find(
     (folder) => folder.path === currentFolderPath
   )?.name ?? activeMailboxNode?.name ?? displayFolderName(currentFolderPath || "Inbox");
-  const activeSortFolderPresentation = getSortFolderPresentation(
-    currentFolderLabel,
-    currentFolderPath
-  );
   const currentMailboxLabel =
-    prioritizedFolderName
-      ? prioritizedFolderName
-      : activeSortFolderPresentation
-      ? currentFolderLabel
-      : activeInboxAttentionView === "new-mail"
+    activeInboxAttentionView === "new-mail"
       ? "New Mail"
       : activeInboxAttentionView === "read"
         ? "Read Mail"
         : currentFolderLabel;
+  const activeSortFolderPresentation = getSortFolderPresentation(
+    currentFolderLabel,
+    currentFolderPath
+  );
   const prioritizedSenderEmptyStateName = prioritizedSenderMatchesActiveFilter
     ? senderFilter
     : null;
@@ -16073,7 +15889,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               reason: "compose-closed-without-content",
               draftId: composeRestoreTraceRef.current.draftId
             });
-            pendingComposeEditorHydrationHtmlRef.current = null;
             pendingComposeEditorHydrationBodyRef.current = null;
             composeRestoreTraceRef.current = {
               ...composeRestoreTraceRef.current,
@@ -16722,16 +16537,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       }`}
                       draggable
                       onClick={() => {
-                        if (!isActive) {
-                          folderAutoOpenContextRef.current = {
-                            key: null,
-                            didAutoOpen: false,
-                            armed: true
-                          };
-                          openMessageSeqRef.current += 1;
-                          setSelectedMessage(null);
-                          setSelectedUid(null);
-                        }
                         if (isActive) {
                           clearSenderFocus();
                         } else {
@@ -17153,21 +16958,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         !persistedVisibleIdSet?.has(mailboxTarget.id) &&
                         !persistedQuietIdSet?.has(mailboxTarget.id);
 
-                      const isNewMailVirtualRow =
-                        mailboxViewMode === "new-mail" &&
-                        mailboxTarget.inboxAttentionView === "new-mail";
-                      const isInboxRow =
-                        mailboxNode.systemKey === "inbox" &&
-                        mailboxTarget.inboxAttentionView === null;
-                      const inboxUnreadCount = Math.max(mailboxNode.unread ?? 0, 0);
-                      const badgeCount =
-                        isInboxRow && inboxUnreadCount > 0
-                          ? inboxUnreadCount
-                          : Math.max(mailboxTarget.count ?? 0, 0);
-                      const showDramaticBadge =
-                        badgeCount > 0 &&
-                        (isNewMailVirtualRow || (isInboxRow && inboxUnreadCount > 0));
-
                       return (
                         <div
                           key={mailboxTarget.id}
@@ -17218,11 +17008,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             });
                           }}
                           onClick={async () => {
-                            folderAutoOpenContextRef.current = {
-                              key: null,
-                              didAutoOpen: false,
-                              armed: true
-                            };
                             clearPrioritizedSenderFocus();
                             const nextAttentionView =
                               mailboxViewMode === "new-mail"
@@ -17230,15 +17015,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 : null;
 
                             if (isAccountActive) {
-                              persistConnection((current) => ({
-                                ...current,
+                              persistConnection({
+                                ...connection,
                                 folder: mailboxNode.identity.providerPath
-                              }));
+                              });
                               setInboxAttentionView(nextAttentionView);
                               if (isMobileStackedMode) {
                                 setMobileStackedScreen("messages");
                               }
-                              void refreshCurrentFolder(mailboxNode.identity.providerPath);
+                              startTransition(() => {
+                                refreshCurrentFolder(mailboxNode.identity.providerPath);
+                              });
                               return;
                             }
 
@@ -17330,9 +17117,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               ) : null}
                             </span>
                           </div>
-                          {renderSidebarCountBadge(badgeCount, {
-                            emphasize: isNewMailVirtualRow,
-                            dramatic: showDramaticBadge
+                          {renderSidebarCountBadge(mailboxTarget.count, {
+                            emphasize: mailboxTarget.inboxAttentionView === "new-mail"
                           })}
                         </div>
                       );
@@ -17490,11 +17276,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           />
         ) : null}
 
-        <section
-          className={`inbox ${showInboxPane ? "" : "mobile-stacked-pane-hidden"} ${
-            isPrioritizedSenderView ? "prioritized-sender-view" : ""
-          }`}
-        >
+        <section className={`inbox ${showInboxPane ? "" : "mobile-stacked-pane-hidden"}`}>
           <div className="inbox-header">
             <div className="inbox-header-leading">
               {isMobileStackedMode ? (
@@ -17525,7 +17307,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </div>
                 <div className="inbox-count-line">
                   {currentMailboxLabel !== "New Mail"
-                    ? `${threadingEnabled ? displayedConversationSummaries.length : displayedMessages.length} ${
+                    ? `${threadingEnabled ? renderedConversationSummaries.length : sortedMessages.length} ${
                         threadingEnabled ? "threads" : "messages"
                       }`
                     : ""}
@@ -17556,25 +17338,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 ) : null}
               </div>
             </div>
-            {isPrioritizedSenderView ? (
-              <div className="inbox-header-actions">
-                <button
-                  type="button"
-                  className={`prioritized-new-mail-toggle-switch ${
-                    prioritizedNewMailOnly ? "is-on" : ""
-                  }`}
-                  role="switch"
-                  aria-checked={prioritizedNewMailOnly}
-                  aria-label="Toggle new mail only"
-                  onClick={() => setPrioritizedNewMailOnly((current) => !current)}
-                >
-                  <span className="prioritized-new-mail-toggle-label">New mail only</span>
-                  <span className="prioritized-new-mail-toggle-track">
-                    <span className="prioritized-new-mail-toggle-thumb" />
-                  </span>
-                </button>
-              </div>
-            ) : null}
           </div>
 
           <div className="inbox-control-band">
@@ -17825,7 +17588,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             </div>
           ) : null}
 
-          {senderFilter && senderStats && !subjectFilter && !isPrioritizedSenderView ? (
+          {senderFilter && senderStats && !subjectFilter ? (
             <div className="senderStatBar">
               <div
                 className="senderAvatar"
@@ -18051,7 +17814,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 ) : null}
               </div>
             ) : threadingEnabled ? (
-              displayedConversationSummaries.map((conversation) => {
+              renderedConversationSummaries.map((conversation) => {
                 const latestMessage = conversation.latestMessage.raw;
                 const conversationMessages = conversations.byId.get(conversation.id)?.messages ?? [];
                 const conversationHasAttachments = conversationMessages.some(
@@ -18421,7 +18184,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 );
               })
             ) : (
-              displayedMessages.map((message) => (
+              sortedMessages.map((message) => (
                 <SwipeRow
                   key={message.uid}
                   message={message}
@@ -22733,13 +22496,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     setComposeMinimized((current) => {
                       const next = !current;
                       if (next) {
-                        if (!composePlainText) {
-                          const editor = resolveVisibleComposeEditorNode("minimize-snapshot");
-                          if (editor) {
-                            pendingComposeEditorHydrationHtmlRef.current = editor.innerHTML;
-                            flushComposeEditorTextSync(editor.innerText);
-                          }
-                        }
                         void persistComposeDraftNow(false);
                       }
                       return next;
@@ -23866,10 +23622,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }}
                   onClick={(event) => {
                     const target = event.target as HTMLElement;
-                    const image = target.closest("img.compose-inline-img");
-                    if (image instanceof HTMLImageElement) {
+                    if (target.tagName === "IMG") {
+                      const image = target as HTMLImageElement;
                       setSelectedImg(image);
-                      syncSelectedImageRect(image);
+                      setImgRect(image.getBoundingClientRect());
                     } else {
                       setSelectedImg(null);
                       setImgRect(null);
@@ -24941,7 +24697,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         startH: selectedImg.offsetHeight,
                         aspectRatio: selectedImg.offsetWidth / selectedImg.offsetHeight
                       };
-                      syncSelectedImageRect(selectedImg);
+                      setImgRect(selectedImg.getBoundingClientRect());
 
                       const onMove = (moveEvent: MouseEvent) => {
                         if (!resizingRef.current || !selectedImg) {
@@ -24986,7 +24742,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         selectedImg.style.width = `${Math.round(newWidth)}px`;
                         selectedImg.style.height = `${Math.round(newHeight)}px`;
                         selectedImg.style.maxWidth = "none";
-                        syncSelectedImageRect(selectedImg);
+                        setImgRect(selectedImg.getBoundingClientRect());
                       };
 
                       const onUp = () => {
@@ -24995,7 +24751,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         document.removeEventListener("mouseup", onUp);
 
                         if (selectedImg) {
-                          syncSelectedImageRect(selectedImg);
+                          setImgRect(selectedImg.getBoundingClientRect());
                           const editorText = composeEditorRef.current?.innerText ?? composeBody;
                           setComposeBody(editorText);
                           updateComposeCounts(editorText);
