@@ -1217,10 +1217,17 @@ textarea:focus {
 }
 
 .ctx-icon {
-  font-size: 13px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   width: 18px !important;
-  text-align: center !important;
   flex-shrink: 0 !important;
+  color: currentColor !important;
+}
+
+.ctx-icon svg,
+.ctx-unsub-icon svg {
+  display: block !important;
 }
 
 .ctx-badge {
@@ -9602,7 +9609,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .prioritized-new-mail-toggle-switch.is-on {
-  color: var(--accent-strong) !important;
+  color: var(--text) !important;
 }
 
 .prioritized-new-mail-toggle-label {
@@ -9611,6 +9618,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   line-height: 1 !important;
   letter-spacing: 0.005em !important;
   white-space: nowrap !important;
+  color: var(--text) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
 }
 
 .prioritized-new-mail-toggle-track {
@@ -9624,6 +9634,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .prioritized-new-mail-toggle-switch.is-on .prioritized-new-mail-toggle-track {
   background: color-mix(in srgb, var(--accent) 65%, white 35%) !important;
+}
+
+.prioritized-new-mail-toggle-switch.is-on .prioritized-new-mail-toggle-label {
+  color: var(--text) !important;
 }
 
 .prioritized-new-mail-toggle-thumb {
@@ -10545,7 +10559,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   align-items: center !important;
   height: 28px !important;
-  background: rgba(246,246,248,0.95) !important;
+  background: var(--pane-menubar-bg) !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 0 8px !important;
   gap: 0 !important;
@@ -10588,7 +10602,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   position: absolute !important;
   top: calc(100% + 2px) !important;
   left: 0 !important;
-  background: rgba(246,246,248,0.98) !important;
+  background: var(--pane-menubar-bg) !important;
   border: 1px solid rgba(60,60,67,0.14) !important;
   border-radius: 8px !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08) !important;
@@ -12004,7 +12018,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-notify-status.on {
-  color: #16a34a !important;
+  color: color-mix(in srgb, var(--accent) 68%, var(--text2) 32%) !important;
 }
 
 .settings-notify-status.off {
@@ -12151,7 +12165,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;
-  color: #34c759 !important;
+  color: color-mix(in srgb, var(--accent) 66%, var(--text2) 34%) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
   flex-shrink: 0 !important;
@@ -12161,7 +12175,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   width: 8px !important;
   height: 8px !important;
   border-radius: 50% !important;
-  background: #34c759 !important;
+  background: color-mix(in srgb, var(--accent) 72%, var(--text2) 28%) !important;
 }
 
 .settings-modal .settings-section-header {
@@ -12937,30 +12951,33 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     radial-gradient(1200px 420px at 12% -10%, rgba(169, 180, 196, 0.18), transparent 62%),
     radial-gradient(980px 380px at 88% -12%, rgba(186, 194, 210, 0.16), transparent 64%),
     linear-gradient(180deg, #f4f5f8 0%, #eceef3 100%);
-  --theme-struct-pane-sidebar-bg: rgba(241, 242, 245, 0.9);
-  --theme-struct-pane-list-bg: rgba(248, 249, 251, 0.94);
-  --theme-struct-pane-reader-bg: rgba(253, 253, 254, 0.97);
-  --theme-struct-pane-rail-bg: #e5e7ec;
-  --theme-struct-pane-sidebar-seam: #e0ded9;
-  --theme-struct-pane-list-seam: #e8e8e8;
+  --theme-struct-pane-sidebar-bg: rgba(238, 240, 244, 0.85);
+  --theme-struct-pane-list-bg: rgba(246, 248, 251, 0.95);
+  --theme-struct-pane-reader-bg: rgba(252, 253, 255, 0.99);
+  --theme-struct-pane-menubar-bg: rgba(246, 246, 248, 0.95);
+  --theme-struct-pane-rail-bg: #d9dde4;
+  --theme-struct-pane-sidebar-seam: #d3d8e0;
+  --theme-struct-pane-list-seam: #e2e6ec;
 
   /* Theme atmosphere tokens (mode-dependent) */
   --theme-atmo-shell-bg:
     radial-gradient(1220px 420px at 14% -10%, rgba(217, 125, 84, 0.22), transparent 62%),
     radial-gradient(980px 380px at 86% -12%, rgba(253, 243, 238, 0.7), transparent 64%),
     linear-gradient(180deg, #f9f5f2 0%, #f2eeea 100%);
-  --theme-atmo-pane-sidebar-bg: rgba(245, 241, 236, 0.9);
-  --theme-atmo-pane-list-bg: rgba(252, 250, 247, 0.95);
-  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98);
-  --theme-atmo-pane-rail-bg: #e7e3de;
-  --theme-atmo-pane-sidebar-seam: #e2ddd6;
-  --theme-atmo-pane-list-seam: #ece6df;
+  --theme-atmo-pane-sidebar-bg: rgba(243, 238, 232, 0.85);
+  --theme-atmo-pane-list-bg: rgba(250, 247, 243, 0.95);
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.99);
+  --theme-atmo-pane-menubar-bg: rgba(248, 244, 240, 0.95);
+  --theme-atmo-pane-rail-bg: #ddd7cf;
+  --theme-atmo-pane-sidebar-seam: #d8d1c8;
+  --theme-atmo-pane-list-seam: #e7dfd5;
 
   /* Applied layout tokens */
   --shell-gradient: var(--theme-atmo-shell-bg);
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg);
   --pane-list-bg: var(--theme-atmo-pane-list-bg);
   --pane-reader-bg: var(--theme-atmo-pane-reader-bg);
+  --pane-menubar-bg: rgba(246, 246, 248, 0.95);
   --pane-rail-bg: var(--theme-atmo-pane-rail-bg);
   --pane-sidebar-seam: var(--theme-atmo-pane-sidebar-seam);
   --pane-list-seam: var(--theme-atmo-pane-list-seam);
@@ -12994,117 +13011,123 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     radial-gradient(1220px 420px at 14% -10%, rgba(217, 125, 84, 0.24), transparent 62%),
     radial-gradient(980px 380px at 86% -12%, rgba(253, 243, 238, 0.74), transparent 64%),
     linear-gradient(180deg, #f9f5f2 0%, #f2eeea 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(245, 241, 236, 0.9) !important;
-  --theme-atmo-pane-list-bg: rgba(252, 250, 247, 0.95) !important;
-  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
-  --theme-atmo-pane-rail-bg: #e7e3de !important;
-  --theme-atmo-pane-sidebar-seam: #e2ddd6 !important;
-  --theme-atmo-pane-list-seam: #ece6df !important;
+  --theme-atmo-pane-sidebar-bg: rgba(243, 238, 232, 0.85) !important;
+  --theme-atmo-pane-list-bg: rgba(250, 247, 243, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(248, 244, 240, 0.95) !important;
+  --theme-atmo-pane-rail-bg: #ddd7cf !important;
+  --theme-atmo-pane-sidebar-seam: #d8d1c8 !important;
+  --theme-atmo-pane-list-seam: #e7dfd5 !important;
 }
 
 :root[data-accent-theme="cool-slate"],
 :root[data-theme="cool-slate"],
 :root[data-accent-theme="blue"],
 :root[data-theme="blue"] {
-  --bg-primary: #f5f7fa !important;
+  --bg-primary: #f6f7f9 !important;
   --bg-secondary: #ffffff !important;
-  --bg-tertiary: #f1f5f9 !important;
+  --bg-tertiary: #edf1f5 !important;
   --text-primary: #1f2937 !important;
   --text-secondary: #6b7280 !important;
   --text-tertiary: #9ca3af !important;
   --text-inverse: #ffffff !important;
-  --accent-primary: #4f46e5 !important;
-  --accent-hover-solid: #4338ca !important;
-  --accent-light: #eef2ff !important;
-  --accent-dark: #3730a3 !important;
-  --accent-rgb: 79, 70, 229 !important;
-  --border-light: #e5e7eb !important;
-  --border-medium: #d1d5db !important;
-  --border-heavy: #9ca3af !important;
+  --accent-primary: #5b7394 !important;
+  --accent-hover-solid: #4f6684 !important;
+  --accent-light: #eef3f8 !important;
+  --accent-dark: #445a75 !important;
+  --accent-rgb: 91, 115, 148 !important;
+  --border-light: #dfe4ea !important;
+  --border-medium: #c8d0da !important;
+  --border-heavy: #a8b3c2 !important;
   --success: #059669 !important;
   --warning: #d97706 !important;
   --error: #dc2626 !important;
-  --info: #4f46e5 !important;
+  --info: #5b7394 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 12% -10%, rgba(79, 70, 229, 0.2), transparent 62%),
-    radial-gradient(980px 380px at 88% -12%, rgba(238, 242, 255, 0.76), transparent 64%),
-    linear-gradient(180deg, #f3f6fb 0%, #edf1f7 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(238, 242, 248, 0.9) !important;
-  --theme-atmo-pane-list-bg: rgba(246, 248, 252, 0.95) !important;
-  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
-  --theme-atmo-pane-rail-bg: #dbe1eb !important;
-  --theme-atmo-pane-sidebar-seam: #d8deea !important;
-  --theme-atmo-pane-list-seam: #e3e8f1 !important;
+    radial-gradient(1160px 400px at 12% -10%, rgba(91, 115, 148, 0.18), transparent 62%),
+    radial-gradient(980px 360px at 88% -12%, rgba(232, 238, 246, 0.72), transparent 64%),
+    linear-gradient(180deg, #f4f6f9 0%, #eceff4 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(230, 236, 244, 0.85) !important;
+  --theme-atmo-pane-list-bg: rgba(241, 245, 250, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(252, 254, 255, 0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(237, 242, 248, 0.95) !important;
+  --theme-atmo-pane-rail-bg: #c9d2df !important;
+  --theme-atmo-pane-sidebar-seam: #c6cfdb !important;
+  --theme-atmo-pane-list-seam: #d8e0eb !important;
 }
 
 :root[data-accent-theme="forest-mist"],
 :root[data-theme="forest-mist"],
 :root[data-accent-theme="green"],
 :root[data-theme="green"] {
-  --bg-primary: #f7f8f5 !important;
+  --bg-primary: #f6f8f5 !important;
   --bg-secondary: #ffffff !important;
-  --bg-tertiary: #f1f3f0 !important;
+  --bg-tertiary: #eef2ec !important;
   --text-primary: #1f2937 !important;
   --text-secondary: #6b7280 !important;
   --text-tertiary: #9ca3af !important;
   --text-inverse: #ffffff !important;
-  --accent-primary: #059669 !important;
-  --accent-hover-solid: #047857 !important;
-  --accent-light: #ecfdf5 !important;
-  --accent-dark: #065f46 !important;
-  --accent-rgb: 5, 150, 105 !important;
-  --border-light: #e5e7eb !important;
-  --border-medium: #d1d5db !important;
-  --border-heavy: #9ca3af !important;
+  --accent-primary: #3d8b6e !important;
+  --accent-hover-solid: #34785f !important;
+  --accent-light: #edf5f1 !important;
+  --accent-dark: #2d6551 !important;
+  --accent-rgb: 61, 139, 110 !important;
+  --border-light: #dfe5df !important;
+  --border-medium: #c9d2c9 !important;
+  --border-heavy: #a8b5ab !important;
   --success: #059669 !important;
   --warning: #d97706 !important;
   --error: #dc2626 !important;
   --info: #4f46e5 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1180px 420px at 14% -10%, rgba(5, 150, 105, 0.2), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(236, 253, 245, 0.72), transparent 64%),
-    linear-gradient(180deg, #f2f5f1 0%, #ecefea 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(239, 243, 238, 0.9) !important;
-  --theme-atmo-pane-list-bg: rgba(246, 249, 245, 0.95) !important;
-  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
-  --theme-atmo-pane-rail-bg: #dbe2dc !important;
-  --theme-atmo-pane-sidebar-seam: #d8ded8 !important;
-  --theme-atmo-pane-list-seam: #e2e8e2 !important;
+    radial-gradient(1160px 400px at 14% -10%, rgba(61, 139, 110, 0.18), transparent 62%),
+    radial-gradient(980px 360px at 86% -12%, rgba(233, 242, 235, 0.72), transparent 64%),
+    linear-gradient(180deg, #f2f5f0 0%, #eaeee8 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(231, 237, 229, 0.85) !important;
+  --theme-atmo-pane-list-bg: rgba(241, 246, 239, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(252, 254, 252, 0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(237, 243, 235, 0.95) !important;
+  --theme-atmo-pane-rail-bg: #c9d3cb !important;
+  --theme-atmo-pane-sidebar-seam: #c6d0c8 !important;
+  --theme-atmo-pane-list-seam: #d7e1d8 !important;
 }
 
+:root[data-accent-theme="brushed-silver"],
+:root[data-theme="brushed-silver"],
 :root[data-accent-theme="lavender-haze"],
 :root[data-theme="lavender-haze"],
 :root[data-accent-theme="purple"],
 :root[data-theme="purple"] {
-  --bg-primary: #faf8ff !important;
+  --bg-primary: #f7f7f8 !important;
   --bg-secondary: #ffffff !important;
-  --bg-tertiary: #f5f3ff !important;
+  --bg-tertiary: #f1f2f4 !important;
   --text-primary: #1f2937 !important;
   --text-secondary: #6b7280 !important;
   --text-tertiary: #9ca3af !important;
   --text-inverse: #ffffff !important;
-  --accent-primary: #7c3aed !important;
-  --accent-hover-solid: #6d28d9 !important;
-  --accent-light: #f5f3ff !important;
-  --accent-dark: #5b21b6 !important;
-  --accent-rgb: 124, 58, 237 !important;
-  --border-light: #e9d5ff !important;
-  --border-medium: #d8b4fe !important;
-  --border-heavy: #c084fc !important;
+  --accent-primary: #7a8694 !important;
+  --accent-hover-solid: #6c7784 !important;
+  --accent-light: #f4f5f7 !important;
+  --accent-dark: #5a6472 !important;
+  --accent-rgb: 122, 134, 148 !important;
+  --border-light: #e4e5e8 !important;
+  --border-medium: #d0d2d6 !important;
+  --border-heavy: #b0b3b9 !important;
   --success: #059669 !important;
   --warning: #d97706 !important;
   --error: #dc2626 !important;
-  --info: #7c3aed !important;
+  --info: #4f46e5 !important;
   --theme-atmo-shell-bg:
-    radial-gradient(1180px 420px at 14% -10%, rgba(124, 58, 237, 0.2), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(245, 243, 255, 0.76), transparent 64%),
-    linear-gradient(180deg, #f6f4fd 0%, #f0eef8 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(244, 240, 251, 0.9) !important;
-  --theme-atmo-pane-list-bg: rgba(250, 248, 255, 0.95) !important;
-  --theme-atmo-pane-reader-bg: rgba(255, 255, 255, 0.98) !important;
-  --theme-atmo-pane-rail-bg: #e5dcf2 !important;
-  --theme-atmo-pane-sidebar-seam: #e1d9ee !important;
-  --theme-atmo-pane-list-seam: #eae3f5 !important;
+    radial-gradient(1160px 400px at 14% -10%, rgba(122, 134, 148, 0.17), transparent 62%),
+    radial-gradient(980px 360px at 86% -12%, rgba(237, 239, 242, 0.74), transparent 64%),
+    linear-gradient(180deg, #f4f5f7 0%, #eceef1 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(232, 235, 239, 0.85) !important;
+  --theme-atmo-pane-list-bg: rgba(241, 243, 246, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(252, 253, 254, 0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(238, 241, 244, 0.95) !important;
+  --theme-atmo-pane-rail-bg: #ccd0d6 !important;
+  --theme-atmo-pane-sidebar-seam: #c9cdd3 !important;
+  --theme-atmo-pane-list-seam: #dadde2 !important;
 }
 
 /* Dark palette is wired for future use and intentionally hidden from picker for now. */
@@ -13133,12 +13156,13 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     radial-gradient(1200px 420px at 12% -10%, rgba(245, 158, 11, 0.18), transparent 62%),
     radial-gradient(980px 380px at 88% -12%, rgba(31, 41, 55, 0.78), transparent 64%),
     linear-gradient(180deg, #202833 0%, #1b2330 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(37, 46, 59, 0.9) !important;
-  --theme-atmo-pane-list-bg: rgba(45, 55, 70, 0.95) !important;
-  --theme-atmo-pane-reader-bg: rgba(55, 65, 81, 0.98) !important;
-  --theme-atmo-pane-rail-bg: #273241 !important;
-  --theme-atmo-pane-sidebar-seam: #334152 !important;
-  --theme-atmo-pane-list-seam: #3a4a5d !important;
+  --theme-atmo-pane-sidebar-bg: rgba(33, 42, 56, 0.85) !important;
+  --theme-atmo-pane-list-bg: rgba(41, 51, 66, 0.95) !important;
+  --theme-atmo-pane-reader-bg: rgba(50, 60, 76, 0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(41, 51, 65, 0.95) !important;
+  --theme-atmo-pane-rail-bg: #1f2a3a !important;
+  --theme-atmo-pane-sidebar-seam: #2c3a4d !important;
+  --theme-atmo-pane-list-seam: #36465a !important;
 }
 
 /* Explicit theme modes */
@@ -13166,6 +13190,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-atmo-pane-list-bg) !important;
   --pane-reader-bg: var(--theme-atmo-pane-reader-bg) !important;
+  --pane-menubar-bg: var(--theme-atmo-pane-menubar-bg) !important;
   --pane-rail-bg: var(--theme-atmo-pane-rail-bg) !important;
   --pane-sidebar-seam: var(--theme-atmo-pane-sidebar-seam) !important;
   --pane-list-seam: var(--theme-atmo-pane-list-seam) !important;
@@ -13197,6 +13222,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-sidebar-bg: var(--theme-struct-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-struct-pane-list-bg) !important;
   --pane-reader-bg: var(--theme-struct-pane-reader-bg) !important;
+  --pane-menubar-bg: var(--theme-struct-pane-menubar-bg) !important;
   --pane-rail-bg: var(--theme-struct-pane-rail-bg) !important;
   --pane-sidebar-seam: var(--theme-struct-pane-sidebar-seam) !important;
   --pane-list-seam: var(--theme-struct-pane-list-seam) !important;
@@ -13243,11 +13269,14 @@ body {
   overflow-y: auto !important;
   overscroll-behavior: contain !important;
   -webkit-overflow-scrolling: touch !important;
+  background: transparent !important;
 }
 
-.sidebar, [class*="sidebar"] {
-  background: var(--surface) !important;
-  border-right: 1px solid var(--border) !important;
+.rail.sidebar {
+  background: var(--pane-sidebar-bg) !important;
+  border-right: 1px solid var(--pane-sidebar-seam) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
 }
 
 .message-list, [class*="message-list"], [class*="email-list"] {
@@ -13289,6 +13318,12 @@ body {
     box-shadow 0.16s ease,
     background-color 0.16s ease,
     border-color 0.16s ease !important;
+}
+
+.workspace-resizable > .rail.sidebar {
+  background: var(--pane-sidebar-bg) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
 }
 
 .workspace-resizable.workspace-resizing > .rail.sidebar,
@@ -15078,10 +15113,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
     linear-gradient(160deg, #f7f8f5, #f1f3f0) !important;
 }
 
+.settings-theme-btn[data-theme-key="brushed-silver"] .settings-theme-preview,
 .settings-theme-btn[data-theme-key="lavender-haze"] .settings-theme-preview {
   background:
-    radial-gradient(50px 20px at 18% -12%, rgba(245, 243, 255, 0.78), transparent 66%),
-    linear-gradient(160deg, #faf8ff, #f5f3ff) !important;
+    radial-gradient(50px 20px at 18% -12%, rgba(238, 241, 245, 0.78), transparent 66%),
+    linear-gradient(160deg, #f7f7f8, #f1f2f4) !important;
 }
 
 .settings-theme-dot-wrap {

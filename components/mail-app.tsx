@@ -285,7 +285,7 @@ type AccentTheme =
   | "warm-paper"
   | "cool-slate"
   | "forest-mist"
-  | "lavender-haze"
+  | "brushed-silver"
   | "midnight-focus";
 type ThemeMode = "full" | "highlight-only";
 
@@ -293,7 +293,7 @@ const LEGACY_ACCENT_THEME_MAP: Record<string, AccentTheme> = {
   orange: "warm-paper",
   blue: "cool-slate",
   green: "forest-mist",
-  purple: "lavender-haze"
+  purple: "brushed-silver"
 };
 
 function normalizeAccentTheme(theme: string | null | undefined): AccentTheme {
@@ -309,10 +309,14 @@ function normalizeAccentTheme(theme: string | null | undefined): AccentTheme {
     theme === "warm-paper" ||
     theme === "cool-slate" ||
     theme === "forest-mist" ||
-    theme === "lavender-haze" ||
+    theme === "brushed-silver" ||
     theme === "midnight-focus"
   ) {
     return theme;
+  }
+
+  if (theme === "lavender-haze") {
+    return "brushed-silver";
   }
 
   return "warm-paper";
@@ -442,6 +446,8 @@ type QuickFactUiState = {
   fallback: QuickFactFallback | null;
 };
 
+const COMPOSE_TOOLBAR_TOOLTIP_DELAY_MS = 420;
+
 type TrustAwareMessage = Pick<
   MailSummary,
   "from" | "fromAddress" | "authResultsDmarc" | "authResultsDkim" | "authResultsSpf"
@@ -487,7 +493,7 @@ function resolveSenderTrustPresentation(
     return finalizeTrustPresentation({
       tier: "red",
       label: "High Risk",
-      icon: "⚠",
+      icon: "warning",
       summary: "This sender looks unsafe.",
       detail: spoof.reason,
       signals: []
@@ -508,7 +514,7 @@ function resolveSenderTrustPresentation(
     return finalizeTrustPresentation({
       tier: "blue",
       label: "Verified domain",
-      icon: "✓",
+      icon: "check",
       summary: "This sender is widely recognized and trusted.",
       detail: "This sender matches a trusted domain we recognize and is not showing a strong sender warning.",
       signals: []
@@ -520,7 +526,7 @@ function resolveSenderTrustPresentation(
     return finalizeTrustPresentation({
       tier: "amber",
       label: unverified.isUnverified ? "Caution" : "Unverified",
-      icon: "!",
+      icon: "alert",
       summary: "The sender identity could not be confirmed.",
       detail:
         unverified.reason ||
@@ -533,7 +539,7 @@ function resolveSenderTrustPresentation(
     return finalizeTrustPresentation({
       tier: "verified",
       label: "Verified",
-      icon: "✓",
+      icon: "check",
       summary: "This sender passed our strongest trust checks.",
       detail:
         "This sender passed domain verification checks and looks consistent with the organization it claims to be from.",
@@ -544,12 +550,37 @@ function resolveSenderTrustPresentation(
   return finalizeTrustPresentation({
     tier: "blue",
     label: "Known Sender",
-    icon: "•",
+    icon: "dot",
     summary: "No strong warning signals were detected.",
     detail:
       "We did not find a strong sender warning for this message, but the sender has not been fully verified.",
     signals: []
   });
+}
+
+function renderTrustGlyph(icon: string) {
+  if (icon === "check") {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9.5" />
+        <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+      </svg>
+    );
+  }
+  if (icon === "warning" || icon === "alert") {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m9 3 6 0 6 6v6l-6 6H9l-6-6V9z" />
+        <path d="M12 8v5" />
+        <circle cx="12" cy="16.4" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+    </svg>
+  );
 }
 
 function getSpecializedMailboxEmptyState(input: {
@@ -2403,14 +2434,17 @@ function renderComposerCommandIcon(command: ComposerCommand) {
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="1.8"
           strokeLinecap="round"
           strokeLinejoin="round"
+          aria-hidden="true"
         >
-          <path d="M4 7h11" />
-          <path d="M4 12h11" />
-          <path d="M4 17h8" />
-          <polyline points="17 8 20 11 17 14" />
+          <path d="M4 6.5h12" />
+          <path d="M4 12h9" />
+          <path d="M4 17.5h12" />
+          <path d="M19 5v14" />
+          <path d="m17.3 7 1.7-2 1.7 2" />
+          <path d="m17.3 17 1.7 2 1.7-2" />
         </svg>
       );
     case "bold":
@@ -2420,7 +2454,13 @@ function renderComposerCommandIcon(command: ComposerCommand) {
     case "underline":
       return <span className="fmt-underline">U</span>;
     case "strikethrough":
-      return <span className="fmt-strike">S</span>;
+      return (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 8.5c.5-1.8 2.1-2.8 4.7-2.8 2.4 0 4 .9 4.8 2.3" />
+          <path d="M4 12h16" />
+          <path d="M6.2 15.3c.8 1.8 2.6 2.9 5.4 2.9 2.8 0 4.5-1.1 5.1-2.9" />
+        </svg>
+      );
     case "uppercase":
       return <span className="fmt-case-glyph fmt-case-upper">AA</span>;
     case "lowercase":
@@ -2429,7 +2469,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       return <span className="fmt-case-glyph fmt-case-title">Aa</span>;
     case "align_left":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="3" y1="6" x2="21" y2="6" />
           <line x1="3" y1="12" x2="15" y2="12" />
           <line x1="3" y1="18" x2="18" y2="18" />
@@ -2437,7 +2477,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "align_center":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="3" y1="6" x2="21" y2="6" />
           <line x1="6" y1="12" x2="18" y2="12" />
           <line x1="4" y1="18" x2="20" y2="18" />
@@ -2445,7 +2485,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "bullet_list":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="9" y1="6" x2="20" y2="6" />
           <line x1="9" y1="12" x2="20" y2="12" />
           <line x1="9" y1="18" x2="20" y2="18" />
@@ -2456,7 +2496,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "number_list":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="10" y1="6" x2="21" y2="6" />
           <line x1="10" y1="12" x2="21" y2="12" />
           <line x1="10" y1="18" x2="21" y2="18" />
@@ -2467,7 +2507,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "indent":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="3" y1="6" x2="21" y2="6" />
           <line x1="9" y1="12" x2="21" y2="12" />
           <line x1="9" y1="18" x2="21" y2="18" />
@@ -2476,7 +2516,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "outdent":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="3" y1="6" x2="21" y2="6" />
           <line x1="3" y1="12" x2="15" y2="12" />
           <line x1="3" y1="18" x2="15" y2="18" />
@@ -2485,21 +2525,21 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "link":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
         </svg>
       );
     case "quote":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 17H6a2 2 0 0 1-2-2v-1a5 5 0 0 1 5-5h1v8Z" />
-          <path d="M20 17h-4a2 2 0 0 1-2-2v-1a5 5 0 0 1 5-5h1v8Z" />
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M7.3 10.5c0-1.7 1-3 2.7-3.8v3.9H7.3v6H12v-4.1H9.7" />
+          <path d="M14.8 10.5c0-1.7 1-3 2.7-3.8v3.9h-2.7v6h4.7v-4.1h-2.3" />
         </svg>
       );
     case "rewrite":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 20V5" />
           <path d="m6 11 6-6 6 6" />
           <path d="M6 20h12" />
@@ -2507,7 +2547,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "clear_formatting":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 7V4h16v3" />
           <path d="M9 20h6" />
           <path d="M12 4v16" />
@@ -2516,13 +2556,13 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "attach":
       return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
         </svg>
       );
     case "calendar":
       return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="4" width="18" height="17" rx="2" />
           <path d="M8 2v4" />
           <path d="M16 2v4" />
@@ -2533,7 +2573,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "image":
       return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="4" width="18" height="16" rx="2" ry="2" />
           <circle cx="8.5" cy="9.5" r="1.5" />
           <path d="m21 15-5-5L5 21" />
@@ -2541,7 +2581,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "signature":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 21h6" />
           <path d="M12 3a6 6 0 0 1 6 6c0 5-6 5-6 10" />
           <path d="M9 21h12" />
@@ -2549,7 +2589,7 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "save":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
           <path d="M17 21v-8H7v8" />
           <path d="M7 3v5h8" />
@@ -2557,14 +2597,14 @@ function renderComposerCommandIcon(command: ComposerCommand) {
       );
     case "schedule":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 3" />
         </svg>
       );
     case "print":
       return (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 9V2h12v7" />
           <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
           <path d="M6 14h12v8H6z" />
@@ -2889,96 +2929,142 @@ function getFolderIcon(folderName: string, specialUse?: string) {
 
 function renderFolderIconByKey(iconKey: string) {
   if (iconKey === "trash") {
-    return <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" />;
-  }
-  if (iconKey === "inbox" || iconKey === "folder") {
     return (
       <>
-        <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
-        <path d="M1 3.5l6 4.5 6-4.5" />
+        <path d="M4 7h16" />
+        <path d="M9 7V5h6v2" />
+        <path d="M6.5 7 7.5 20a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8L17.5 7" />
+        <path d="M10 11v7" />
+        <path d="M14 11v7" />
+      </>
+    );
+  }
+  if (iconKey === "inbox") {
+    return (
+      <>
+        <path d="M3 11.5 6 7h12l3 4.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+        <path d="M3 12h6l1.6 2h2.8L15 12h6" />
+        <path d="M12 3v8" />
+        <path d="m9.5 8.5 2.5 2.5 2.5-2.5" />
+      </>
+    );
+  }
+  if (iconKey === "folder") {
+    return (
+      <>
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        <path d="M3 11h18" />
+        <path d="M8 15h7" />
       </>
     );
   }
   if (iconKey === "inbox-arrow") {
     return (
       <>
-        <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
-        <path d="M1 3.5l6 4.5 6-4.5" />
-        <path d="M7 2v4" />
+        <path d="M3 11.5 6 7h12l3 4.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+        <path d="M3 12h6l1.6 2h2.8L15 12h6" />
+        <path d="M12 2v6.5" />
+        <path d="m9.5 6 2.5 2.5L14.5 6" />
       </>
     );
   }
   if (iconKey === "mail-open") {
     return (
       <>
-        <path d="M1.5 5.2 7 2l5.5 3.2v6.3a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1V5.2z" />
-        <path d="M1.5 5.2 7 8.4l5.5-3.2" />
+        <path d="M3 9.5 12 4l9 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5z" />
+        <path d="M3 9.5 12 15l9-5.5" />
+        <path d="M7.5 12.5h9" />
       </>
     );
   }
   if (iconKey === "send") {
-    return <path d="M13 7l-4-4v2.5C5 5.5 2.5 7 2 11c1.5-2.5 3.5-3.5 7-3.5V10l4-3z" />;
+    return (
+      <>
+        <path d="M3.5 11.8 20.5 4 13.7 20l-2.9-6.3-7.3-1.9Z" />
+        <path d="M10.6 13.5 20.5 4" />
+      </>
+    );
   }
   if (iconKey === "edit") {
     return (
       <>
-        <path d="M2 11.2V12.5h1.3l6.2-6.2-1.3-1.3L2 11.2z" />
-        <path d="M8.7 4.9 10 6.2" />
+        <path d="M5 4.5h10a2 2 0 0 1 2 2V14" />
+        <path d="M5 4.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8" />
+        <path d="m12.5 16.5 5.8-5.8a1.8 1.8 0 0 1 2.5 2.5L15 19l-3.5.9z" />
+        <path d="m17.7 11.3 2.5 2.5" />
       </>
     );
   }
   if (iconKey === "warning") {
     return (
       <>
-        <circle cx="7" cy="7" r="5.5" />
-        <path d="M7 4.3v3.2" />
-        <circle cx="7" cy="9.9" r="0.55" fill="currentColor" stroke="none" />
+        <path d="M12 3.2 20.5 7v7.5L12 20.8l-8.5-6.3V7z" />
+        <path d="M9 9l6 6" />
+        <path d="m15 9-6 6" />
       </>
     );
   }
   if (iconKey === "archive") {
     return (
       <>
-        <rect x="1" y="4.5" width="12" height="8" rx="1" />
-        <path d="M1 4.5h12M5 7.5h4" />
-        <rect x="1" y="2.5" width="12" height="2" rx="0.5" />
+        <rect x="3" y="5.5" width="18" height="4" rx="1.2" />
+        <path d="M4.5 9.5V19a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9.5" />
+        <path d="M12 13v5.5" />
+        <path d="m9.5 16 2.5 2.5 2.5-2.5" />
       </>
     );
   }
   if (iconKey === "flag") {
     return (
       <>
-        <path d="M3 12.5V2.5" />
-        <path d="M3 3h7l-1.2 2.2L10 7.5H3" />
+        <path d="M5 21V4" />
+        <path d="M5 5h10l-1.7 2.8 2.7 3.9H5" />
       </>
     );
   }
   if (iconKey === "receipt") {
-    return <path d="M2 4.5h10M3 2.5h8l1 2H2l1-2zM3 4.5l.8 7h6.4l.8-7" />;
+    return (
+      <>
+        <path d="M7 3h10v18l-2-1.8L13 21l-2-1.8L9 21l-2-1.8L5 21V5a2 2 0 0 1 2-2Z" />
+        <path d="M9 8h6" />
+        <path d="M9 11.5h6" />
+        <path d="M9 15h4" />
+      </>
+    );
   }
   if (iconKey === "globe") {
     return (
       <>
-        <circle cx="7" cy="7" r="5.5" />
-        <path d="M1.8 7h10.4M7 1.5c1.4 1.6 2.1 3.4 2.1 5.5S8.4 10.9 7 12.5M7 1.5C5.6 3.1 4.9 4.9 4.9 7S5.6 10.9 7 12.5" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18" />
+        <path d="M12 3a13 13 0 0 1 0 18" />
+        <path d="M12 3a13 13 0 0 0 0 18" />
+        <path d="M5.2 7.5h13.6" />
+        <path d="M5.2 16.5h13.6" />
       </>
     );
   }
   if (iconKey === "bank") {
     return (
       <>
-        <path d="M1.5 5 7 2.5 12.5 5H1.5z" />
-        <path d="M2.5 5v5.5M5 5v5.5M7 5v5.5M9 5v5.5M11.5 5v5.5M1.5 10.5h11" />
+        <path d="M3 8 12 3l9 5" />
+        <path d="M5 10v8" />
+        <path d="M9 10v8" />
+        <path d="M15 10v8" />
+        <path d="M19 10v8" />
+        <path d="M3 21h18" />
+        <path d="M3 10h18" />
       </>
     );
   }
   if (iconKey === "heart") {
-    return <path d="M7 11.8 2.6 7.4a2.7 2.7 0 0 1 0-3.8 2.7 2.7 0 0 1 3.8 0L7 4.2l.6-.6a2.7 2.7 0 0 1 3.8 0 2.7 2.7 0 0 1 0 3.8L7 11.8z" />;
+    return <path d="M12 20s-7-4.3-9-8.3C1.6 8.8 3.4 5 7 5c2.1 0 3.5 1.2 5 3 1.5-1.8 2.9-3 5-3 3.6 0 5.4 3.8 4 6.7-2 4-9 8.3-9 8.3Z" />;
   }
   return (
     <>
-      <path d="M1 3.5h12v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3.5z" />
-      <path d="M1 3.5l6 4.5 6-4.5" />
+      <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <path d="M3 11h18" />
+      <path d="M8 15h7" />
     </>
   );
 }
@@ -2991,10 +3077,10 @@ function renderFolderGlyph(folderName: string, folderPath: string, specialUse?: 
       <svg
         width="13"
         height="13"
-        viewBox="0 0 14 14"
+        viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
@@ -3017,10 +3103,10 @@ function renderSortFolderGlyph(preset: SortFolderPreset) {
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <rect x="5" y="4" width="14" height="16" rx="2" />
+        <rect x="5" y="3.5" width="14" height="17" rx="2.2" />
         <path d="M9 8h6" />
-        <path d="M9 12h6" />
-        <path d="m9 16 1.5 1.5L15 13" />
+        <path d="M9 11.5h6" />
+        <path d="m8.5 15.7 2.1 2.1 4.9-5.2" />
       </svg>
     );
   }
@@ -3054,11 +3140,10 @@ function renderSortFolderGlyph(preset: SortFolderPreset) {
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <rect x="4" y="4" width="16" height="16" rx="2" />
-        <path d="M4 10h16" />
-        <path d="M9 7h1" />
-        <path d="M14 7h1" />
-        <path d="M8 14h8" />
+        <rect x="5" y="4" width="14" height="16" rx="2.2" />
+        <path d="M15.5 4v7l-2.5-1.8-2.5 1.8V4" />
+        <path d="M8.5 14h7" />
+        <path d="M8.5 17h5" />
       </svg>
     );
   }
@@ -3077,6 +3162,151 @@ function renderSortFolderGlyph(preset: SortFolderPreset) {
       <path d="M9 8h6" />
       <path d="M9 12h6" />
       <path d="M10 16h4" />
+    </svg>
+  );
+}
+
+function renderContextIcon(
+  icon:
+    | "select"
+    | "priority"
+    | "focus"
+    | "mute"
+    | "sort"
+    | "move"
+    | "clock"
+    | "mark-read"
+    | "mark-unread"
+    | "delete"
+    | "remove"
+    | "unsubscribe",
+  options?: { active?: boolean }
+) {
+  const baseProps = {
+    width: "13",
+    height: "13",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": "true" as const
+  };
+
+  if (icon === "select") {
+    return (
+      <svg {...baseProps}>
+        <rect x="4" y="4" width="16" height="16" rx="2.2" />
+        <path d="m8 12 3 3 5-6" />
+      </svg>
+    );
+  }
+  if (icon === "priority") {
+    if (options?.active) {
+      return (
+        <svg {...baseProps} fill="none" stroke="currentColor">
+          <path d="m12 4.4 2.3 4.7 5.2.8-3.8 3.6.9 5.2-4.6-2.4-4.6 2.4.9-5.2-3.8-3.6 5.2-.8Z" />
+          <path d="M12 7.4v5.2" />
+          <path d="M9.4 10h5.2" />
+        </svg>
+      );
+    }
+    return (
+      <svg {...baseProps}>
+        <path d="m12 3.5 2.7 5.4 6 .9-4.3 4.1 1 5.9-5.4-2.8-5.4 2.8 1-5.9L3.3 9.8l6-.9Z" />
+        <path d="M18.5 4.5v4" />
+        <path d="M16.5 6.5h4" />
+      </svg>
+    );
+  }
+  if (icon === "focus") {
+    return (
+      <svg {...baseProps}>
+        <circle cx="12" cy="12" r="5.5" />
+        <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+        <path d="M12 3v3" />
+        <path d="M12 18v3" />
+        <path d="M3 12h3" />
+        <path d="M18 12h3" />
+      </svg>
+    );
+  }
+  if (icon === "mute") {
+    return (
+      <svg {...baseProps}>
+        <path d="M14 17.5v1a2 2 0 0 1-4 0v-1" />
+        <path d="M7 10a5 5 0 0 1 10 0c0 2.5 1 3.6 2 4.5H5c1-1 2-2 2-4.5Z" />
+        <path d="m4 4 16 16" />
+      </svg>
+    );
+  }
+  if (icon === "sort") {
+    return (
+      <svg {...baseProps}>
+        <path d="M4 5.5h16l-6 7v5l-4 2v-7z" />
+        <path d="m10 9 2 2 4-4" />
+      </svg>
+    );
+  }
+  if (icon === "move") {
+    return (
+      <svg {...baseProps}>
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        <path d="m10 13 3 3 3-3" />
+      </svg>
+    );
+  }
+  if (icon === "clock") {
+    return (
+      <svg {...baseProps}>
+        <circle cx="11" cy="12" r="7" />
+        <path d="M11 8.5V12l2.3 2.3" />
+        <path d="M16.8 16.8 20 20" />
+      </svg>
+    );
+  }
+  if (icon === "mark-read") {
+    return (
+      <svg {...baseProps}>
+        <path d="M3 8.5 12 14l9-5.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+        <path d="M3 8.5 12 4l9 4.5" />
+      </svg>
+    );
+  }
+  if (icon === "mark-unread") {
+    return (
+      <svg {...baseProps}>
+        <rect x="3" y="5.5" width="18" height="13.5" rx="1.5" />
+        <path d="M3 8l9 6 9-6" />
+        <circle cx="18.2" cy="6.2" r="2.1" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (icon === "delete") {
+    return (
+      <svg {...baseProps}>
+        <path d="M4 7h16" />
+        <path d="M9 7V5h6v2" />
+        <path d="M6.5 7 7.5 20a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8L17.5 7" />
+        <path d="M10 11v7" />
+        <path d="M14 11v7" />
+      </svg>
+    );
+  }
+  if (icon === "remove") {
+    return (
+      <svg {...baseProps}>
+        <path d="M5 12h14" />
+        <path d="M12 5v14" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...baseProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M6 6l12 12" />
     </svg>
   );
 }
@@ -3470,7 +3700,7 @@ function SwipeRow({
             setRevealedSide(null);
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -3486,7 +3716,7 @@ function SwipeRow({
             setRevealedSide(null);
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 12H2" />
             <path d="m9 5-7 7 7 7" />
             <path d="M13 19h5a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-5" />
@@ -3506,7 +3736,7 @@ function SwipeRow({
             setRevealedSide(null);
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6" />
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
             <path d="M10 11v6M14 11v6" />
@@ -3577,9 +3807,10 @@ function SwipeRow({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="3"
+                strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
               >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
@@ -3606,7 +3837,10 @@ function SwipeRow({
                     aria-label={senderTrust?.summary}
                     title={senderTrust?.summary}
                   >
-                    ✓
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </span>
                 ) : null}
                 {!isSentFolder && spoofed ? (
@@ -3636,7 +3870,11 @@ function SwipeRow({
                       onFocus();
                     }}
                   >
-                    ⊙ Focus
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="5.5" />
+                      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                    </svg>
+                    <span>Focus</span>
                   </button>
                 ) : null}
               </div>
@@ -3653,7 +3891,7 @@ function SwipeRow({
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       aria-hidden="true"
@@ -4161,6 +4399,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     top: number;
     left: number;
   } | null>(null);
+  const [composeToolbarTooltip, setComposeToolbarTooltip] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
   const [expandedMessageSourceUid, setExpandedMessageSourceUid] = useState<number | null>(null);
   const [expandedAttachmentSections, setExpandedAttachmentSections] = useState<Set<number>>(
     () => new Set()
@@ -4195,6 +4438,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [bulkMoveActive, setBulkMoveActive] = useState(false);
   const [sortMenuUid, setSortMenuUid] = useState<number | null>(null);
   const [bulkSelectionMenu, setBulkSelectionMenu] = useState<BulkSelectionMenu>(null);
+  const composeToolbarTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasAppliedPreset, setHasAppliedPreset] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<
@@ -12010,14 +12254,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <path d="M3 7h12" />
-            <path d="M3 12h18" />
-            <path d="M3 17h10" />
-            <path d="m17 5 4 4-4 4" />
+            <path d="M4 5.5h16l-6 7v5l-4 2v-7z" />
+            <path d="m10 9 2 2 4-4" />
           </svg>
           <span>Sort</span>
         </button>
@@ -13093,6 +13336,48 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const hideComposeQuickFactTooltip = () => {
     setComposeQuickFactTooltip(null);
   };
+  const clearComposeToolbarTooltipTimer = useCallback(() => {
+    if (composeToolbarTooltipTimerRef.current) {
+      clearTimeout(composeToolbarTooltipTimerRef.current);
+      composeToolbarTooltipTimerRef.current = null;
+    }
+  }, []);
+  const showComposeToolbarTooltip = useCallback(
+    (target: EventTarget & HTMLElement, text: string) => {
+      clearComposeToolbarTooltipTimer();
+      composeToolbarTooltipTimerRef.current = setTimeout(() => {
+        const rect = target.getBoundingClientRect();
+        setComposeToolbarTooltip({
+          text,
+          top: rect.top - 10,
+          left: rect.left + rect.width / 2
+        });
+      }, COMPOSE_TOOLBAR_TOOLTIP_DELAY_MS);
+    },
+    [clearComposeToolbarTooltipTimer]
+  );
+  const hideComposeToolbarTooltip = useCallback(() => {
+    clearComposeToolbarTooltipTimer();
+    setComposeToolbarTooltip(null);
+  }, [clearComposeToolbarTooltipTimer]);
+  const resolveComposeToolbarTooltipText = useCallback((command: ComposerCommand) => {
+    if (command.id === "rewrite_for_outcome") {
+      return "Elevate: rewrite your draft for the selected goal";
+    }
+
+    if (command.id === "save_draft") {
+      return "Save draft now";
+    }
+
+    return command.shortcut
+      ? `${command.label} (${command.shortcut.replace("Meta", "⌘")})`
+      : command.label;
+  }, []);
+  useEffect(() => {
+    return () => {
+      clearComposeToolbarTooltipTimer();
+    };
+  }, [clearComposeToolbarTooltipTimer]);
   function autoResizeComposeQuickFactInput() {
     const input = composeQuickFactInputRef.current;
     if (!input) {
@@ -13243,6 +13528,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const isActive = command.isActive
       ? command.isActive(composeCommandContext)
       : false;
+    const tooltipText = resolveComposeToolbarTooltipText(command);
 
     return (
       <Fragment key={command.id}>
@@ -13293,14 +13579,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             } ${
               command.icon === "underline" ? "fmt-underline" : ""
             } ${command.icon === "strikethrough" ? "fmt-strike" : ""}`}
-            title={command.shortcut
-              ? `${command.label} (${command.shortcut.replace("Meta", "⌘")})`
-              : command.label}
+            aria-label={tooltipText}
             disabled={!isEnabled}
             onMouseDown={(event) => {
               event.preventDefault();
+              hideComposeToolbarTooltip();
               void runComposerCommand(command);
             }}
+            onMouseEnter={(event) => {
+              showComposeToolbarTooltip(event.currentTarget, tooltipText);
+            }}
+            onMouseLeave={hideComposeToolbarTooltip}
+            onFocus={(event) => {
+              showComposeToolbarTooltip(event.currentTarget, tooltipText);
+            }}
+            onBlur={hideComposeToolbarTooltip}
           >
             {renderComposerCommandIcon(command)}
             {isRewriteCommand ? <span className="fmt-btn-text">Elevate</span> : null}
@@ -13952,7 +14245,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="1.8"
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden="true"
@@ -14052,7 +14345,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
@@ -15071,7 +15364,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           </div>
         )}
         {selectedSenderIsVerified && selectedMessage?.uid === message.uid ? (
-          <span className="bimi-avatar-badge">✓</span>
+          <span className="bimi-avatar-badge">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9.5" />
+              <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+            </svg>
+          </span>
         ) : null}
       </div>
     );
@@ -15101,7 +15399,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             title={trust.detail}
           >
             <span className="sender-trust-row-check sender-trust-row-check-verified" aria-hidden="true">
-              ✓
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9.5" />
+                <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+              </svg>
             </span>
           </button>
         </div>
@@ -15129,7 +15430,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         >
           {showTrustIcon ? (
             <span className="sender-trust-icon" aria-hidden="true">
-              {trust.icon}
+              {renderTrustGlyph(trust.icon)}
             </span>
           ) : null}
           <span className="sender-trust-label">{trust.label}</span>
@@ -16622,21 +16923,33 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </div>
               <div className="sidebar-onboarding-list">
                 <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">●</span>
+                  <span className="sidebar-onboarding-item-icon">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="6" />
+                    </svg>
+                  </span>
                   <div className="sidebar-onboarding-item-copy">
                     <strong>New Mail</strong> keeps active unread inbox mail together. Read Mail
                     holds the inbox you have already worked through.
                   </div>
                 </div>
                 <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">●</span>
+                  <span className="sidebar-onboarding-item-icon">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="6" />
+                    </svg>
+                  </span>
                   <div className="sidebar-onboarding-item-copy">
                     <strong>Sort</strong> is the fast way to file into Receipts, Travel,
                     Follow-Up, or Reference.
                   </div>
                 </div>
                 <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">●</span>
+                  <span className="sidebar-onboarding-item-icon">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="6" />
+                    </svg>
+                  </span>
                   <div className="sidebar-onboarding-item-copy">
                     Each account stays live. Expand an account when you want more folders, not
                     more noise.
@@ -16907,7 +17220,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.5"
+                        strokeWidth="1.8"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
@@ -17510,9 +17823,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    aria-hidden="true"
                   >
                     <polyline points="15 18 9 12 15 6" />
                   </svg>
@@ -17605,7 +17919,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -17623,12 +17937,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    aria-hidden="true"
                   >
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    <path d="M14.5 5.5 18.5 9.5" />
+                    <path d="m4.5 19.5 3.8-.9 10.3-10.3a2.1 2.1 0 1 0-3-3L5.3 15.6z" />
+                    <path d="M4 7.5h5" />
+                    <path d="M6.5 5v5" />
                   </svg>
                 </button>
               )}
@@ -17656,15 +17973,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                   style={{ marginRight: 3 }}
                 >
-                  <line x1="21" y1="10" x2="7" y2="10" />
-                  <line x1="21" y1="6" x2="3" y2="6" />
-                  <line x1="21" y1="14" x2="3" y2="14" />
-                  <line x1="21" y1="18" x2="7" y2="18" />
+                  <path d="M8 6h11" />
+                  <path d="M8 12h11" />
+                  <path d="M12 18h7" />
+                  <path d="M4 6v5.5a2 2 0 0 0 2 2h2" />
+                  <path d="M8 12h3.4a2 2 0 0 1 2 2v1.1" />
                 </svg>
                 {threadingEnabled ? "Threaded" : "Flat"}
               </button>
@@ -17685,7 +18004,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }
                 }}
               >
-                {isSentFolder ? "To" : "From"} <span className="col-chip-icon">⊙</span>
+                {isSentFolder ? "To" : "From"}{" "}
+                <span className="col-chip-icon">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="5.5" />
+                    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  </svg>
+                </span>
               </div>
             ) : null}
             <div
@@ -17701,7 +18026,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 }
               }}
             >
-              Subject <span className="col-chip-icon">⊙</span>
+              Subject{" "}
+              <span className="col-chip-icon">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="5.5" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                </svg>
+              </span>
             </div>
             <div
               ref={dateFocusMenuRef}
@@ -17720,7 +18051,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
@@ -17913,7 +18244,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -17930,7 +18261,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -17990,7 +18321,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   onClick={clearSelection}
                   title="Leave multi-select"
                 >
-                  <span aria-hidden="true">×</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m6 6 12 12" />
+                    <path d="m18 6-12 12" />
+                  </svg>
                 </button>
               </div>
             </div>
@@ -18175,9 +18509,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="3"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            aria-hidden="true"
                           >
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
@@ -18224,7 +18559,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 aria-label={latestSenderTrust?.summary}
                                 title={latestSenderTrust?.summary}
                               >
-                                ✓
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="10" />
+                                  <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
                               </span>
                             ) : null}
 
@@ -18261,7 +18599,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   applySenderPivot(latestMessage, isSentFolder);
                                 }}
                               >
-                                ⊙ Focus
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="5.5" />
+                                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                                </svg>
+                                <span>Focus</span>
                               </button>
                             ) : null}
                           </div>
@@ -18279,7 +18621,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   viewBox="0 0 24 24"
                                   fill="none"
                                   stroke="currentColor"
-                                  strokeWidth="2"
+                                  strokeWidth="1.8"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                   aria-hidden="true"
@@ -18315,7 +18657,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="2.5"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
@@ -18517,7 +18859,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
@@ -18573,7 +18915,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             <span className="email-sender-name">
                               {displaySender(message.from)}
                             </span>
-                            {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
+                            {isSentFolder ? (
+                              <span className="sent-folder-chip">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="9.5" />
+                                  <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+                                </svg>
+                                <span>Sent</span>
+                              </span>
+                            ) : null}
                             <span className="email-sender-date-inline">
                               {message.date
                                 ? new Date(message.date).toLocaleString(undefined, {
@@ -18640,7 +18990,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
@@ -18664,7 +19014,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
@@ -18689,7 +19039,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
@@ -18715,13 +19065,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
-                            <polyline points="21 8 21 21 3 21 3 8" />
-                            <rect x="1" y="3" width="22" height="5" />
-                            <line x1="10" y1="12" x2="14" y2="12" />
+                            <rect x="3" y="5.5" width="18" height="4" rx="1.2" />
+                            <path d="M4.5 9.5V19a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9.5" />
+                            <path d="M12 13v5.5" />
+                            <path d="m9.5 16 2.5 2.5 2.5-2.5" />
                           </svg>
                           <span>Archive</span>
                         </button>
@@ -18740,7 +19091,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
@@ -18762,18 +19113,38 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             await handleToggleRead(resolved);
                           }}
                         >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
-                          </svg>
+                          {message.seen ? (
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <rect x="3" y="5.5" width="18" height="13.5" rx="1.5" />
+                              <path d="M3 8l9 6 9-6" />
+                              <circle cx="18.2" cy="6.2" r="2.1" fill="currentColor" stroke="none" />
+                            </svg>
+                          ) : (
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 8.5 12 14l9-5.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+                              <path d="M3 8.5 12 4l9 4.5" />
+                            </svg>
+                          )}
                           <span>{getReadToggleActionCopy(message.seen).label}</span>
                         </button>
                         <button
@@ -18791,11 +19162,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                            <path d="m10 13 3 3 3-3" />
                           </svg>
                           <span>Move…</span>
                         </button>
@@ -18816,13 +19188,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="8" x2="12" y2="12" />
-                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                            <path d="m9.8 4.2 4.4 0 5.6 5.6v4.4l-5.6 5.6H9.8l-5.6-5.6V9.8z" />
+                            <path d="m10 10 4 4" />
+                            <path d="m14 10-4 4" />
                           </svg>
                           <span>Spam</span>
                         </button>
@@ -18840,14 +19212,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="2"
+                            strokeWidth="1.8"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
-                            <path d="M6 9V3h12v6" />
-                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                            <rect x="6" y="14" width="12" height="7" rx="1" />
-                            <line x1="8" y1="7" x2="16" y2="7" />
+                            <rect x="6" y="3.5" width="12" height="5.5" rx="1" />
+                            <rect x="3" y="9" width="18" height="7" rx="2" />
+                            <rect x="7" y="14.5" width="10" height="6.5" rx="1" />
+                            <path d="M9 6h6" />
                           </svg>
                           <span>Print</span>
                         </button>
@@ -18896,7 +19268,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <span className="email-sender-name">
                       {displaySender(selectedMessage.from)}
                     </span>
-                    {isSentFolder ? <span className="sent-folder-chip">✓ Sent</span> : null}
+                    {isSentFolder ? (
+                      <span className="sent-folder-chip">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9.5" />
+                          <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+                        </svg>
+                        <span>Sent</span>
+                      </span>
+                    ) : null}
                     <span className="email-sender-date-inline">
                       {selectedMessage.date
                         ? new Date(selectedMessage.date).toLocaleString(undefined, {
@@ -18945,7 +19325,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -18965,7 +19345,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -18986,7 +19366,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -19008,13 +19388,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <polyline points="21 8 21 21 3 21 3 8" />
-                    <rect x="1" y="3" width="22" height="5" />
-                    <line x1="10" y1="12" x2="14" y2="12" />
+                    <rect x="3" y="5.5" width="18" height="4" rx="1.2" />
+                    <path d="M4.5 9.5V19a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9.5" />
+                    <path d="M12 13v5.5" />
+                    <path d="m9.5 16 2.5 2.5 2.5-2.5" />
                   </svg>
                   <span>Archive</span>
                 </button>
@@ -19029,7 +19410,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -19047,18 +19428,38 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   title={getReadToggleActionCopy(selectedMessage.seen).title}
                   onClick={() => handleToggleRead(selectedMessage)}
                 >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
-                  </svg>
+                  {selectedMessage.seen ? (
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect x="3" y="5.5" width="18" height="13.5" rx="1.5" />
+                      <path d="M3 8l9 6 9-6" />
+                      <circle cx="18.2" cy="6.2" r="2.1" fill="currentColor" stroke="none" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 8.5 12 14l9-5.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+                      <path d="M3 8.5 12 4l9 4.5" />
+                    </svg>
+                  )}
                   <span>{getReadToggleActionCopy(selectedMessage.seen).label}</span>
                 </button>
                 <button
@@ -19072,11 +19473,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <path d="m10 13 3 3 3-3" />
                   </svg>
                   <span>Move…</span>
                 </button>
@@ -19093,13 +19495,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                    <path d="m9.8 4.2 4.4 0 5.6 5.6v4.4l-5.6 5.6H9.8l-5.6-5.6V9.8z" />
+                    <path d="m10 10 4 4" />
+                    <path d="m14 10-4 4" />
                   </svg>
                   <span>Spam</span>
                 </button>
@@ -19114,14 +19516,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <path d="M6 9V3h12v6" />
-                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                    <rect x="6" y="14" width="12" height="7" rx="1" />
-                    <line x1="8" y1="7" x2="16" y2="7" />
+                    <rect x="6" y="3.5" width="12" height="5.5" rx="1" />
+                    <rect x="3" y="9" width="18" height="7" rx="2" />
+                    <rect x="7" y="14.5" width="10" height="6.5" rx="1" />
+                    <path d="M9 6h6" />
                   </svg>
                   <span>Print</span>
                 </button>
@@ -19130,7 +19532,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
               {suspiciousLinks.length > 0 ? (
                 <div className="suspicious-links-banner">
-                  <span className="suspicious-links-icon">🔗</span>
+                  <span className="suspicious-links-icon">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M9.5 14.5a4 4 0 0 1 0-5.7l2.3-2.3a4 4 0 0 1 5.7 5.7l-1.6 1.6" />
+                      <path d="M14.5 9.5a4 4 0 0 1 0 5.7l-2.3 2.3a4 4 0 0 1-5.7-5.7l1.6-1.6" />
+                    </svg>
+                  </span>
                   <span className="suspicious-links-text">
                     {suspiciousLinks.length} link{suspiciousLinks.length > 1 ? "s" : ""} in
                     this message {suspiciousLinks.length > 1 ? "were" : "was"} flagged by
@@ -19244,7 +19651,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           viewBox="0 0 16 16"
                           fill="none"
                           stroke="var(--text)"
-                          strokeWidth="1.4"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           aria-hidden="true"
@@ -19464,12 +19871,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 <svg
                                   width="13"
                                   height="13"
-                                  viewBox="0 0 14 14"
+                                  viewBox="0 0 24 24"
                                   fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
                                   style={{ flexShrink: 0 }}
+                                  aria-hidden="true"
                                 >
-                                  <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" />
-                                  <path d="M7 4v3.5l2 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                                  <circle cx="12" cy="12" r="9" />
+                                  <path d="M12 7.5V12l2.8 2.2" />
                                 </svg>
                                 Keep Recent
                               </button>
@@ -19480,11 +19892,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 <svg
                                   width="13"
                                   height="13"
-                                  viewBox="0 0 14 14"
+                                  viewBox="0 0 24 24"
                                   fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
                                   style={{ flexShrink: 0 }}
+                                  aria-hidden="true"
                                 >
-                                  <path d="M2 3.5h10M4.5 3.5V2.5h5v1M5 6v4.5M9 6v4.5M2.5 3.5l.5 8.5h8l.5-8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                                  <path d="M4 7h16" />
+                                  <path d="M9 7V5h6v2" />
+                                  <path d="M6.5 7 7.5 20a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8L17.5 7" />
+                                  <path d="M10 11v7" />
+                                  <path d="M14 11v7" />
                                 </svg>
                                 Delete All
                               </button>
@@ -19514,8 +19935,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   transition: "transform 0.15s"
                                 }}
                               >
-                                <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                                  <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M6 9.5 12 15.5l6-6" />
                                 </svg>
                               </span>
                             </div>
@@ -19780,7 +20201,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">✓</span> Multi-select
+                <span className="ctx-icon">{renderContextIcon("select")}</span> Multi-select
               </div>
               <div className="ctx-sep" />
               <div
@@ -19810,7 +20231,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">★</span>
+                <span className="ctx-icon">
+                  {renderContextIcon("priority", {
+                    active: Boolean(
+                      prioritizedSenders.find((sender) => sender.name === contextMenu.msg.from)
+                    )
+                  })}
+                </span>
                 {prioritizedSenders.find((sender) => sender.name === contextMenu.msg.from)
                   ? "Already Prioritized"
                   : "Prioritize Sender"}
@@ -19823,11 +20250,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">⊙</span>{" "}
+                <span className="ctx-icon">{renderContextIcon("focus")}</span>{" "}
                 {isSentFolder ? "Focus on This Recipient" : "Focus on This Sender"}
               </div>
               <div className="ctx-item" onClick={() => setContextMenu(null)}>
-                <span className="ctx-icon">🔕</span> Mute Sender
+                <span className="ctx-icon">{renderContextIcon("mute")}</span> Mute Sender
               </div>
               <div className="ctx-sep" />
               <div className="ctx-submenu-wrap">
@@ -19838,7 +20265,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     event.stopPropagation();
                   }}
                 >
-                  <span className="ctx-icon">↗</span> Quick Sort
+                  <span className="ctx-icon">{renderContextIcon("sort")}</span> Quick Sort
                   <span className="ctx-submenu-arrow">›</span>
                 </div>
                 <div className="ctx-menu ctx-submenu">
@@ -19876,7 +20303,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">📁</span> Move All to Folder…
+                <span className="ctx-icon">{renderContextIcon("move")}</span> Move All to Folder…
                 <span className="ctx-badge">{senderMessages.length}</span>
               </div>
               <div
@@ -19891,7 +20318,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">🕐</span> Keep Only Recent…
+                <span className="ctx-icon">{renderContextIcon("clock")}</span> Keep Only Recent…
                 <span className="ctx-badge">{senderMessages.length}</span>
               </div>
           <div className="ctx-sep" />
@@ -19905,7 +20332,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             }}
             title={getReadToggleActionCopy(contextMenu.msg.seen).title}
           >
-            <span className="ctx-icon">{contextMenu.msg.seen ? "○" : "●"}</span>
+            <span className="ctx-icon">
+              {renderContextIcon(contextMenu.msg.seen ? "mark-unread" : "mark-read")}
+            </span>
             {getReadToggleActionCopy(contextMenu.msg.seen).contextLabel}
           </div>
           {getSenderType(contextMenu.msg.from, contextMenu.msg.fromAddress ?? "") === "nl" ? (
@@ -19920,10 +20349,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setUnsubscribeConfirm(true);
                 }}
               >
-                <svg className="ctx-unsub-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                </svg>
+                <span className="ctx-unsub-icon">{renderContextIcon("unsubscribe")}</span>
                 Unsubscribe…
               </div>
             </>
@@ -19937,7 +20363,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               openDeleteSenderModal(contextMenu.msg);
             }}
           >
-            <span className="ctx-icon">🗑</span> Delete All from Sender…
+            <span className="ctx-icon">{renderContextIcon("delete")}</span> Delete All from Sender…
             <span className="ctx-badge ctx-badge-danger">
               {
                 messages.filter(
@@ -19980,7 +20406,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               setListAreaContextMenu(null);
             }}
           >
-            <span className="ctx-icon">✓</span> Select All
+            <span className="ctx-icon">{renderContextIcon("select")}</span> Select All
             <span className="ctx-badge">{selectableVisibleMessageUids.length}</span>
           </div>
         </div>
@@ -20018,7 +20444,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               setFolderContextMenu(null);
             }}
           >
-            <span className="ctx-icon">🗑</span> Empty Trash
+            <span className="ctx-icon">{renderContextIcon("delete")}</span> Empty Trash
           </div>
         </div>
       ) : null}
@@ -20059,7 +20485,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               setSidebarCtx(null);
             }}
           >
-            <span className="ctx-icon">🕐</span>
+            <span className="ctx-icon">{renderContextIcon("clock")}</span>
             {autoFilters.find(
               (filterRule) =>
                 filterRule.senderEmail === sidebarCtx.sender.email ||
@@ -20113,7 +20539,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 setSidebarCtx(null);
               }}
             >
-              <span className="ctx-icon">✕</span> Remove Auto-Filter
+              <span className="ctx-icon">{renderContextIcon("remove")}</span> Remove Auto-Filter
             </div>
           ) : null}
           <div className="ctx-sep" />
@@ -20125,7 +20551,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 event.stopPropagation();
               }}
             >
-              <span className="ctx-icon">↗</span> Quick Sort
+              <span className="ctx-icon">{renderContextIcon("sort")}</span> Quick Sort
               <span className="ctx-submenu-arrow">›</span>
             </div>
             <div className="ctx-menu ctx-submenu">
@@ -20164,7 +20590,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               setSidebarCtx(null);
             }}
           >
-            <span className="ctx-icon">🗑</span> Delete All from Sender…
+            <span className="ctx-icon">{renderContextIcon("delete")}</span> Delete All from Sender…
             <span className="ctx-badge ctx-badge-danger">
               {messages.filter((message) => message.from === sidebarCtx.sender.name).length}
             </span>
@@ -20189,7 +20615,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               setSidebarCtx(null);
             }}
           >
-            <span className="ctx-icon">★</span> Remove from Prioritized
+            <span className="ctx-icon">{renderContextIcon("priority", { active: true })}</span> Remove from Prioritized
           </div>
             </div>
           );
@@ -20223,7 +20649,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   setBulkMoveActive(false);
                 }}
               >
-                ✕
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m6 6 12 12" />
+                  <path d="m18 6-12 12" />
+                </svg>
               </button>
             </div>
             <div className="move-folder-list">
@@ -20311,7 +20740,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
@@ -20345,7 +20774,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="modal-overlay" onClick={() => setAutoFilterTarget(null)}>
                 <div className="modal" onClick={(event) => event.stopPropagation()}>
                   <div className="modal-header">
-                    <div className="modal-title">🕐 Auto-Filter Rule</div>
+                    <div className="modal-title">Auto-Filter Rule</div>
                     <div className="modal-subtitle">
                       {displaySender(autoFilterTarget.name)}
                     </div>
@@ -20380,7 +20809,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <div className="keep-summary">
                       <div className="keep-summary-row">
                         <span className="keep-summary-keep">
-                          ✓ Keep{" "}
+                          Keep{" "}
                           <strong>
                             {
                               messages.filter(
@@ -20393,7 +20822,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           recent messages
                         </span>
                         <span className="keep-summary-remove">
-                          🗑 Move <strong>{toRemoveNow.length}</strong> older messages to
+                          Move <strong>{toRemoveNow.length}</strong> older messages to
                           Trash now
                         </span>
                       </div>
@@ -20519,7 +20948,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="modal-overlay" onClick={() => setKeepRecentTarget(null)}>
                 <div className="modal" onClick={(event) => event.stopPropagation()}>
                   <div className="modal-header">
-                    <div className="modal-title">🕐 Keep Only Recent</div>
+                    <div className="modal-title">Keep Only Recent</div>
                     <div className="modal-subtitle">
                       {displaySender(keepRecentTarget.from)}
                     </div>
@@ -20547,11 +20976,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <div className="keep-summary">
                       <div className="keep-summary-row">
                         <span className="keep-summary-keep">
-                          ✓ Keep <strong>{toKeep.length}</strong> message
+                          Keep <strong>{toKeep.length}</strong> message
                           {toKeep.length !== 1 ? "s" : ""}
                         </span>
                         <span className="keep-summary-remove">
-                          🗑 Remove <strong>{toRemove.length}</strong> older message
+                          Remove <strong>{toRemove.length}</strong> older message
                           {toRemove.length !== 1 ? "s" : ""}
                         </span>
                       </div>
@@ -20713,7 +21142,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                 >
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -20870,7 +21299,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
@@ -20896,7 +21325,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div className="modal-header">
               <div className="modal-title">Settings</div>
               <button className="modal-close" onClick={() => setSettingsOpen(false)}>
-                ✕
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m6 6 12 12" />
+                  <path d="m18 6-12 12" />
+                </svg>
               </button>
             </div>
 
@@ -21020,9 +21452,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-theme-picker">
                         {([
                           { key: "warm-paper", label: "Warm Paper", color: "#d97d54" },
-                          { key: "cool-slate", label: "Cool Slate", color: "#4f46e5" },
-                          { key: "forest-mist", label: "Forest Mist", color: "#059669" },
-                          { key: "lavender-haze", label: "Lavender Haze", color: "#7c3aed" }
+                          { key: "cool-slate", label: "Cool Slate", color: "#5b7394" },
+                          { key: "forest-mist", label: "Forest Mist", color: "#3d8b6e" },
+                          { key: "brushed-silver", label: "Brushed Silver", color: "#7a8694" }
                         ] as const).map((themeOption) => {
                           const active = accentTheme === themeOption.key;
                           return (
@@ -21077,7 +21509,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             Enable
                           </button>
                         ) : notifPermission === "granted" ? (
-                          <span className="settings-notify-status on">● On</span>
+                          <span className="settings-notify-status on">
+                            <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                              <circle cx="12" cy="12" r="6" />
+                            </svg>
+                            <span>On</span>
+                          </span>
                         ) : (
                           <span className="settings-notify-status off">Blocked</span>
                         )}
@@ -21129,7 +21566,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.5"
+                        strokeWidth="1.8"
                         strokeLinecap="round"
                       >
                         <line x1="12" y1="5" x2="12" y2="19" />
@@ -21262,7 +21699,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   viewBox="0 0 24 24"
                                   fill="none"
                                   stroke="currentColor"
-                                  strokeWidth="2"
+                                  strokeWidth="1.8"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 >
@@ -21285,7 +21722,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   viewBox="0 0 24 24"
                                   fill="none"
                                   stroke="currentColor"
-                                  strokeWidth="2"
+                                  strokeWidth="1.8"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 >
@@ -21321,7 +21758,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         aria-label="Close add account dialog"
                         onClick={closeAccountForm}
                       >
-                        ✕
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m6 6 12 12" />
+                          <path d="m18 6-12 12" />
+                        </svg>
                       </button>
                       {addAccountConfirmationEmail ? (
                         <div className="settings-account-success-state">
@@ -22126,7 +22566,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               viewBox="0 0 24 24"
                               fill="none"
                               stroke="currentColor"
-                              strokeWidth="2.5"
+                              strokeWidth="1.8"
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             >
@@ -22173,7 +22613,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                   {autoFilters.length === 0 ? (
                     <div className="settings-rules-empty">
-                      <div className="settings-rules-empty-icon">🕐</div>
+                      <div className="settings-rules-empty-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 7.5V12l2.8 2.2" />
+                        </svg>
+                      </div>
                       <div className="settings-rules-empty-title">No sender rules yet</div>
                       <div className="settings-rules-empty-sub">
                         Right-click any sender and choose "Keep Only Recent…" to create a
@@ -22294,7 +22739,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               viewBox="0 0 24 24"
                               fill="none"
                               stroke="currentColor"
-                              strokeWidth="2.5"
+                              strokeWidth="1.8"
                               strokeLinecap="round"
                             >
                               <line x1="18" y1="6" x2="6" y2="18" />
@@ -22332,7 +22777,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="2"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
@@ -22367,7 +22812,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               onClick={(event) => handleBlockedSenderSelection(sender, event)}
                             >
                               <span className="settings-blocked-row-check">
-                                {isSelected ? "✓" : ""}
+                                {isSelected ? (
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9.5" />
+                                    <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+                                  </svg>
+                                ) : null}
                               </span>
                               <span className="settings-blocked-row-content">
                                 <span className="settings-blocked-row-email">{sender}</span>
@@ -22711,7 +23161,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2.5"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
@@ -22752,7 +23202,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                   >
                     {composeMinimized ? (
@@ -22774,7 +23224,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                   >
                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -22969,7 +23419,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -23001,11 +23451,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     className={`fmt-btn fmt-btn-label ${
                       composeQuickInsertOpen ? "fmt-btn-active" : ""
                     }`}
-                    title="QuickFact"
+                    aria-label="QuickFact: fetch a concise fact and insert it"
                     onMouseDown={(event) => {
                       event.preventDefault();
+                      hideComposeToolbarTooltip();
                       openComposeQuickFact();
                     }}
+                    onMouseEnter={(event) => {
+                      showComposeToolbarTooltip(
+                        event.currentTarget,
+                        "QuickFact: fetch a concise fact and insert it"
+                      );
+                    }}
+                    onMouseLeave={hideComposeToolbarTooltip}
+                    onFocus={(event) => {
+                      showComposeToolbarTooltip(
+                        event.currentTarget,
+                        "QuickFact: fetch a concise fact and insert it"
+                      );
+                    }}
+                    onBlur={hideComposeToolbarTooltip}
                   >
                     <svg
                       width="13"
@@ -23013,15 +23478,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m21 21-4.35-4.35" />
-                      <path d="M11 8v3" />
-                      <path d="M11 15h.01" />
+                      <circle cx="10.5" cy="10.5" r="6.5" />
+                      <path d="m20 20-4.1-4.1" />
+                      <path d="M10.5 8.2v4.6" />
+                      <path d="m9 10.5 1.5 1.5 2.6-2.6" />
                     </svg>
                     <span className="fmt-btn-text">QuickFact</span>
                   </button>
@@ -23031,11 +23496,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   className={`fmt-btn fmt-btn-label fmt-btn-ai ${
                     composeAiOpen && composeAiType === "polish" ? "fmt-btn-active" : ""
                   }`}
-                  title="Polish presentation and formatting"
+                  aria-label="Polish: refine tone, clarity, and presentation"
                   onMouseDown={(event) => {
                     event.preventDefault();
+                    hideComposeToolbarTooltip();
                     openComposeAiPanel("polish");
                   }}
+                  onMouseEnter={(event) => {
+                    showComposeToolbarTooltip(
+                      event.currentTarget,
+                      "Polish: refine tone, clarity, and presentation"
+                    );
+                  }}
+                  onMouseLeave={hideComposeToolbarTooltip}
+                  onFocus={(event) => {
+                    showComposeToolbarTooltip(
+                      event.currentTarget,
+                      "Polish: refine tone, clarity, and presentation"
+                    );
+                  }}
+                  onBlur={hideComposeToolbarTooltip}
                 >
                   <svg
                     width="13"
@@ -23043,17 +23523,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden="true"
                   >
-                    <path d="m14 4 6 6" />
-                    <path d="m13 5 2-2 6 6-2 2" />
-                    <path d="M11 7 4 14" />
-                    <path d="m3 21 2.5-6.5L12 8l4 4-6.5 6.5z" />
-                    <path d="M18 2v3" />
-                    <path d="M22 6h-3" />
+                    <path d="M6 19.5c2.1-3.4 4.6-6.2 8-8.9" />
+                    <path d="M13.2 6.2 17.8 10.8" />
+                    <path d="m5 20 2.1-5 7.4-7.4a2 2 0 0 1 2.8 0l.5.5a2 2 0 0 1 0 2.8L10.4 18 5 20Z" />
+                    <path d="M18.5 3.5v2.8" />
+                    <path d="M17.1 4.9h2.8" />
                   </svg>
                   <span className="fmt-btn-text">Polish</span>
                 </button>
@@ -23070,7 +23549,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setComposeToolbarMenuOpen((v) => !v);
                     }}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="4" y1="21" x2="4" y2="14" />
                       <line x1="4" y1="10" x2="4" y2="3" />
                       <line x1="12" y1="21" x2="12" y2="12" />
@@ -23203,14 +23682,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       xmlns="http://www.w3.org/2000/svg"
                       width="14"
                       height="14"
-                      viewBox="0 0 16 16"
+                      viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.5"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
                     >
-                      <line x1="4" y1="4" x2="12" y2="12" />
-                      <line x1="12" y1="4" x2="4" y2="12" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                      <line x1="18" y1="6" x2="6" y2="18" />
                     </svg>
                   </button>
                   <div className="qf-label">QuickFact</div>
@@ -23220,18 +23701,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         xmlns="http://www.w3.org/2000/svg"
                         width="16"
                         height="16"
-                        viewBox="0 0 16 16"
+                        viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="1.5"
+                        strokeWidth="1.8"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        aria-hidden="true"
                       >
-                        <circle cx="8" cy="8" r="3" />
-                        <line x1="8" y1="1" x2="8" y2="4" />
-                        <line x1="8" y1="12" x2="8" y2="15" />
-                        <line x1="1" y1="8" x2="4" y2="8" />
-                        <line x1="12" y1="8" x2="15" y2="8" />
+                        <circle cx="12" cy="12" r="4.2" />
+                        <line x1="12" y1="3" x2="12" y2="6.2" />
+                        <line x1="12" y1="17.8" x2="12" y2="21" />
+                        <line x1="3" y1="12" x2="6.2" y2="12" />
+                        <line x1="17.8" y1="12" x2="21" y2="12" />
                       </svg>
                     </span>
                     <textarea
@@ -23273,7 +23755,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         viewBox="0 0 16 16"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2"
+                        strokeWidth="1.8"
                         strokeLinecap="round"
                       >
                         <line x1="2" y1="8" x2="14" y2="8" />
@@ -23390,7 +23872,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
                         onClick={closeComposeAiPanel}
                       >
-                        <span aria-hidden="true">×</span>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m6 6 12 12" />
+                          <path d="m18 6-12 12" />
+                        </svg>
                       </button>
                     </div>
                   </div>
@@ -23683,7 +24168,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 {composeAttachments.map((file, index) =>
                   file.type.startsWith("image/") ? null : (
                     <div key={`${file.name}-${file.size}-${index}`} className="compose-attach-pill">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                       <polyline points="14 2 14 8 20 8"/>
                     </svg>
@@ -23711,7 +24196,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.5"
+                        strokeWidth="1.8"
                         strokeLinecap="round"
                       >
                         <path d="M6 6l12 12" />
@@ -23903,7 +24388,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
                         onClick={closeComposeAiPanel}
                       >
-                        <span aria-hidden="true">×</span>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m6 6 12 12" />
+                          <path d="m18 6-12 12" />
+                        </svg>
                       </button>
                     </div>
                     <div className="compose-ai-preview compose-ai-section">
@@ -24074,7 +24562,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="2"
+                          strokeWidth="1.8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           aria-hidden="true"
@@ -24109,6 +24597,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           ? command.isActive(composeCommandContext)
                           : false;
                         const isRewriteCommand = command.id === "rewrite_for_outcome";
+                        const tooltipText = resolveComposeToolbarTooltipText(command);
 
                         return (
                           <button
@@ -24118,11 +24607,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               isActive ? "active" : ""
                             } ${isRewriteCommand ? "compose-selection-toolbar-btn-label" : ""}`}
                             disabled={!isEnabled}
-                            title={command.label}
+                            aria-label={tooltipText}
                             onMouseDown={(event) => {
                               event.preventDefault();
+                              hideComposeToolbarTooltip();
                               void runComposerCommand(command);
                             }}
+                            onMouseEnter={(event) => {
+                              showComposeToolbarTooltip(event.currentTarget, tooltipText);
+                            }}
+                            onMouseLeave={hideComposeToolbarTooltip}
+                            onFocus={(event) => {
+                              showComposeToolbarTooltip(event.currentTarget, tooltipText);
+                            }}
+                            onBlur={hideComposeToolbarTooltip}
                           >
                             {renderComposerCommandIcon(command)}
                             {isRewriteCommand ? (
@@ -24132,6 +24630,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         );
                       })}
                     </div>
+                  </div>,
+                  document.body
+                )
+              : null}
+            {composeOpen &&
+            composeToolbarTooltip &&
+            typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    className="compose-ai-tooltip"
+                    style={{
+                      top: composeToolbarTooltip.top,
+                      left: composeToolbarTooltip.left
+                    }}
+                    role="tooltip"
+                  >
+                    {composeToolbarTooltip.text}
                   </div>,
                   document.body
                 )
@@ -24189,7 +24704,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div className="modal-header print-modal-header">
               <div className="modal-title">Print Options</div>
               <button className="modal-close" onClick={() => setPrintModalOpen(false)}>
-                ✕
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m6 6 12 12" />
+                  <path d="m18 6-12 12" />
+                </svg>
               </button>
             </div>
             <div className="modal-body print-modal-body">
@@ -24311,7 +24829,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div className="modal-header">
               <div className="modal-title">Insert Link</div>
               <button className="modal-close" onClick={() => setLinkDialogOpen(false)}>
-                ✕
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m6 6 12 12" />
+                  <path d="m18 6-12 12" />
+                </svg>
               </button>
             </div>
             <div className="modal-body">
@@ -24394,7 +24915,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         title="Previous image"
                         onClick={goToPreviousLightboxImage}
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <polyline points="15 18 9 12 15 6" />
                         </svg>
                       </button>
@@ -24404,7 +24925,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         title="Next image"
                         onClick={goToNextLightboxImage}
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <polyline points="9 18 15 12 9 6" />
                         </svg>
                       </button>
@@ -24429,7 +24950,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setLightboxOffset({ x: 0, y: 0 });
                     }}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                       <path d="M3 3v5h5" />
                     </svg>
@@ -24464,7 +24985,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       )
                     }
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 3v12" />
                       <path d="m7 10 5 5 5-5" />
                       <path d="M5 21h14" />
@@ -24482,7 +25003,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       )
                     }
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
                       <circle cx="9" cy="10" r="1.4" />
                       <path d="m6.5 16 4.2-4.1a1.5 1.5 0 0 1 2.08-.03L17.5 16" />
@@ -24495,7 +25016,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     title="Close"
                     onClick={closeLightbox}
                   >
-                    ✕
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m6 6 12 12" />
+                      <path d="m18 6-12 12" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -24510,7 +25034,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       goToPreviousLightboxImage();
                     }}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <polyline points="15 18 9 12 15 6" />
                     </svg>
                   </button>
@@ -24522,7 +25046,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       goToNextLightboxImage();
                     }}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <polyline points="9 18 15 12 9 6" />
                     </svg>
                   </button>
@@ -24698,7 +25222,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     className="modal-close"
                     onClick={() => closeCropModal()}
                   >
-                    ✕
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m6 6 12 12" />
+                      <path d="m18 6-12 12" />
+                    </svg>
                   </button>
                 </div>
                 <div className="crop-modal-body">
@@ -24856,7 +25383,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
@@ -24880,7 +25407,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
@@ -24910,7 +25437,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
@@ -25023,7 +25550,24 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast-${toast.type}`}>
             <span className="toast-icon">
-              {toast.type === "success" ? "✓" : toast.type === "error" ? "✕" : "ℹ"}
+              {toast.type === "success" ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9.5" />
+                  <path d="m8 12.5 2.6 2.6 5.4-5.4" />
+                </svg>
+              ) : toast.type === "error" ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9.5" />
+                  <path d="m8 8 8 8" />
+                  <path d="m16 8-8 8" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9.5" />
+                  <path d="M12 10v5" />
+                  <circle cx="12" cy="7.2" r="1" fill="currentColor" stroke="none" />
+                </svg>
+              )}
             </span>
             <span className="toast-message">{toast.message}</span>
             <button
