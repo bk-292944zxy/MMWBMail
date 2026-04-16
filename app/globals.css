@@ -527,7 +527,7 @@ textarea:focus {
 
 .swipe-actions-left {
   left: 0 !important;
-  width: 156px !important;
+  width: 216px !important;
   justify-content: flex-start !important;
   background: linear-gradient(90deg, rgba(10,132,255,0.10) 0%, rgba(10,132,255,0.03) 100%) !important;
 }
@@ -582,7 +582,7 @@ textarea:focus {
 }
 
 .swipe-foreground-right {
-  transform: translateX(156px) !important;
+  transform: translateX(216px) !important;
 }
 
 .message-row {
@@ -622,6 +622,26 @@ textarea:focus {
   .swipe-action-btn svg {
     width: 18px !important;
     height: 18px !important;
+  }
+}
+
+@media (max-width: 479px) {
+  .swipe-actions-left {
+    width: 180px !important;
+  }
+
+  .swipe-foreground-right {
+    transform: translateX(180px) !important;
+  }
+
+  .swipe-action-btn {
+    font-size: 10px !important;
+    gap: 4px !important;
+  }
+
+  .swipe-action-btn svg {
+    width: 14px !important;
+    height: 14px !important;
   }
 }
 
@@ -957,6 +977,16 @@ textarea:focus {
   margin-left: 6px;
 }
 
+.focus-pill-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-right: 2px !important;
+}
+
+.focus-pill-icon svg {
+  display: block !important;
+}
+
 .message-row:hover .focus-pill,
 .thread-row:hover .focus-pill {
   display: inline-flex;
@@ -1106,6 +1136,14 @@ textarea:focus {
   border-color: rgba(255,255,255,0.14) !important;
 }
 
+.sort-direction-indicator {
+  display: inline-block !important;
+  margin-left: 2px !important;
+  font-size: 10px !important;
+  opacity: 0.7 !important;
+  transition: transform 0.14s ease !important;
+}
+
 .type-chip {
   display: inline-flex !important;
   align-items: center !important;
@@ -1216,6 +1254,12 @@ textarea:focus {
   background: rgba(255,80,80,0.08) !important;
 }
 
+.ctx-item-disabled {
+  opacity: 0.4 !important;
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
 .ctx-icon {
   display: inline-flex !important;
   align-items: center !important;
@@ -1243,6 +1287,14 @@ textarea:focus {
 .ctx-badge-danger {
   background: rgba(255,80,80,0.12) !important;
   color: #ff6b6b !important;
+}
+
+.ctx-badge-muted {
+  background: rgba(60, 60, 67, 0.08) !important;
+  color: var(--text3) !important;
+  font-size: 9px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.03em !important;
 }
 
 .ctx-sep {
@@ -8130,8 +8182,19 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .col-chip-icon {
-  font-size: 9px !important;
-  opacity: 0.7 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  opacity: 0.6 !important;
+}
+
+.col-chip-icon svg {
+  display: block !important;
+}
+
+.col-chip-disabled {
+  opacity: 0.4 !important;
+  cursor: default !important;
+  pointer-events: none !important;
 }
 
 .col-chip-date {
@@ -8156,6 +8219,88 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .col-chip-date-active:hover {
   color: var(--accent) !important;
+}
+
+.date-focus-menu-wrap {
+  position: relative !important;
+  margin-left: auto !important;
+}
+
+.date-focus-dropdown {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  right: 0 !important;
+  min-width: 148px !important;
+  background: var(--surface2) !important;
+  border: 0.5px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.15) !important;
+  padding: 4px !important;
+  z-index: 30 !important;
+}
+
+.date-focus-option {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  text-align: left !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text2) !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 7px 9px !important;
+  cursor: pointer !important;
+  transition: background 0.1s ease, color 0.1s ease !important;
+}
+
+.date-focus-option:hover {
+  background: rgba(60, 60, 67, 0.06) !important;
+}
+
+.date-focus-option.active {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+}
+
+.date-focus-option-icon {
+  flex-shrink: 0 !important;
+  opacity: 0.5 !important;
+  transition: opacity 0.12s ease !important;
+}
+
+.date-focus-option:hover .date-focus-option-icon {
+  opacity: 0.8 !important;
+}
+
+.date-focus-option.active .date-focus-option-icon {
+  opacity: 1 !important;
+  color: var(--accent) !important;
+}
+
+.date-focus-chip-icon circle,
+.date-focus-chip-icon line,
+.date-focus-chip-icon polyline {
+  transition: opacity 0.16s ease !important;
+}
+
+.col-chip-dropdown-arrow {
+  opacity: 0.5 !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+
+.col-chip-date-active {
+  color: var(--accent) !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+}
+
+.col-chip-date-active:hover {
+  color: var(--accent) !important;
+  background: rgba(var(--accent-rgb), 0.12) !important;
 }
 
 .filter-pattern-badge {
@@ -8666,6 +8811,22 @@ textarea:focus {
   background: #f3f4f6 !important;
 }
 
+.message-row:hover .row-checkbox {
+  opacity: 0.45 !important;
+}
+
+.message-row:hover .row-checkbox:hover {
+  opacity: 1 !important;
+}
+
+.thread-row:hover .row-checkbox {
+  opacity: 0.45 !important;
+}
+
+.thread-row:hover .row-checkbox:hover {
+  opacity: 1 !important;
+}
+
 .bulk-action-bar {
   display: flex !important;
   align-items: center !important;
@@ -8786,6 +8947,11 @@ textarea:focus {
   width: 13px !important;
   height: 13px !important;
   flex-shrink: 0 !important;
+}
+
+.bulk-action-btn-exit svg {
+  width: 12px !important;
+  height: 12px !important;
 }
 
 .bulk-cancel-btn {
@@ -15601,8 +15767,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 /* Active sort/view text should track theme accent */
 .sort-btn.active,
 .inbox-control-band .sort-toolbar .sort-btn-option.active,
-.mailbox-view-btn.active {
+.mailbox-view-btn.active,
+.col-chip-active,
+.col-chip-date-active {
+  color: var(--text) !important;
+}
+
+.inbox-control-band .sort-toolbar .col-chip-date.col-chip-date-active {
   color: var(--accent) !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+}
+
+.inbox-control-band .sort-toolbar .col-chip-date.col-chip-date-active:hover {
+  background: rgba(var(--accent-rgb), 0.12) !important;
+}
+
+.col-chip-active .col-chip-icon,
+.col-chip-date-active .col-chip-icon {
+  color: var(--text3) !important;
 }
 
 .filter-pill,

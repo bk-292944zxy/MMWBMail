@@ -83,19 +83,22 @@ function compareConversationMessages(left: MailSummary, right: MailSummary) {
 function compareConversationSummaries(
   left: ConversationSummary,
   right: ConversationSummary,
-  sortBy: ConversationSortKey
+  sortBy: ConversationSortKey,
+  direction: "asc" | "desc" = "desc"
 ) {
+  const multiplier = direction === "asc" ? -1 : 1;
+
   if (sortBy === "name") {
-    return left.latestMessage.senderLabel.localeCompare(right.latestMessage.senderLabel);
+    return multiplier * left.latestMessage.senderLabel.localeCompare(right.latestMessage.senderLabel);
   }
 
   if (sortBy === "subject") {
     const leftSubject = left.subject || left.normalizedSubject;
     const rightSubject = right.subject || right.normalizedSubject;
-    return leftSubject.localeCompare(rightSubject);
+    return multiplier * leftSubject.localeCompare(rightSubject);
   }
 
-  return new Date(right.latestDate).getTime() - new Date(left.latestDate).getTime();
+  return multiplier * (new Date(right.latestDate).getTime() - new Date(left.latestDate).getTime());
 }
 
 function createNormalizedMessageEntity(
@@ -118,7 +121,8 @@ function createNormalizedMessageEntity(
 
 export function buildConversationCollection(
   messages: MailSummary[],
-  sortBy: ConversationSortKey
+  sortBy: ConversationSortKey,
+  direction: "asc" | "desc" = "desc"
 ): ConversationCollection {
   const groups = new Map<
     string,
@@ -187,7 +191,8 @@ export function buildConversationCollection(
           ...right,
           hasMultipleMessages: right.messageCount > 1
         },
-        sortBy
+        sortBy,
+        direction
       )
     );
 

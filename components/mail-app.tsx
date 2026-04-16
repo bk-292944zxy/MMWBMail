@@ -888,16 +888,23 @@ function stampMessageAccountList<T extends MailSummary>(messages: T[], accountId
   return messages.map((message) => stampMessageAccount(message, accountId));
 }
 
-function compareMessages(left: MailSummary, right: MailSummary, sortBy: SortKey) {
+function compareMessages(
+  left: MailSummary,
+  right: MailSummary,
+  sortBy: SortKey,
+  direction: "asc" | "desc" = "desc"
+) {
+  const multiplier = direction === "asc" ? -1 : 1;
+
   if (sortBy === "name") {
-    return left.from.localeCompare(right.from);
+    return multiplier * left.from.localeCompare(right.from);
   }
 
   if (sortBy === "subject") {
-    return left.subject.localeCompare(right.subject);
+    return multiplier * left.subject.localeCompare(right.subject);
   }
 
-  return new Date(right.date).getTime() - new Date(left.date).getTime();
+  return multiplier * (new Date(right.date).getTime() - new Date(left.date).getTime());
 }
 
 function isInboxFolder(folder: Pick<MailFolder, "name" | "path" | "specialUse">) {
@@ -1123,7 +1130,9 @@ function getAccountMailboxDisclosureTargets(
       filtered.splice(anchorIndex + 1, 0, allMailTarget);
     }
 
-    return filtered;
+    const nonTrashTargets = filtered.filter((target) => !isAlwaysVisibleMailboxTarget(target));
+    const trashTargets = filtered.filter((target) => isAlwaysVisibleMailboxTarget(target));
+    return [...nonTrashTargets, ...trashTargets];
   })();
   const quietSystemTargets = mailboxTargets.filter((target) =>
     isQuietSystemMailboxTarget(target)
@@ -1138,6 +1147,9 @@ function getAccountMailboxDisclosureTargets(
       return false;
     }
     if (isEssentialMailboxTarget(target, input.mailboxViewMode)) {
+      return false;
+    }
+    if (isAlwaysVisibleMailboxTarget(target)) {
       return false;
     }
     if (isQuietSystemMailboxTarget(target)) {
@@ -2391,6 +2403,115 @@ function formatSentRowRecipient(to: string[] | undefined): string {
   return `${displayName}, +${to.length - 1} more`;
 }
 
+function renderDateFocusChipIcon(
+  preset: "today" | "this_week" | "30_days" | "6_months" | null
+) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="date-focus-chip-icon"
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      {preset === "today" ? (
+        <circle cx="12" cy="16" r="2" fill="currentColor" stroke="none" />
+      ) : preset === "this_week" ? (
+        <line x1="7" y1="16" x2="17" y2="16" strokeWidth="2.5" />
+      ) : preset === "30_days" ? (
+        <>
+          <circle cx="8" cy="13.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="13.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="16" cy="13.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="8" cy="17" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+          <circle cx="16" cy="17" r="1" fill="currentColor" stroke="none" />
+        </>
+      ) : preset === "6_months" ? (
+        <>
+          <line x1="8" y1="15.5" x2="14" y2="15.5" strokeWidth="1.5" />
+          <polyline points="12 13 15 15.5 12 18" strokeWidth="1.5" />
+        </>
+      ) : null}
+    </svg>
+  );
+}
+
+function renderDateFocusOptionIcon(id: string) {
+  const props = {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+    className: "date-focus-option-icon"
+  };
+
+  if (id === "today") {
+    return (
+      <svg {...props}>
+        <rect x="5" y="5" width="14" height="14" rx="2" />
+        <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+
+  if (id === "this_week") {
+    return (
+      <svg {...props}>
+        {[4, 7, 10, 13, 16, 19].map((x) => (
+          <circle key={x} cx={x} cy="12" r="1.2" fill="currentColor" stroke="none" />
+        ))}
+      </svg>
+    );
+  }
+
+  if (id === "30_days") {
+    return (
+      <svg {...props}>
+        <rect x="3" y="4" width="18" height="17" rx="2" />
+        <line x1="3" y1="9" x2="21" y2="9" />
+        <circle cx="8" cy="12.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="12.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="16.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="16.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="16.5" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+
+  if (id === "6_months") {
+    return (
+      <svg {...props}>
+        <path d="M4 12a8 8 0 0 1 16 0" strokeWidth="2" fill="none" />
+        <polyline points="17 9 20 12 17 15" strokeWidth="1.8" />
+        <line x1="4" y1="17" x2="20" y2="17" strokeWidth="1" opacity="0.4" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...props}>
+      <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
+      <line x1="8" y1="8" x2="16" y2="16" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 function matchesComposerShortcut(shortcut: string, event: KeyboardEvent | React.KeyboardEvent) {
   const normalized = shortcut.toLowerCase();
   const usesMeta = normalized.includes("meta+");
@@ -3183,6 +3304,8 @@ function renderContextIcon(
     | "priority"
     | "focus"
     | "mute"
+    | "reply"
+    | "archive"
     | "sort"
     | "move"
     | "clock"
@@ -3208,100 +3331,108 @@ function renderContextIcon(
   if (icon === "select") {
     return (
       <svg {...baseProps}>
-        <rect x="4" y="4" width="16" height="16" rx="2.2" />
-        <path d="m8 12 3 3 5-6" />
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <polyline points="9 12 11.5 14.5 16 9.5" />
       </svg>
     );
   }
   if (icon === "priority") {
-    if (options?.active) {
-      return (
-        <svg {...baseProps} fill="none" stroke="currentColor">
-          <path d="m12 4.4 2.3 4.7 5.2.8-3.8 3.6.9 5.2-4.6-2.4-4.6 2.4.9-5.2-3.8-3.6 5.2-.8Z" />
-          <path d="M12 7.4v5.2" />
-          <path d="M9.4 10h5.2" />
-        </svg>
-      );
-    }
     return (
-      <svg {...baseProps}>
-        <path d="m12 3.5 2.7 5.4 6 .9-4.3 4.1 1 5.9-5.4-2.8-5.4 2.8 1-5.9L3.3 9.8l6-.9Z" />
-        <path d="M18.5 4.5v4" />
-        <path d="M16.5 6.5h4" />
+      <svg {...baseProps} fill={options?.active ? "currentColor" : "none"}>
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
       </svg>
     );
   }
   if (icon === "focus") {
     return (
       <svg {...baseProps}>
-        <circle cx="12" cy="12" r="5.5" />
-        <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-        <path d="M12 3v3" />
-        <path d="M12 18v3" />
-        <path d="M3 12h3" />
-        <path d="M18 12h3" />
+        <circle cx="7.5" cy="15.5" r="4.5" />
+        <circle cx="16.5" cy="15.5" r="4.5" />
+        <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+        <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+        <path d="M12 11v4" />
       </svg>
     );
   }
   if (icon === "mute") {
     return (
       <svg {...baseProps}>
-        <path d="M14 17.5v1a2 2 0 0 1-4 0v-1" />
-        <path d="M7 10a5 5 0 0 1 10 0c0 2.5 1 3.6 2 4.5H5c1-1 2-2 2-4.5Z" />
-        <path d="m4 4 16 16" />
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        <line x1="3" y1="3" x2="21" y2="21" />
+      </svg>
+    );
+  }
+  if (icon === "reply") {
+    return (
+      <svg {...baseProps}>
+        <polyline points="9 17 4 12 9 7" />
+        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+      </svg>
+    );
+  }
+  if (icon === "archive") {
+    return (
+      <svg {...baseProps}>
+        <polyline points="21 8 21 21 3 21 3 8" />
+        <rect x="1" y="3" width="22" height="5" />
+        <line x1="10" y1="12" x2="14" y2="12" />
       </svg>
     );
   }
   if (icon === "sort") {
     return (
       <svg {...baseProps}>
-        <path d="M4 5.5h16l-6 7v5l-4 2v-7z" />
-        <path d="m10 9 2 2 4-4" />
+        <path d="M4 6h16" />
+        <path d="M6 12h12" />
+        <path d="M9 18h6" />
       </svg>
     );
   }
   if (icon === "move") {
     return (
       <svg {...baseProps}>
-        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-        <path d="m10 13 3 3 3-3" />
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        <polyline points="12 11 12 17" />
+        <polyline points="9 14 12 17 15 14" />
       </svg>
     );
   }
   if (icon === "clock") {
     return (
       <svg {...baseProps}>
-        <circle cx="11" cy="12" r="7" />
-        <path d="M11 8.5V12l2.3 2.3" />
-        <path d="M16.8 16.8 20 20" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l2.5 2.5" />
+        <line x1="17" y1="19" x2="21" y2="19" />
       </svg>
     );
   }
   if (icon === "mark-read") {
     return (
       <svg {...baseProps}>
-        <path d="M3 8.5 12 14l9-5.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
-        <path d="M3 8.5 12 4l9 4.5" />
+        <path d="M2 9l10 6 10-6" />
+        <path d="M2 9v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9" />
+        <path d="M2 9l10-6 10 6" />
       </svg>
     );
   }
   if (icon === "mark-unread") {
     return (
       <svg {...baseProps}>
-        <rect x="3" y="5.5" width="18" height="13.5" rx="1.5" />
-        <path d="M3 8l9 6 9-6" />
-        <circle cx="18.2" cy="6.2" r="2.1" fill="currentColor" stroke="none" />
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <polyline points="2 5 12 13 22 5" />
+        <circle cx="19" cy="8" r="2.5" fill="currentColor" stroke="none" />
       </svg>
     );
   }
   if (icon === "delete") {
     return (
       <svg {...baseProps}>
-        <path d="M4 7h16" />
-        <path d="M9 7V5h6v2" />
-        <path d="M6.5 7 7.5 20a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8L17.5 7" />
-        <path d="M10 11v7" />
-        <path d="M14 11v7" />
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+        <line x1="10" y1="11" x2="10" y2="17" />
+        <line x1="14" y1="11" x2="14" y2="17" />
+        <path d="M9 6V4h6v2" />
       </svg>
     );
   }
@@ -3624,8 +3755,10 @@ type SwipeRowProps = {
   onDragStart: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
   onFocus: () => void;
+  onArchive: () => void;
   onDelete: () => void;
   onToggleRead: () => void;
+  onFirstSwipe?: () => void;
   domainVerification?: Pick<
     DomainVerificationState,
     "bimiVerified" | "domain" | "dmarcPolicy" | "isEsp" | "trancoRank"
@@ -3649,8 +3782,10 @@ function SwipeRow({
   onDragStart,
   onDragEnd,
   onFocus,
+  onArchive,
   onDelete,
   onToggleRead,
+  onFirstSwipe,
   domainVerification
 }: SwipeRowProps) {
   const [revealedSide, setRevealedSide] = useState<"left" | "right" | null>(null);
@@ -3707,13 +3842,17 @@ function SwipeRow({
           onClick={(event) => {
             event.stopPropagation();
             onFocus();
+            onFirstSwipe?.();
             setActiveSwipeUid(null);
             setRevealedSide(null);
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="7.5" cy="15.5" r="4.5" />
+            <circle cx="16.5" cy="15.5" r="4.5" />
+            <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+            <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+            <path d="M12 11v4" />
           </svg>
           <span>Focus</span>
         </button>
@@ -3722,16 +3861,43 @@ function SwipeRow({
           className="swipe-action-btn"
           onClick={(event) => {
             event.stopPropagation();
-            onToggleRead();
+            onArchive();
+            onFirstSwipe?.();
             setActiveSwipeUid(null);
             setRevealedSide(null);
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 12H2" />
-            <path d="m9 5-7 7 7 7" />
-            <path d="M13 19h5a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-5" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="21 8 21 21 3 21 3 8" />
+            <rect x="1" y="3" width="22" height="5" />
+            <line x1="10" y1="12" x2="14" y2="12" />
           </svg>
+          <span>Archive</span>
+        </button>
+        <button
+          type="button"
+          className="swipe-action-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleRead();
+            onFirstSwipe?.();
+            setActiveSwipeUid(null);
+            setRevealedSide(null);
+          }}
+        >
+          {message.seen ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="5" width="20" height="14" rx="2" />
+              <polyline points="2 5 12 13 22 5" />
+              <circle cx="19" cy="8" r="2.5" fill="currentColor" stroke="none" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 9l10 6 10-6" />
+              <path d="M2 9v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9" />
+              <path d="M2 9l10-6 10 6" />
+            </svg>
+          )}
           <span>{message.seen ? "Unread" : "Read"}</span>
         </button>
       </div>
@@ -3743,6 +3909,7 @@ function SwipeRow({
           onClick={(event) => {
             event.stopPropagation();
             onDelete();
+            onFirstSwipe?.();
             setActiveSwipeUid(null);
             setRevealedSide(null);
           }}
@@ -3881,10 +4048,25 @@ function SwipeRow({
                       onFocus();
                     }}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="5.5" />
-                      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-                    </svg>
+                    <span className="focus-pill-icon">
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <circle cx="7.5" cy="15.5" r="4.5" />
+                        <circle cx="16.5" cy="15.5" r="4.5" />
+                        <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                        <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                        <path d="M12 11v4" />
+                      </svg>
+                    </span>
                     <span>Focus</span>
                   </button>
                 ) : null}
@@ -4240,6 +4422,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     {}
   );
   const [sortBy, setSortBy] = useState<SortKey>("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [threadingEnabled, setThreadingEnabled] = useState(true);
   const [mailboxViewMode, setMailboxViewMode] = useState<MailboxViewMode>("classic");
   const [inboxAttentionView, setInboxAttentionView] = useState<InboxAttentionView | null>(null);
@@ -12179,6 +12362,28 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     );
   }
 
+  async function handleBulkSpam() {
+    if (!activeAccountId || selectedUids.size === 0) {
+      return;
+    }
+
+    await dispatchMailAction(
+      {
+        kind: "spam",
+        accountId: activeAccountId,
+        folderPath: currentFolderPath,
+        target: {
+          scope: "message",
+          messageUids: Array.from(selectedUids)
+        },
+        destinationFolder: mailActionCapabilities.spam.destinationFolder
+      },
+      {
+        clearSelectionOnSuccess: true
+      }
+    );
+  }
+
   function startWorkspacePaneResize(
     divider: "sidebar" | "list",
     event: React.MouseEvent<HTMLDivElement>
@@ -13993,11 +14198,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     );
   }, [blockedSenders, dateFocusPreset, isSentFolder, mailboxQuery, messages]);
   const queriedSortedMessages = [...queriedMessages].sort((left, right) =>
-    compareMessages(left, right, sortBy)
+    compareMessages(left, right, sortBy, sortDirection)
   );
   const conversations = useMemo(
-    () => buildConversationCollection(queriedSortedMessages, sortBy),
-    [queriedSortedMessages, sortBy]
+    () => buildConversationCollection(queriedSortedMessages, sortBy, sortDirection),
+    [queriedSortedMessages, sortBy, sortDirection]
   );
   const visibleMessages = useMemo(
     () => filterMessagesForInboxAttentionView(queriedSortedMessages, activeInboxAttentionView),
@@ -14213,8 +14418,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     };
   }
   const inboxAttentionConversations = useMemo(
-    () => buildConversationCollection(messages, sortBy),
-    [messages, sortBy]
+    () => buildConversationCollection(messages, sortBy, sortDirection),
+    [messages, sortBy, sortDirection]
   );
   const activeInboxAttentionCounts = useMemo(
     () => buildInboxAttentionCounts(messages, threadingEnabled, inboxAttentionConversations),
@@ -15267,6 +15472,70 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       : activeInboxAttentionView === "read"
         ? "Read Mail"
         : currentFolderLabel;
+  const activeMailboxSpecialUse =
+    activeMailboxNode?.systemKey === "inbox"
+      ? "\\Inbox"
+      : activeMailboxNode?.systemKey === "sent"
+        ? "\\Sent"
+        : activeMailboxNode?.systemKey === "drafts"
+          ? "\\Drafts"
+          : activeMailboxNode?.systemKey === "spam"
+            ? "\\Junk"
+            : activeMailboxNode?.systemKey === "trash"
+              ? "\\Trash"
+              : activeMailboxNode?.systemKey === "archive"
+                ? "\\Archive"
+                : undefined;
+  const activeHeaderContextVisual = useMemo(() => {
+    if (isPrioritizedSenderView && senderFilter) {
+      const prioritizedSender = prioritizedSenders.find((sender) => sender.name === senderFilter);
+      if (!prioritizedSender) {
+        return null;
+      }
+      return {
+        kind: "avatar" as const,
+        name: prioritizedSender.name,
+        color: prioritizedSender.color || getAvatarColor(prioritizedSender.name)
+      };
+    }
+
+    if (!activeMailboxNode) {
+      return null;
+    }
+
+    if (activeSortFolderPresentation) {
+      return {
+        kind: "sort-folder" as const,
+        tone: activeSortFolderPresentation.tone,
+        preset: activeSortFolderPresentation
+      };
+    }
+
+    const folderGlyph = renderFolderGlyph(
+      currentMailboxLabel,
+      currentFolderPath,
+      activeMailboxSpecialUse
+    );
+
+    if (!folderGlyph?.glyph) {
+      return null;
+    }
+
+    return {
+      kind: "folder" as const,
+      glyph: folderGlyph.glyph,
+      color: folderGlyph.color
+    };
+  }, [
+    activeMailboxNode,
+    activeMailboxSpecialUse,
+    activeSortFolderPresentation,
+    currentFolderPath,
+    currentMailboxLabel,
+    isPrioritizedSenderView,
+    prioritizedSenders,
+    senderFilter
+  ]);
   const prioritizedSenderEmptyStateName = prioritizedSenderMatchesActiveFilter
     ? senderFilter
     : null;
@@ -17850,7 +18119,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 viewBox="0 0 24 24"
                                 fill="none"
                                 stroke="currentColor"
-                                strokeWidth="2.5"
+                                strokeWidth="3.2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 aria-hidden="true"
@@ -17868,7 +18137,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             {(() => {
                               const animatedEssentialTargets = animatedVisibleTargets.filter(
                                 (target) =>
-                                  isEssentialMailboxTarget(target, mailboxViewMode)
+                                  isEssentialMailboxTarget(target, mailboxViewMode) ||
+                                  isAlwaysVisibleMailboxTarget(target)
                               );
                               const animatedWorkingTargets = animatedVisibleTargets.filter(
                                 (target) =>
@@ -17881,7 +18151,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     renderMailboxRow(mailboxTarget, { staggerIndex: index })
                                   )}
                                   {animatedEssentialTargets.length > 0 &&
-                                  animatedWorkingTargets.length > 0 ? (
+                                  animatedWorkingTargets.length > 0 &&
+                                  disclosureState !== 1 ? (
                                     <div className="sidebar-mailbox-history-divider sidebar-sep sidebar-tier-label">
                                       <span className="sidebar-tier-label-text">Folders</span>
                                     </div>
@@ -18022,8 +18293,34 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 ) : null}
               </div>
             </div>
-            {isPrioritizedSenderView ? (
+            {activeHeaderContextVisual || isPrioritizedSenderView ? (
               <div className="inbox-header-actions">
+                {activeHeaderContextVisual ? (
+                  <span className="inbox-header-context-visual" aria-hidden="true">
+                    {activeHeaderContextVisual.kind === "avatar" ? (
+                      <span
+                        className="inbox-header-context-avatar"
+                        style={{ backgroundColor: activeHeaderContextVisual.color }}
+                      >
+                        {getSenderInitials(activeHeaderContextVisual.name)}
+                      </span>
+                    ) : activeHeaderContextVisual.kind === "sort-folder" ? (
+                      <span
+                        className={`inbox-header-context-icon sort-folder-glyph sort-folder-glyph-${activeHeaderContextVisual.tone}`}
+                      >
+                        {renderSortFolderGlyph(activeHeaderContextVisual.preset)}
+                      </span>
+                    ) : (
+                      <span
+                        className="inbox-header-context-icon"
+                        style={{ color: activeHeaderContextVisual.color }}
+                      >
+                        {activeHeaderContextVisual.glyph}
+                      </span>
+                    )}
+                  </span>
+                ) : null}
+                {isPrioritizedSenderView ? (
                 <button
                   type="button"
                   className={`prioritized-new-mail-toggle-switch ${
@@ -18039,6 +18336,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <span className="prioritized-new-mail-toggle-thumb" />
                   </span>
                 </button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -18103,21 +18401,39 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               )}
             </div>
             <div className="sort-toolbar">
-              <span className="sort-label">Sort:</span>
-              {(["date", "name", "subject"] as const).map((option) => (
-                <button
-                  key={option}
-                  className={`sort-btn sort-btn-option ${sortBy === option ? "active" : ""}`}
-                  onClick={() => setSortBy(option)}
-                >
-                  {option.charAt(0).toUpperCase() + option.slice(1)}
-                </button>
-              ))}
+              {(["date", "name", "subject"] as const).map((option) => {
+                const isActive = sortBy === option;
+                return (
+                  <button
+                    key={option}
+                    className={`sort-btn sort-btn-option ${isActive ? "active" : ""}`}
+                    onClick={() => {
+                      if (isActive) {
+                        setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+                      } else {
+                        setSortBy(option);
+                        setSortDirection(option === "date" ? "desc" : "asc");
+                      }
+                    }}
+                  >
+                    {option.charAt(0).toUpperCase() + option.slice(1)}
+                    {isActive ? (
+                      <span className="sort-direction-indicator" aria-hidden="true">
+                        {sortDirection === "desc" ? "↓" : "↑"}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
               <div style={{ marginLeft: "auto" }} />
               <button
                 className={`sort-btn ${threadingEnabled ? "active" : ""}`}
                 onClick={() => setThreadingEnabled((current) => !current)}
-                title={threadingEnabled ? "Switch to flat view" : "Switch to threaded view"}
+                title={
+                  threadingEnabled
+                    ? "Threaded view: messages grouped by conversation. Click for flat view."
+                    : "Flat view: all messages individually. Click for threaded view."
+                }
               >
                 <svg
                   width="12"
@@ -18147,7 +18463,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div
                 role="button"
                 tabIndex={0}
-                className={`col-chip ${senderFilter ? "col-chip-active" : ""}`}
+                className={`col-chip ${senderFilter ? "col-chip-active" : ""} ${
+                  !senderFilter && !pivotMessage ? "col-chip-disabled" : ""
+                }`}
+                title={
+                  senderFilter
+                    ? `Viewing messages from ${displaySender(senderFilter)}. Click to clear.`
+                    : pivotMessage
+                      ? `Show all messages from ${displaySender(
+                          isSentFolder
+                            ? formatSentRowRecipient(pivotMessage.to)
+                            : pivotMessage.from
+                        )}`
+                      : "Select a message to filter by sender"
+                }
                 onClick={() => {
                   if (senderFilter) {
                     clearSenderFocus();
@@ -18156,11 +18485,24 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }
                 }}
               >
-                {isSentFolder ? "To" : "From"}{" "}
+                {isSentFolder ? "To" : "From"}
                 <span className="col-chip-icon">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="5.5" />
-                    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="7.5" cy="15.5" r="4.5" />
+                    <circle cx="16.5" cy="15.5" r="4.5" />
+                    <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                    <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                    <path d="M12 11v4" />
                   </svg>
                 </span>
               </div>
@@ -18168,7 +18510,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div
               role="button"
               tabIndex={0}
-              className={`col-chip col-chip-subject ${subjectFilter ? "col-chip-active" : ""}`}
+              className={`col-chip col-chip-subject ${subjectFilter ? "col-chip-active" : ""} ${
+                !subjectFilter && !pivotMessage ? "col-chip-disabled" : ""
+              }`}
+              title={
+                subjectFilter
+                  ? `Viewing messages matching "${subjectFilter}". Click to clear.`
+                  : pivotMessage
+                    ? `Show all messages with subject "${pivotMessage.subject}"`
+                    : "Select a message to filter by subject"
+              }
               onClick={() => {
                 if (subjectFilter) {
                   setSubjectFilter(null);
@@ -18178,58 +18529,53 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 }
               }}
             >
-              Subject{" "}
+              Subject
               <span className="col-chip-icon">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="5.5" />
-                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="7.5" cy="15.5" r="4.5" />
+                  <circle cx="16.5" cy="15.5" r="4.5" />
+                  <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                  <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                  <path d="M12 11v4" />
                 </svg>
               </span>
             </div>
             <div
               ref={dateFocusMenuRef}
-              style={{ position: "relative", marginLeft: "auto" }}
+              className="date-focus-menu-wrap"
             >
               <button
                 type="button"
                 className={`col-chip col-chip-date ${dateFocusPreset ? "col-chip-date-active" : ""}`}
                 onClick={() => setDateFocusMenuOpen((current) => !current)}
-                title="Date Focus"
+                title={
+                  dateFocusPreset === "today"
+                    ? "Date Focus: Today"
+                    : dateFocusPreset === "this_week"
+                      ? "Date Focus: This Week"
+                      : dateFocusPreset === "30_days"
+                        ? "Date Focus: 30 Days"
+                        : dateFocusPreset === "6_months"
+                          ? "Date Focus: 6 Months"
+                          : "Date Focus"
+                }
                 aria-label="Date Focus"
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-                <span style={{ opacity: 0.5, fontSize: "10px" }}>▾</span>
+                {renderDateFocusChipIcon(dateFocusPreset)}
+                <span className="col-chip-dropdown-arrow" aria-hidden="true">▾</span>
               </button>
               {dateFocusMenuOpen ? (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 6px)",
-                    right: 0,
-                    minWidth: 148,
-                    background: "var(--surface2)",
-                    border: "0.5px solid var(--border)",
-                    borderRadius: 8,
-                    boxShadow: "0 12px 28px rgba(15,23,42,0.15)",
-                    padding: 4,
-                    zIndex: 30
-                  }}
-                >
+                <div className="date-focus-dropdown">
                   {([
                     { id: "today", label: "Today" },
                     { id: "this_week", label: "This Week" },
@@ -18244,25 +18590,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <button
                         key={preset.id}
                         type="button"
+                        className={`date-focus-option ${isActive ? "active" : ""}`}
                         onClick={() => {
                           setSortBy("date");
                           setDateFocusPreset(preset.id === "none" ? null : preset.id);
                           setDateFocusMenuOpen(false);
                         }}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          border: "none",
-                          background: isActive ? "var(--accent-soft)" : "transparent",
-                          color: isActive ? "var(--accent)" : "var(--text2)",
-                          borderRadius: 6,
-                          fontSize: 12,
-                          fontWeight: isActive ? 600 : 500,
-                          padding: "7px 9px",
-                          cursor: "pointer"
-                        }}
                       >
-                        {preset.label}
+                        {renderDateFocusOptionIcon(preset.id)}
+                        <span>{preset.label}</span>
                       </button>
                     );
                   })}
@@ -18281,16 +18617,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               ) : null}
               {subjectFilter ? (
                 <span className="filter-pill">
-                  {subjectPattern ? `${subjectPattern} *` : subjectFilter}
-                  {subjectPattern ? (
-                    <span className="filter-pattern-badge">wildcard</span>
-                  ) : null}
+                  {subjectPattern ? `${subjectPattern} ...` : subjectFilter}
                 </span>
               ) : null}
               {!senderFilter && !subjectFilter ? (
-                <span className="filter-empty">
-                  no active filters — select a message then click {isSentFolder ? "To" : "From"} or Subject to pivot
-                </span>
+                <span className="filter-empty">no active filters</span>
               ) : null}
               {senderFilter || subjectFilter ? (
                 <button
@@ -18347,6 +18678,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setBulkSelectionMenu((current) => (current === "sort" ? null : "sort"))
                     }
                   >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M4 6h16" />
+                      <path d="M6 12h12" />
+                      <path d="M9 18h6" />
+                    </svg>
                     <span>Sort</span>
                   </button>
                   {bulkSelectionMenu === "sort" ? (
@@ -18433,7 +18779,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       setBulkSelectionMenu((current) => (current === "more" ? null : "more"))
                     }
                   >
-                    <span aria-hidden="true">▾</span>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="6" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+                    </svg>
                   </button>
                   {bulkSelectionMenu === "more" ? (
                     <div className="bulk-menu bulk-menu-right">
@@ -18460,9 +18820,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <button
                         type="button"
                         className="bulk-menu-item bulk-menu-item-inline"
-                        onClick={clearSelection}
+                        onClick={() => {
+                          void handleBulkSpam();
+                        }}
                       >
-                        <span className="bulk-menu-item-label">Clear Selection</span>
+                        <span className="bulk-menu-item-label">Mark as Spam</span>
                       </button>
                     </div>
                   ) : null}
@@ -18471,11 +18833,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   type="button"
                   className="bulk-action-btn bulk-action-btn-exit"
                   onClick={clearSelection}
-                  title="Leave multi-select"
+                  title="Leave multi-select (Esc)"
                 >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m6 6 12 12" />
-                    <path d="m18 6-12 12" />
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
@@ -18507,7 +18869,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           >
             {!swipeHintShown && isCoarsePointer && swipeFirstMessageList ? (
               <div className="swipe-hint">
-                ← Swipe left to delete · Swipe right for actions →
+                Swipe right for actions · Swipe left to delete
               </div>
             ) : null}
             {noMailboxRecoveryState ? (
@@ -18751,10 +19113,25 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   applySenderPivot(latestMessage, isSentFolder);
                                 }}
                               >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <circle cx="12" cy="12" r="5.5" />
-                                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-                                </svg>
+                                <span className="focus-pill-icon">
+                                  <svg
+                                    width="10"
+                                    height="10"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden="true"
+                                  >
+                                    <circle cx="7.5" cy="15.5" r="4.5" />
+                                    <circle cx="16.5" cy="15.5" r="4.5" />
+                                    <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                                    <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                                    <path d="M12 11v4" />
+                                  </svg>
+                                </span>
                                 <span>Focus</span>
                               </button>
                             ) : null}
@@ -18958,6 +19335,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }}
                   onDragEnd={() => clearSidebarMailDrag()}
                   onFocus={() => applySenderPivot(message, isSentFolder)}
+                  onArchive={async () => {
+                    const resolved = await resolveMessageDetail(message);
+                    await handleArchive(resolved);
+                  }}
                   onDelete={() => {
                     setDeleteTarget(message);
                   }}
@@ -18974,6 +19355,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       target: createMessageActionTarget(message.uid)
                     });
                   }}
+                  onFirstSwipe={!swipeHintShown ? () => setSwipeHintShown(true) : undefined}
                   domainVerification={domainVerification}
                 />
               ))
@@ -20428,17 +20810,54 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </div>
               <div
                 className="ctx-item"
-                onMouseDown={(event) => {
+                onMouseDown={async (event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  setSelectedUids(new Set([contextMenu.msg.uid]));
-                  setSelectMode(true);
+                  setContextMenu(null);
+                  await handleToggleRead(contextMenu.msg);
+                }}
+                title={getReadToggleActionCopy(contextMenu.msg.seen).title}
+              >
+                <span className="ctx-icon">
+                  {renderContextIcon(contextMenu.msg.seen ? "mark-unread" : "mark-read")}
+                </span>
+                {getReadToggleActionCopy(contextMenu.msg.seen).contextLabel}
+              </div>
+              <div
+                className="ctx-item"
+                onMouseDown={async (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setContextMenu(null);
+                  const resolved = await resolveMessageDetail(contextMenu.msg);
+                  handleReply(resolved);
+                }}
+              >
+                <span className="ctx-icon">{renderContextIcon("reply")}</span> Reply
+              </div>
+              <div
+                className="ctx-item"
+                onMouseDown={async (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setContextMenu(null);
+                  const resolved = await resolveMessageDetail(contextMenu.msg);
+                  await handleArchive(resolved);
+                }}
+              >
+                <span className="ctx-icon">{renderContextIcon("archive")}</span> Archive
+              </div>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item"
+                onClick={() => {
+                  applySenderPivot(contextMenu.msg, isSentFolder);
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">{renderContextIcon("select")}</span> Multi-select
+                <span className="ctx-icon">{renderContextIcon("focus")}</span>{" "}
+                {isSentFolder ? "Focus on This Recipient" : "Focus on This Sender"}
               </div>
-              <div className="ctx-sep" />
               <div
                 className="ctx-item"
                 onMouseDown={(event) => {
@@ -20480,18 +20899,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="ctx-sep" />
               <div
                 className="ctx-item"
-                onClick={() => {
-                  applySenderPivot(contextMenu.msg, isSentFolder);
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelectedUids(new Set([contextMenu.msg.uid]));
+                  setSelectMode(true);
                   setContextMenu(null);
                 }}
               >
-                <span className="ctx-icon">{renderContextIcon("focus")}</span>{" "}
-                {isSentFolder ? "Focus on This Recipient" : "Focus on This Sender"}
+                <span className="ctx-icon">{renderContextIcon("select")}</span> Multi-select
               </div>
-              <div className="ctx-item" onClick={() => setContextMenu(null)}>
-                <span className="ctx-icon">{renderContextIcon("mute")}</span> Mute Sender
-              </div>
-              <div className="ctx-sep" />
               <div className="ctx-submenu-wrap">
                 <div
                   className="ctx-item ctx-item-submenu"
@@ -20556,58 +20973,39 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <span className="ctx-icon">{renderContextIcon("clock")}</span> Keep Only Recent…
                 <span className="ctx-badge">{senderMessages.length}</span>
               </div>
-          <div className="ctx-sep" />
-          <div
-            className="ctx-item"
-            onMouseDown={async (event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setContextMenu(null);
-              await handleToggleRead(contextMenu.msg);
-            }}
-            title={getReadToggleActionCopy(contextMenu.msg.seen).title}
-          >
-            <span className="ctx-icon">
-              {renderContextIcon(contextMenu.msg.seen ? "mark-unread" : "mark-read")}
-            </span>
-            {getReadToggleActionCopy(contextMenu.msg.seen).contextLabel}
-          </div>
-          {getSenderType(contextMenu.msg.from, contextMenu.msg.fromAddress ?? "") === "nl" ? (
-            <>
               <div className="ctx-sep" />
+              {getSenderType(contextMenu.msg.from, contextMenu.msg.fromAddress ?? "") === "nl" ? (
+                <>
+                  <div
+                    className="ctx-item ctx-item-unsub"
+                    onClick={() => {
+                      setContextMenu(null);
+                      setUnsubscribeConfirm(true);
+                    }}
+                  >
+                    <span className="ctx-unsub-icon">{renderContextIcon("unsubscribe")}</span>
+                    Unsubscribe…
+                  </div>
+                </>
+              ) : null}
               <div
-                className="ctx-item ctx-item-unsub"
-                onClick={() => {
-                  setContextMenu(null);
-                  // Surface the toolbar unsubscribe flow by selecting the message
-                  // (detail pane button handles the actual confirmation)
-                  setUnsubscribeConfirm(true);
+                className="ctx-item ctx-item-danger"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openDeleteSenderModal(contextMenu.msg);
                 }}
               >
-                <span className="ctx-unsub-icon">{renderContextIcon("unsubscribe")}</span>
-                Unsubscribe…
+                <span className="ctx-icon">{renderContextIcon("delete")}</span> Delete All from Sender…
+                <span className="ctx-badge ctx-badge-danger">
+                  {
+                    messages.filter(
+                      (message) =>
+                        getSenderFilterValue(message) === getSenderFilterValue(contextMenu.msg)
+                    ).length
+                  }
+                </span>
               </div>
-            </>
-          ) : null}
-          <div className="ctx-sep" />
-          <div
-            className="ctx-item ctx-item-danger"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openDeleteSenderModal(contextMenu.msg);
-            }}
-          >
-            <span className="ctx-icon">{renderContextIcon("delete")}</span> Delete All from Sender…
-            <span className="ctx-badge ctx-badge-danger">
-              {
-                messages.filter(
-                  (message) =>
-                    getSenderFilterValue(message) === getSenderFilterValue(contextMenu.msg)
-                ).length
-              }
-            </span>
-          </div>
             </div>
           );
         })()
