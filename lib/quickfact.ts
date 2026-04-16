@@ -1,5 +1,6 @@
 export type QuickFactRequest = {
   query: string;
+  draftContext?: string; // max 150 chars, optional
 };
 
 export type QuickFactConfidence = "high" | "medium" | "low";

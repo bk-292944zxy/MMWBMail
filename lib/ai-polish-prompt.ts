@@ -1,4 +1,7 @@
 import type {
+  AiPolishCultureCountryId,
+  AiPolishCultureRecipientSeniority,
+  AiPolishCultureRelationshipStage,
   AiPolishCultureRegionId,
   AiPolishModeDefinition,
   AiPolishModifierId
@@ -10,6 +13,9 @@ type AiPolishPromptInput = {
   mode: AiPolishModeDefinition;
   modifiers: AiPolishModifierId[];
   region?: AiPolishCultureRegionId;
+  countryId?: AiPolishCultureCountryId;
+  seniority?: AiPolishCultureRecipientSeniority;
+  relationshipStage?: AiPolishCultureRelationshipStage;
   outputType: AiRewriteOutputType;
   source: {
     target: "selection" | "draft";
@@ -84,7 +90,10 @@ function getProfessionalModeInstructions(modifiers: AiPolishModifierId[]) {
 
 function getModeInstructions(
   mode: AiPolishModeDefinition["id"],
-  region: AiPolishCultureRegionId
+  region: AiPolishCultureRegionId,
+  countryId?: AiPolishCultureCountryId,
+  seniority?: AiPolishCultureRecipientSeniority,
+  relationshipStage?: AiPolishCultureRelationshipStage
 ) {
   switch (mode) {
     case "clean":
@@ -99,18 +108,22 @@ function getModeInstructions(
       return "Improve logical flow and precision. Use structured reasoning, clear transitions, and a formal, objective tone.";
     case "culture":
       return [
-        "Adjust the message for cross-cultural business communication.",
+        "Adjust the message for effective cross-cultural business communication.",
         "",
-        "Focus only on:",
-        "- greeting formality",
-        "- appropriate use of names and titles",
-        "- level of directness",
-        "- courtesy framing",
-        "- closing style",
+        "Calibrate these four axes for the given context:",
+        "1. Directness — should the main point lead, or be framed with context and cushioning first?",
+        "2. Hierarchy — does the recipient's seniority require formal deference, titles, or specific opening/closing conventions?",
+        "3. Relationship framing — does this context expect relational warm-up before the business point, or is direct-to-business the norm?",
+        "4. Face — does a decline, correction, or firm point need reframing to avoid the recipient losing face?",
         "",
-        "Avoid idioms, slang, or culturally specific assumptions.",
-        "Do NOT localize language or invent region-specific phrases.",
-        `Region: ${region}`
+        "Apply only adjustments that genuinely serve the context. Do not overcorrect.",
+        "Do not invent region-specific phrases or change the language.",
+        "Do not change the substance, intent, or ask.",
+        "",
+        `Broad region: ${region}`,
+        countryId ? `Country: ${countryId}` : null,
+        seniority && seniority !== "unknown" ? `Recipient seniority: ${seniority}` : null,
+        relationshipStage && relationshipStage !== "unknown" ? `Relationship stage: ${relationshipStage}` : null
       ].join("\n");
     default:
       return "Improve presentation while preserving meaning.";
@@ -121,15 +134,41 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
   const requestedCount = input.outputType === "two_options" ? 2 : 1;
   const modifierDefinitions = input.modifiers.map((modifierId) => AI_POLISH_MODIFIERS[modifierId]);
   const activeRegion = input.region ?? "global";
+  const isCultureMode = input.mode.id === "culture";
   const modeSpecificInstructions =
     input.mode.id === "professional" ? getProfessionalModeInstructions(input.modifiers) : "";
+  const outputRules = isCultureMode
+    ? [
+        "Output rules:",
+        "- Return valid JSON only.",
+        `- Return exactly ${requestedCount} option${requestedCount === 1 ? "" : "s"}.`,
+        "- Each option must include the polished email text AND a culturalNotes array.",
+        "- culturalNotes: 2–4 short strings. Each must name the specific adjustment and the reason it fits this context.",
+        "- Be specific, not generic. Not 'adjusted for formality' but 'Added recipient title in greeting — standard courtesy in senior Japanese business correspondence'.",
+        "- Always include culturalNotes. If the message was already well-calibrated, note what was preserved and why.",
+        "- No commentary before or after the JSON."
+      ]
+    : [
+        "Output rules:",
+        "- Return valid JSON only.",
+        `- Return exactly ${requestedCount} option${requestedCount === 1 ? "" : "s"}.`,
+        "- Each option must be ready-to-send text, not analysis.",
+        "- Keep the same message, only better presented.",
+        "- No commentary before or after the JSON."
+      ];
 
   const systemInstructions = [
     "You are MaxiMail's AI Writing Assistant.",
     BASE_PROMPT,
     "",
     `Mode: ${input.mode.label}`,
-    `Mode instructions: ${getModeInstructions(input.mode.id, activeRegion)}`,
+    `Mode instructions: ${getModeInstructions(
+      input.mode.id,
+      activeRegion,
+      input.countryId,
+      input.seniority,
+      input.relationshipStage
+    )}`,
     modeSpecificInstructions ? `\nMode-specific guidance:\n${modeSpecificInstructions}` : "",
     "",
     modifierDefinitions.length > 0
@@ -138,12 +177,7 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
           .join("\n")}`
       : "",
     "",
-    "Output rules:",
-    "- Return valid JSON only.",
-    `- Return exactly ${requestedCount} option${requestedCount === 1 ? "" : "s"}.`,
-    "- Each option must be ready-to-send message text, not analysis.",
-    "- Keep the same overall message, only better presented.",
-    "- Do not include commentary before or after the JSON."
+    outputRules.join("\n")
   ]
     .filter(Boolean)
     .join("\n");
@@ -156,7 +190,13 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
       category: input.mode.category,
       description: input.mode.description
     },
-    region: input.mode.id === "culture" ? activeRegion : null,
+    region: isCultureMode ? activeRegion : null,
+    cultureContext: isCultureMode ? {
+      broadRegion: input.region ?? "global",
+      country: input.countryId ?? null,
+      recipientSeniority: input.seniority ?? "unknown",
+      relationshipStage: input.relationshipStage ?? "unknown"
+    } : null,
     outputType: input.outputType,
     requestedOutputs: requestedCount,
     sourceTarget: input.source.target,
@@ -165,12 +205,20 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
       label: modifier.label,
       intent: modifier.intent
     })),
-    responseShape: {
-      options: Array.from({ length: requestedCount }, (_, index) => ({
-        label: `Option ${index + 1}`,
-        text: "presentation-polished email text"
-      }))
-    },
+    responseShape: isCultureMode
+      ? {
+          options: Array.from({ length: requestedCount }, (_, i) => ({
+            label: `Option ${i + 1}`,
+            text: "culturally adjusted email text",
+            culturalNotes: ["Specific adjustment note.", "Another specific adjustment note."]
+          }))
+        }
+      : {
+          options: Array.from({ length: requestedCount }, (_, i) => ({
+            label: `Option ${i + 1}`,
+            text: "presentation-polished email text"
+          }))
+        },
     sourceText: input.source.text
   };
 

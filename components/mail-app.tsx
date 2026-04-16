@@ -751,18 +751,7 @@ function escapeViewerHtml(text: string) {
 }
 
 function buildFallbackMessageDetail(message: MailSummary): MailDetail {
-  const normalizedPreview = message.preview.trim();
-  const normalizedSubject = message.subject.trim();
-  const previewMatchesSubject =
-    normalizedPreview.length > 0 &&
-    normalizedSubject.length > 0 &&
-    normalizedPreview.localeCompare(normalizedSubject, undefined, {
-      sensitivity: "accent"
-    }) === 0;
-  const fallbackText =
-    normalizedPreview && !previewMatchesSubject
-      ? normalizedPreview
-      : "Loading message body...";
+  const fallbackText = "Loading message body...";
   const escaped = escapeViewerHtml(fallbackText).replace(/\r?\n/g, "<br>");
   const html = `<p>${escaped}</p>`;
 
@@ -839,9 +828,7 @@ function isLikelyImageUrl(value: string) {
   if (
     normalized.startsWith("data:image/") ||
     normalized.startsWith("blob:") ||
-    normalized.startsWith("cid:") ||
-    normalized.startsWith("http://") ||
-    normalized.startsWith("https://")
+    normalized.startsWith("cid:")
   ) {
     return true;
   }
@@ -878,6 +865,11 @@ function getLightboxImageLongestVisibleEdge(image: HTMLImageElement) {
 
 function isLightboxActivationEligibleImage(image: HTMLImageElement) {
   return getLightboxImageLongestVisibleEdge(image) >= LIGHTBOX_MIN_ACTIVATION_EDGE_PX;
+}
+
+function isLightboxHintEligibleImage(image: HTMLImageElement) {
+  const longestNaturalEdge = Math.max(image.naturalWidth || 0, image.naturalHeight || 0);
+  return longestNaturalEdge >= LIGHTBOX_MIN_ACTIVATION_EDGE_PX;
 }
 
 function isViewerFileAttachment(item: ReceivedMessageMedia) {
@@ -5392,6 +5384,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const lightboxImageRef = useRef<HTMLImageElement | null>(null);
   const lightboxChromeHideTimerRef = useRef<number | null>(null);
   const lightboxLastTouchTapRef = useRef<{ at: number; x: number; y: number } | null>(null);
+  const lightboxChromeVisibleRef = useRef(true);
+  const lightboxLastInteractionAtRef = useRef(0);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropImageRef = useRef<HTMLImageElement | null>(null);
   const previousResponsiveInteractionModeRef = useRef<ResponsiveInteractionMode>(
@@ -9943,43 +9937,38 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const nextSelectedMessage = shouldMarkSeen
         ? { ...resolvedMessage, seen: true }
         : resolvedMessage;
-      setSelectedMessage(nextSelectedMessage);
-      setStatus(`Viewing "${resolvedMessage.subject}".`);
+      let finalSelectedMessage = nextSelectedMessage;
 
       if (messageDetailLooksUnresolved(nextSelectedMessage)) {
-        globalThis.setTimeout(() => {
-          void (async () => {
-            try {
-              const retryResponse = await loadMessageDetailClient({
-                accountId: resolvedAccountId,
-                uid: message.uid,
-                folderPath: resolvedFolderPath
-              });
+        try {
+          const retryResponse = await loadMessageDetailClient({
+            accountId: resolvedAccountId,
+            uid: message.uid,
+            folderPath: resolvedFolderPath
+          });
 
-              if (openMessageSeqRef.current !== requestSeq) {
-                return;
-              }
+          if (openMessageSeqRef.current !== requestSeq) {
+            return;
+          }
 
-              const retriedMessage = stampMessageAccount(
-                retryResponse.message,
-                resolvedAccountId
-              );
+          const retriedMessage = stampMessageAccount(
+            retryResponse.message,
+            resolvedAccountId
+          );
 
-              if (!messageDetailLooksUnresolved(retriedMessage)) {
-                setSelectedMessage((current) =>
-                  current && current.uid === retriedMessage.uid
-                    ? shouldMarkSeen && !retriedMessage.seen
-                      ? { ...retriedMessage, seen: true }
-                      : retriedMessage
-                    : current
-                );
-              }
-            } catch {
-              // Keep the current fallback visible if the silent retry fails.
-            }
-          })();
-        }, 1400);
+          if (!messageDetailLooksUnresolved(retriedMessage)) {
+            finalSelectedMessage =
+              shouldMarkSeen && !retriedMessage.seen
+                ? { ...retriedMessage, seen: true }
+                : retriedMessage;
+          }
+        } catch {
+          // Keep the current candidate if retry fails.
+        }
       }
+
+      setSelectedMessage(finalSelectedMessage);
+      setStatus(`Viewing "${resolvedMessage.subject}".`);
 
       if (shouldMarkSeen) {
         setMessages((current) =>
@@ -11947,9 +11936,38 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       fallback: null
     }));
 
+    // Extract up to 150 chars of surrounding text from the cursor position for context
+    let draftContext: string | undefined;
+    try {
+      if (composePlainText) {
+        const ta = composePlainTextRef.current;
+        if (ta) {
+          const pos = ta.selectionStart ?? ta.value.length;
+          const start = Math.max(0, pos - 75);
+          const end = Math.min(ta.value.length, pos + 75);
+          const ctx = ta.value.slice(start, end).trim();
+          if (ctx.length > 0) draftContext = ctx;
+        }
+      } else {
+        const sel = window.getSelection();
+        if (sel && composeEditorRef.current?.contains(sel.anchorNode ?? null)) {
+          const range = sel.getRangeAt(0);
+          const preRange = document.createRange();
+          preRange.selectNodeContents(composeEditorRef.current);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          const pre = preRange.toString();
+          const post = range.toString() + range.cloneContents().textContent;
+          const ctx = (pre.slice(-75) + post.slice(0, 75)).trim();
+          if (ctx.length > 0) draftContext = ctx.slice(0, 150);
+        }
+      }
+    } catch {
+      // draftContext stays undefined — non-critical
+    }
+
     try {
       const response = await withTimeout(
-        fetchQuickFacts({ query }),
+        fetchQuickFacts({ query, draftContext }),
         6000,
         "quickfact-timeout"
       );
@@ -16606,10 +16624,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setLightboxIndex(0);
     setLightboxDragging(false);
     setLightboxChromeVisible(true);
+    lightboxChromeVisibleRef.current = true;
     lightboxPointersRef.current.clear();
     lightboxPanRef.current = null;
     lightboxPinchRef.current = null;
     lightboxLastTouchTapRef.current = null;
+    lightboxLastInteractionAtRef.current = 0;
     if (lightboxChromeHideTimerRef.current !== null) {
       window.clearTimeout(lightboxChromeHideTimerRef.current);
       lightboxChromeHideTimerRef.current = null;
@@ -16860,7 +16880,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, []);
 
   const markLightboxInteraction = useCallback(() => {
-    setLightboxChromeVisible(true);
+    const now = Date.now();
+    lightboxLastInteractionAtRef.current = now;
+    if (!lightboxChromeVisibleRef.current) {
+      lightboxChromeVisibleRef.current = true;
+      setLightboxChromeVisible(true);
+    }
     if (!lightboxOpen) {
       return;
     }
@@ -16868,17 +16893,24 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       window.clearTimeout(lightboxChromeHideTimerRef.current);
     }
     lightboxChromeHideTimerRef.current = window.setTimeout(() => {
-      if (!lightboxDragging) {
+      const elapsed = Date.now() - lightboxLastInteractionAtRef.current;
+      if (!lightboxDragging && elapsed >= 1450) {
+        lightboxChromeVisibleRef.current = false;
         setLightboxChromeVisible(false);
       }
     }, 1500);
   }, [lightboxDragging, lightboxOpen]);
 
   useEffect(() => {
+    lightboxChromeVisibleRef.current = lightboxChromeVisible;
+  }, [lightboxChromeVisible]);
+
+  useEffect(() => {
     if (!lightboxOpen) {
       return;
     }
 
+    lightboxChromeVisibleRef.current = true;
     setLightboxChromeVisible(true);
     markLightboxInteraction();
 
@@ -17209,7 +17241,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           const image = entry as HTMLImageElement;
 
           const hasSource = Boolean(image.currentSrc || image.src || image.getAttribute("data-src"));
-          const eligibleForLightbox = hasSource && isLightboxActivationEligibleImage(image);
+          const eligibleForLightbox = hasSource && isLightboxHintEligibleImage(image);
           if (eligibleForLightbox) {
             image.style.cursor = "zoom-in";
             image.draggable = false;
@@ -25156,19 +25188,71 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   {composeQuickFact.results.length > 0 ? (
                     <div className="qf-result-area">
                       {composeQuickFact.results.map((result) => (
-                        <div key={`${result.sourceUrl}-${result.answer}`}>
-                          <div className="qf-result-label">Result</div>
+                        <div key={`${result.sourceUrl ?? ""}-${result.answer}`} className="qf-result-card">
+                          {result.confidence ? (
+                            <div className={`qf-confidence qf-confidence-${result.confidence}`}>
+                              <span className="qf-confidence-dot" />
+                              {result.confidence === "high" ? "High confidence" : result.confidence === "medium" ? "Medium confidence" : "Low confidence"}
+                            </div>
+                          ) : null}
                           <div className="qf-result-text">{result.answer}</div>
-                          <button
-                            type="button"
-                            className="qf-insert-btn"
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              insertQuickFactResult(result, false);
-                            }}
-                          >
-                            Insert into draft
-                          </button>
+                          {result.sourceName ? (
+                            <div className="qf-source">
+                              {result.sourceUrl ? (
+                                <a
+                                  href={result.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="qf-source-link"
+                                >
+                                  {result.sourceName}
+                                  {result.sourceDate ? ` · ${result.sourceDate.slice(0, 4)}` : ""}
+                                </a>
+                              ) : (
+                                <span className="qf-source-name">
+                                  {result.sourceName}
+                                  {result.sourceDate ? ` · ${result.sourceDate.slice(0, 4)}` : ""}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+                          <div className="qf-actions">
+                            <button
+                              type="button"
+                              className="qf-insert-btn"
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                insertQuickFactResult(result, false);
+                              }}
+                            >
+                              Insert
+                            </button>
+                            <button
+                              type="button"
+                              className="qf-insert-btn qf-insert-btn-secondary"
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                insertQuickFactResult(result, true);
+                              }}
+                            >
+                              Insert with source
+                            </button>
+                            <button
+                              type="button"
+                              className="qf-copy-btn"
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                void navigator.clipboard.writeText(result.answer).catch(() => null);
+                              }}
+                              title="Copy to clipboard"
+                              aria-label="Copy fact to clipboard"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -26270,9 +26354,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         ? createPortal(
             <div
               className="lightbox-backdrop"
-              onClick={closeLightbox}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (event.target !== event.currentTarget) {
+                  return;
+                }
+                closeLightbox();
+              }}
               onMouseMove={markLightboxInteraction}
-              onPointerDown={markLightboxInteraction}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                markLightboxInteraction();
+              }}
             >
               <div className="lightbox-topbar" onClick={(event) => event.stopPropagation()}>
                 <div className="lightbox-topbar-label">{getLightboxImageLabel(currentLightboxImage)}</div>
@@ -26306,6 +26399,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   applyLightboxZoom(nextZoom, event.clientX, event.clientY);
                 }}
                 onPointerDown={(event) => {
+                  const pointerTarget = event.target as EventTarget | null;
+                  const isGestureSurfaceTarget =
+                    pointerTarget === event.currentTarget || pointerTarget === lightboxImageRef.current;
+                  if (!isGestureSurfaceTarget) {
+                    return;
+                  }
+
                   markLightboxInteraction();
                   lightboxPointersRef.current.set(event.pointerId, {
                     x: event.clientX,

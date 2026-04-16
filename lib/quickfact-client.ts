@@ -6,7 +6,10 @@ export async function fetchQuickFacts(input: QuickFactRequest): Promise<QuickFac
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(input)
+    body: JSON.stringify({
+      query: input.query,
+      ...(input.draftContext ? { draftContext: input.draftContext } : {})
+    })
   });
 
   const payload = (await response.json().catch(() => ({ results: [] }))) as QuickFactResponse & {

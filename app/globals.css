@@ -5216,6 +5216,104 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   box-shadow: none !important;
 }
 
+.qf-result-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+}
+
+.qf-result-area > .qf-result-card + .qf-result-card {
+  margin-top: 12px !important;
+  padding-top: 12px !important;
+  border-top: 0.5px solid rgba(0,0,0,0.085) !important;
+}
+
+.qf-confidence {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-family: 'Inter', -apple-system, sans-serif !important;
+  font-size: 9.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 7px !important;
+  opacity: 0.7 !important;
+}
+
+.qf-confidence-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+}
+
+.qf-confidence-high { color: #2e7d4f !important; }
+.qf-confidence-high .qf-confidence-dot { background: #2e7d4f !important; }
+.qf-confidence-medium { color: #a16207 !important; }
+.qf-confidence-medium .qf-confidence-dot { background: #d97706 !important; }
+.qf-confidence-low { color: #9ca3af !important; }
+.qf-confidence-low .qf-confidence-dot { background: #9ca3af !important; }
+
+.qf-source {
+  margin-bottom: 10px !important;
+  margin-top: -4px !important;
+}
+
+.qf-source-link,
+.qf-source-name {
+  font-family: 'Inter', -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  color: var(--text3) !important;
+  opacity: 0.72 !important;
+  text-decoration: none !important;
+}
+
+.qf-source-link:hover {
+  opacity: 1 !important;
+  text-decoration: underline !important;
+}
+
+.qf-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex-wrap: wrap !important;
+}
+
+.qf-insert-btn-secondary {
+  color: var(--text2) !important;
+  border-color: rgba(0,0,0,0.07) !important;
+  font-weight: 500 !important;
+}
+
+.qf-insert-btn-secondary:hover {
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.qf-copy-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  background: transparent !important;
+  border: 1px solid rgba(0,0,0,0.09) !important;
+  border-radius: 8px !important;
+  color: var(--text3) !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease !important;
+}
+
+.qf-copy-btn:hover {
+  background: rgba(0,0,0,0.03) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
 .qf-loading {
   display: flex !important;
   align-items: center !important;

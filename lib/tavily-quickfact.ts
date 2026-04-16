@@ -588,7 +588,10 @@ export function validateQuickFactAnswer(
   }
 
   const expectedYear = extractExpectedYear(query);
-  const requiresExplicitTimeContext = isTimeSensitiveQuery(query) && !queryDemandsPrice(query);
+  const requiresExplicitTimeContext =
+    isTimeSensitiveQuery(query) &&
+    !queryDemandsPrice(query) &&
+    queryType !== "role_or_name";
   if (requiresExplicitTimeContext) {
     if (!DATE_OR_SEASON_PATTERN.test(cleaned)) {
       reasons.push("missing_time_context");
@@ -598,7 +601,11 @@ export function validateQuickFactAnswer(
     }
   }
 
-  if (/\b(most recent|latest|current)\b/i.test(query) && !queryDemandsPrice(query)) {
+  if (
+    /\b(most recent|latest|current)\b/i.test(query) &&
+    !queryDemandsPrice(query) &&
+    queryType !== "role_or_name"
+  ) {
     const years = extractYears(cleaned);
     if (years.length > 0) {
       const freshestYear = Math.max(...years);

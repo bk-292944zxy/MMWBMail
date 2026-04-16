@@ -15,6 +15,7 @@ export type QuickFactCondenseInput = {
   queryType: QuickFactQueryType;
   retrievalConfidence: "strong" | "mixed" | "weak" | "empty";
   bundle: TavilyQuickFactBundle;
+  draftContext?: string; // up to 150 chars of surrounding draft text
 };
 const CONDENSE_STOPWORDS = new Set([
   "a","an","the","of","in","on","at","to","for","with","and","or","by","from",
@@ -107,33 +108,45 @@ function buildEvidenceBlock(bundle: TavilyQuickFactBundle) {
 }
 
 export function buildQuickFactCondensePrompt(input: QuickFactCondenseInput) {
-  return `
-You are cleaning up a fact-retrieval result for an email-writing tool.
+  const formatGuide: Record<string, string> = {
+    date: "Return a compact date or event phrase — e.g. 'April 1, 1976' or 'founded April 1, 1976'. No full sentence needed.",
+    count: "Return a compact numeric fact — e.g. '3.2 million units (2024)' or '~4,200 employees'. Include unit and time scope.",
+    market_fact: "Return a compact stat or figure — e.g. '34.2% market share (Q3 2024, IDC)'. Include unit, scope, and source hint if available.",
+    product: "Return a compact product name and context — e.g. 'the iPhone 16 Pro (released September 2024)'. No sentence framing needed.",
+    role_or_name: "Return a compact identity phrase — e.g. 'Sundar Pichai (CEO, Google as of 2024)'. Include role and org if relevant.",
+    general_fact: "Return one tight factual sentence. End with a period. No preamble, no commentary."
+  };
 
-Answer the user's question as directly as possible.
-Use only the provided retrieval evidence.
-Return 1 to 2 short sentences maximum.
-If evidence is weak, conflicting, or does not directly answer the query, return empty answer.
-Do not add filler, commentary, or conversational framing.
-Do not say "according to various sources."
-Do not include raw snippets or page junk.
-Prefer exact dates, counts, names, models, and short factual clarifications.
-Preserve scope, unit, and time context exactly.
-Never guess missing numbers, years, winners, percentages, or prices.
-If retrieval evidence does not support a clean answer, return an empty answer.
+  const outputFormat = formatGuide[input.queryType] ?? formatGuide.general_fact;
+  const contextLine = input.draftContext?.trim()
+    ? `Surrounding draft text (match tense and subject conventions where natural):\n"${input.draftContext.trim()}"`
+    : null;
 
-User query:
-${input.query}
-
-Query type:
-${input.queryType}
-
-Retrieval confidence:
-${input.retrievalConfidence}
-
-Retrieved evidence:
-${buildEvidenceBlock(input.bundle)}
-`.trim();
+  return [
+    "You are extracting a clean, insertable fact for an email-writing tool.",
+    "",
+    "Rules:",
+    "- Answer the query using only the retrieved evidence below.",
+    "- Output format for this query type: " + outputFormat,
+    "- Do not write a full declarative sentence unless query type is general_fact.",
+    "- Do not include subject if it can be inferred from the surrounding draft text.",
+    "- Match the grammatical tense of the surrounding draft text where natural.",
+    "- Do not add filler, commentary, or conversational framing.",
+    "- Do not say 'according to various sources' or similar.",
+    "- Do not include raw snippet text or page junk.",
+    "- Preserve exact numbers, units, dates, names, and scope — never round or estimate.",
+    "- Never guess missing numbers, years, winners, percentages, or prices.",
+    "- If evidence does not support a clean answer, return empty answer.",
+    "",
+    contextLine,
+    "",
+    `User query: ${input.query}`,
+    `Query type: ${input.queryType}`,
+    `Retrieval confidence: ${input.retrievalConfidence}`,
+    "",
+    "Retrieved evidence:",
+    buildEvidenceBlock(input.bundle)
+  ].filter(line => line !== null).join("\n").trim();
 }
 
 function extractKeywords(query: string) {
@@ -220,7 +233,13 @@ function buildResult(
   query: string,
   queryType: QuickFactQueryType
 ): QuickFactResult | null {
-  const compactAnswer = compactText(stripNoise(answer));
+  const stripped = stripNoise(answer);
+  // Only run sentence-splitting compaction on general_fact answers.
+  // Phrase-form answers for other query types should be preserved as-is
+  // after noise stripping — splitting on punctuation destroys them.
+  const compactAnswer = queryType === "general_fact"
+    ? compactText(stripped)
+    : stripped.trim();
   if (!compactAnswer) {
     return null;
   }

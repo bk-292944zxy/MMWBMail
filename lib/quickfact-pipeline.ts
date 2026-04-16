@@ -35,7 +35,7 @@ function buildFallback(bundleFallback?: QuickFactFallback): QuickFactResponse {
   };
 }
 
-export async function runQuickFactPipeline(query: string): Promise<QuickFactResponse> {
+export async function runQuickFactPipeline(query: string, draftContext?: string): Promise<QuickFactResponse> {
   const bundle = await fetchTavilyQuickFactBundle(query);
   const evaluationQuery = bundle.normalizedQuery || query;
 
@@ -57,7 +57,8 @@ export async function runQuickFactPipeline(query: string): Promise<QuickFactResp
     query,
     queryType: bundle.queryType,
     retrievalConfidence: bundle.retrievalQuality,
-    bundle
+    bundle,
+    draftContext
   });
 
   const vettedGptResult = gptResults.find((result) =>

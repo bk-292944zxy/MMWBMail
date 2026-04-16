@@ -1,4 +1,7 @@
 import {
+  type AiPolishCultureCountryId,
+  type AiPolishCultureRecipientSeniority,
+  type AiPolishCultureRelationshipStage,
   type AiPolishCultureRegionId,
   type AiPolishModeId,
   type AiPolishModifierId,
@@ -31,6 +34,9 @@ export type AiRewriteRequest = {
   mode: AiTransformModeId;
   modifiers?: AiTransformModifierId[];
   region?: AiPolishCultureRegionId;
+  countryId?: AiPolishCultureCountryId;
+  seniority?: AiPolishCultureRecipientSeniority;
+  relationshipStage?: AiPolishCultureRelationshipStage;
   outputType: AiRewriteOutputType;
 };
 
@@ -42,6 +48,7 @@ export type AiRewriteOption = {
   id: string;
   label: string;
   text: string;
+  culturalNotes?: string[];
 };
 
 export type AiRewriteResponse = {
@@ -146,6 +153,9 @@ function validateRewriteRequest(input: AiRewriteRequest) {
         AI_POLISH_CULTURE_REGIONS.some((item) => item.id === input.region)
           ? input.region
           : "global",
+      countryId: input.countryId,
+      seniority: input.seniority,
+      relationshipStage: input.relationshipStage,
       outputType: input.outputType,
       source
     };
@@ -213,7 +223,12 @@ function parseRewriteCompletion(content: string, expectedCount: number) {
       .map((option, index) => ({
         id: `option_${index + 1}`,
         label: option.label?.trim() || `Option ${index + 1}`,
-        text: option.text?.trim() || ""
+        text: option.text?.trim() || "",
+        culturalNotes: Array.isArray((option as { culturalNotes?: unknown[] }).culturalNotes)
+          ? ((option as { culturalNotes?: unknown[] }).culturalNotes as string[]).filter(
+              (n) => typeof n === "string" && n.trim().length > 0
+            )
+          : undefined
       }))
       .filter((option) => option.text.length > 0);
 
@@ -293,7 +308,12 @@ export async function rewriteWithCurrentOwner(input: AiRewriteRequest): Promise<
         response_format: { type: "json_object" },
         messages:
           validated.type === "polish"
-            ? buildAiPolishMessages(validated)
+            ? buildAiPolishMessages({
+                ...validated,
+                countryId: validated.countryId,
+                seniority: validated.seniority,
+                relationshipStage: validated.relationshipStage
+              })
             : buildAiRewriteMessages(validated)
       }),
       cache: "no-store"

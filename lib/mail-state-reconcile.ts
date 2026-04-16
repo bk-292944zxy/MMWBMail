@@ -173,6 +173,18 @@ export function reconcileVisibleSelection(
     };
   }
 
+  if (
+    input.preserveSelection &&
+    selectionMatchesScope &&
+    currentUid !== null &&
+    !visibleUids.has(currentUid)
+  ) {
+    return {
+      selectedUid: currentUid,
+      clearSelectedMessage: false
+    };
+  }
+
   const nextUid = messages[0]?.uid ?? null;
   const selectedMessageMissingFromScope =
     authoritative &&
