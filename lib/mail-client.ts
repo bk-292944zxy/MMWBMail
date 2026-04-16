@@ -322,6 +322,25 @@ export async function listFolders(connection: MailConnectionPayload): Promise<Ma
   }
 }
 
+export async function deleteMailbox(
+  connection: MailConnectionPayload,
+  folderPath: string
+): Promise<void> {
+  const normalizedFolderPath = folderPath.trim();
+  if (!normalizedFolderPath) {
+    throw new Error("Folder path is required.");
+  }
+
+  const client = createImapClient(connection);
+
+  try {
+    await client.connect();
+    await client.mailboxDelete(normalizedFolderPath);
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
 export async function listMessages(connection: MailConnectionPayload): Promise<MailSummary[]> {
   const folder = connection.folder || "INBOX";
 

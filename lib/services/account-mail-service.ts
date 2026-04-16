@@ -5,6 +5,8 @@ import {
   sendAccountMessage,
   updateAccountMessage
 } from "@/lib/mail-account-actions";
+import { requireMailAccountConnection } from "@/lib/mail-accounts";
+import { deleteMailbox } from "@/lib/mail-client";
 import { getOwnedAccount } from "@/lib/account-ownership";
 import { searchAccountMessagesViaProvider } from "@/lib/mail-provider";
 import { syncAccountOnDemand } from "@/lib/mail-sync-runtime";
@@ -235,4 +237,27 @@ export async function bulkDeleteAccountMessagesService(
   );
 
   return result;
+}
+
+export async function deleteMailboxService(input: { accountId: string; folderPath: string }) {
+  await requireOwnedAccount(input.accountId);
+
+  const normalizedFolderPath = input.folderPath.trim();
+  if (!normalizedFolderPath) {
+    throw new ServiceError("folderPath is required.", 400);
+  }
+
+  const { connection } = await requireMailAccountConnection(input.accountId, normalizedFolderPath);
+  try {
+    await deleteMailbox(connection, normalizedFolderPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.toLowerCase().includes("not found")) {
+      throw new ServiceError("Folder not found.", 404);
+    }
+    throw new ServiceError(
+      message || "Unable to delete folder. Some providers require empty folders before deletion.",
+      400
+    );
+  }
 }

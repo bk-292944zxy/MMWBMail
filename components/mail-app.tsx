@@ -10,6 +10,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -193,7 +194,8 @@ import {
 } from "@/lib/mail-state-reconcile";
 import {
   findMailboxNodeByPath,
-  resolveMailboxNodes
+  resolveMailboxNodes,
+  type MailboxSystemKey
 } from "@/lib/mailbox-navigation";
 import {
   recordMailboxDebugEvent,
@@ -349,6 +351,8 @@ interface UserData {
     threadingEnabled: boolean;
     mailboxViewMode: MailboxViewMode;
     collapsedSortFolderVisibility: "essential_only" | "include_active_sort_folders";
+    sortFoldersHidden: boolean;
+    hiddenSortFolderPaths: string[];
     accountMailboxDisclosureStates: Record<string, AccountMailboxDisclosureState>;
     lightweightOnboardingDismissed: boolean;
     accentTheme: AccentTheme;
@@ -371,6 +375,8 @@ const DEFAULT_USER_DATA: UserData = {
     threadingEnabled: true,
     mailboxViewMode: "classic",
     collapsedSortFolderVisibility: "essential_only",
+    sortFoldersHidden: false,
+    hiddenSortFolderPaths: [],
     accountMailboxDisclosureStates: {},
     lightweightOnboardingDismissed: false,
     accentTheme: "warm-paper",
@@ -1087,6 +1093,8 @@ function getAccountMailboxDisclosureTargets(
     activeProviderPath: string | null;
     activeInboxAttentionView: InboxAttentionView | null;
     includeActiveSortFoldersInCollapsed: boolean;
+    sortFoldersHidden: boolean;
+    hiddenSortFolderPaths: string[];
   }
 ) {
   const essentialTargets = (() => {
@@ -1120,8 +1128,10 @@ function getAccountMailboxDisclosureTargets(
   const quietSystemTargets = mailboxTargets.filter((target) =>
     isQuietSystemMailboxTarget(target)
   );
-  const activeSortTargets = mailboxTargets.filter((target) =>
-    isActiveBuiltInSortMailboxTarget(target)
+  const activeSortTargets = mailboxTargets.filter(
+    (target) =>
+      isActiveBuiltInSortMailboxTarget(target) &&
+      !input.hiddenSortFolderPaths.includes(target.mailboxNode.identity.providerPath)
   );
   const userCreatedTargets = mailboxTargets.filter((target) => {
     if (target.isVirtual) {
@@ -1165,7 +1175,7 @@ function getAccountMailboxDisclosureTargets(
     return {
       visibleTargets: dedupeTargets([
         ...essentialTargets,
-        ...activeSortTargets,
+        ...(input.sortFoldersHidden ? [] : activeSortTargets),
         ...userCreatedTargets
       ]),
       quietTargets: [] as SidebarMailboxTarget[]
@@ -1175,7 +1185,7 @@ function getAccountMailboxDisclosureTargets(
   return {
     visibleTargets: dedupeTargets([
       ...essentialTargets,
-      ...activeSortTargets,
+      ...(input.sortFoldersHidden ? [] : activeSortTargets),
       ...userCreatedTargets
     ]),
     quietTargets: dedupeTargets(quietSystemTargets)
@@ -2238,6 +2248,7 @@ type ServerPreferencesPayload = {
     createdAt: string;
   }[];
   blockedSenders?: string[];
+  hiddenSortFolderPaths?: string[];
 };
 
 function getSenderInitials(sender: string) {
@@ -4372,6 +4383,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [presetDefinitions, setPresetDefinitions] = useState<ComposePresetDefinition[]>([]);
   const [sidebarHeroCollapsed, setSidebarHeroCollapsed] = useState(false);
   const sidebarHeroCollapseWheelProgressRef = useRef(0);
+  const sidebarHeroExpandWheelProgressRef = useRef(0);
+  const sidebarShellRef = useRef<HTMLDivElement | null>(null);
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
@@ -4539,6 +4552,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [collapsedSortFolderVisibility, setCollapsedSortFolderVisibility] = useState<
     "essential_only" | "include_active_sort_folders"
   >("essential_only");
+  const [sortFoldersHidden, setSortFoldersHidden] = useState(false);
+  const [hiddenSortFolderPaths, setHiddenSortFolderPaths] = useState<string[]>([]);
   const [sortSettingsExpandedAccounts, setSortSettingsExpandedAccounts] = useState<
     Record<string, boolean>
   >({});
@@ -4546,7 +4561,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [accountMailboxDisclosureStates, setAccountMailboxDisclosureStates] = useState<
     Record<string, AccountMailboxDisclosureState>
   >({});
-  const [lightweightOnboardingDismissed, setLightweightOnboardingDismissed] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState<number | null>(null);
+  const onboardingAnchorRef = useRef<HTMLElement | null>(null);
+  const [onboardingTooltipPosition, setOnboardingTooltipPosition] = useState<{
+    top: number;
+    left: number;
+    arrowLeft: number;
+  } | null>(null);
   const [accountMailboxDisclosureAnimations, setAccountMailboxDisclosureAnimations] = useState<
     Record<string, SidebarMailboxDisclosureAnimation>
   >({});
@@ -4712,6 +4733,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }[]
   >([]);
   const [cleanupMode, setCleanupMode] = useState(false);
+  const [sidebarRefreshing, setSidebarRefreshing] = useState(false);
   const [cleanupVisible, setCleanupVisible] = useState(false);
   const [cleanupFlashSender, setCleanupFlashSender] = useState<string | null>(null);
   const [cleanupExpandedSender, setCleanupExpandedSender] = useState<string | null>(null);
@@ -4729,6 +4751,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [folderContextMenu, setFolderContextMenu] = useState<{
     x: number;
     y: number;
+    accountId: string;
+    accountEmail: string;
+    folderPath: string;
+    folderName: string;
+    systemKey: MailboxSystemKey | null;
+    isSortFolder: boolean;
+  } | null>(null);
+  const [deleteFolderConfirm, setDeleteFolderConfirm] = useState<{
     accountId: string;
     accountEmail: string;
     folderPath: string;
@@ -5086,8 +5116,31 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     return null;
   }, [accounts.length, activeAccount, activeAccountId]);
-  const shouldShowLightweightOnboarding =
-    userDataReady && !lightweightOnboardingDismissed && accounts.length > 0;
+  const shouldShowOnboarding = userDataReady && onboardingStep !== null && accounts.length > 0;
+  const onboardingStepMeta = useMemo(() => {
+    if (onboardingStep === 0) {
+      return {
+        indicator: "1 of 3",
+        message:
+          "New Mail splits your inbox into unread and read, so you see what needs attention first."
+      };
+    }
+    if (onboardingStep === 1) {
+      return {
+        indicator: "2 of 3",
+        message:
+          "Sort files messages into Receipts, Travel, Follow-Up, and Reference with one click. Right-click any sender for Quick Sort."
+      };
+    }
+    if (onboardingStep === 2) {
+      return {
+        indicator: "3 of 3",
+        message:
+          "Click here to show more folders. Each click reveals another level - essentials, working folders, then everything."
+      };
+    }
+    return null;
+  }, [onboardingStep]);
   const composeAccount = useMemo(
     () => getComposeAccountForIdentity(accounts, composeIdentity),
     [accounts, composeIdentity]
@@ -5530,6 +5583,27 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     []
   );
 
+  const addHiddenSortFolder = useCallback(
+    (folderPath: string) => {
+      const normalizedPath = folderPath.trim();
+      if (!normalizedPath) {
+        return;
+      }
+
+      setHiddenSortFolderPaths((current) => {
+        if (current.includes(normalizedPath)) {
+          return current;
+        }
+        const next = [...current, normalizedPath];
+        if (activeAccountId) {
+          syncServerPreferences(activeAccountId, { hiddenSortFolderPaths: next });
+        }
+        return next;
+      });
+    },
+    [activeAccountId, syncServerPreferences]
+  );
+
   const loadServerPreferences = useCallback(
     async (accountId: string) => {
       try {
@@ -5542,6 +5616,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             createdAt: string;
           }[];
           blockedSenders: string[];
+          hiddenSortFolderPaths?: string[];
         }>(`/api/accounts/${accountId}/preferences`);
 
         if (result.prioritizedSenders.length > 0) {
@@ -5555,6 +5630,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         });
 
         setBlockedSenders((local) => new Set([...local, ...result.blockedSenders]));
+        if (Array.isArray(result.hiddenSortFolderPaths)) {
+          setHiddenSortFolderPaths(result.hiddenSortFolderPaths);
+        }
       } catch {
         // Local preferences remain available offline.
       }
@@ -7032,8 +7110,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setCollapsedSortFolderVisibility(
       data.prefs.collapsedSortFolderVisibility ?? "essential_only"
     );
+    setSortFoldersHidden(data.prefs.sortFoldersHidden ?? false);
+    setHiddenSortFolderPaths(data.prefs.hiddenSortFolderPaths ?? []);
     setAccountMailboxDisclosureStates(data.prefs.accountMailboxDisclosureStates ?? {});
-    setLightweightOnboardingDismissed(data.prefs.lightweightOnboardingDismissed ?? false);
+    setOnboardingStep(data.prefs.lightweightOnboardingDismissed ? null : 0);
     setUserDataReady(true);
   }, []);
 
@@ -7081,8 +7161,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         threadingEnabled,
         mailboxViewMode,
         collapsedSortFolderVisibility,
+        sortFoldersHidden,
+        hiddenSortFolderPaths,
         accountMailboxDisclosureStates,
-        lightweightOnboardingDismissed,
+        lightweightOnboardingDismissed: onboardingStep === null,
         accentTheme,
         themeMode
       }
@@ -7092,7 +7174,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       syncServerPreferences(activeAccountId, {
         prioritizedSenders: Array.from(prioritizedSenders),
         autoFilters,
-        blockedSenders: Array.from(blockedSenders)
+        blockedSenders: Array.from(blockedSenders),
+        hiddenSortFolderPaths
       });
     }
   }, [
@@ -7109,13 +7192,73 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     defaultSignature,
     accountMailboxDisclosureStates,
     collapsedSortFolderVisibility,
+    sortFoldersHidden,
+    hiddenSortFolderPaths,
     mailboxViewMode,
     threadingEnabled,
-    lightweightOnboardingDismissed,
+    onboardingStep,
     accentTheme,
     themeMode,
     userDataReady
   ]);
+
+  useEffect(() => {
+    if (!shouldShowOnboarding || onboardingStep === null) {
+      onboardingAnchorRef.current?.classList.remove("onboarding-spotlight");
+      return;
+    }
+
+    const anchor = onboardingAnchorRef.current;
+    if (!anchor) {
+      return;
+    }
+
+    anchor.classList.add("onboarding-spotlight");
+    return () => {
+      anchor.classList.remove("onboarding-spotlight");
+    };
+  }, [onboardingStep, shouldShowOnboarding]);
+
+  useLayoutEffect(() => {
+    if (!shouldShowOnboarding || onboardingStep === null) {
+      setOnboardingTooltipPosition(null);
+      return;
+    }
+
+    const updateTooltipPosition = () => {
+      const anchor = onboardingAnchorRef.current;
+      if (!anchor || typeof window === "undefined") {
+        setOnboardingTooltipPosition(null);
+        return;
+      }
+
+      const rect = anchor.getBoundingClientRect();
+      const tooltipWidth = 260;
+      const horizontalPadding = 12;
+      const left = Math.min(
+        Math.max(rect.left + rect.width / 2 - tooltipWidth / 2, horizontalPadding),
+        window.innerWidth - tooltipWidth - horizontalPadding
+      );
+      const top = Math.min(
+        Math.max(rect.bottom + 12, horizontalPadding),
+        window.innerHeight - 220
+      );
+      const arrowLeft = Math.min(
+        Math.max(rect.left + rect.width / 2 - left, 16),
+        tooltipWidth - 16
+      );
+
+      setOnboardingTooltipPosition({ top, left, arrowLeft });
+    };
+
+    updateTooltipPosition();
+    window.addEventListener("resize", updateTooltipPosition);
+    window.addEventListener("scroll", updateTooltipPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateTooltipPosition);
+      window.removeEventListener("scroll", updateTooltipPosition, true);
+    };
+  }, [onboardingStep, shouldShowOnboarding]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -16884,11 +17027,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           className={`rail sidebar ${showSidebarPane ? "" : "mobile-stacked-pane-hidden"}`}
           data-size={sidebarSize}
           onWheelCapture={(event) => {
-            if (sidebarHeroCollapsed) {
-              return;
-            }
-
             if (event.deltaY < -1) {
+              sidebarHeroExpandWheelProgressRef.current = 0;
+              if (sidebarHeroCollapsed) {
+                sidebarHeroCollapseWheelProgressRef.current = 0;
+                return;
+              }
+
               sidebarHeroCollapseWheelProgressRef.current += Math.abs(event.deltaY);
               if (sidebarHeroCollapseWheelProgressRef.current >= 40) {
                 setSidebarHeroCollapsed(true);
@@ -16897,92 +17042,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               return;
             }
 
+            if (event.deltaY > 1) {
+              sidebarHeroCollapseWheelProgressRef.current = 0;
+              if (!sidebarHeroCollapsed) {
+                sidebarHeroExpandWheelProgressRef.current = 0;
+                return;
+              }
+
+              const scrollTop = sidebarShellRef.current?.scrollTop ?? 0;
+              if (scrollTop <= 1) {
+                sidebarHeroExpandWheelProgressRef.current += Math.abs(event.deltaY);
+                if (sidebarHeroExpandWheelProgressRef.current >= 40) {
+                  setSidebarHeroCollapsed(false);
+                  sidebarHeroExpandWheelProgressRef.current = 0;
+                }
+              } else {
+                sidebarHeroExpandWheelProgressRef.current = 0;
+              }
+              return;
+            }
+
             sidebarHeroCollapseWheelProgressRef.current = 0;
+            sidebarHeroExpandWheelProgressRef.current = 0;
           }}
         >
           <div className={`brand sidebar-brand ${sidebarHeroCollapsed ? "collapsed" : ""}`}>
             <p className="eyebrow sidebar-brand-label">MaxiMail</p>
-            {!sidebarHeroCollapsed ? (
-              <div className="sidebar-hero">
-                <div className="sidebar-hero-title">
-                  This is what inbox control actually feels like.
-                </div>
-                <div className="sidebar-hero-sub">
-                  Pivot to any sender instantly, bulk-delete and block in one move,
-                  and sort through noise without ever losing your place.
-                </div>
-              </div>
-            ) : null}
           </div>
 
-          {shouldShowLightweightOnboarding ? (
-            <div className="sidebar-onboarding" role="status" aria-live="polite">
-              <div className="sidebar-onboarding-kicker">Welcome</div>
-              <div className="sidebar-onboarding-title">
-                MaxiMail works a little differently.
-              </div>
-              <div className="sidebar-onboarding-list">
-                <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                      <circle cx="12" cy="12" r="6" />
-                    </svg>
-                  </span>
-                  <div className="sidebar-onboarding-item-copy">
-                    <strong>New Mail</strong> keeps active unread inbox mail together. Read Mail
-                    holds the inbox you have already worked through.
-                  </div>
-                </div>
-                <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                      <circle cx="12" cy="12" r="6" />
-                    </svg>
-                  </span>
-                  <div className="sidebar-onboarding-item-copy">
-                    <strong>Sort</strong> is the fast way to file into Receipts, Travel,
-                    Follow-Up, or Reference.
-                  </div>
-                </div>
-                <div className="sidebar-onboarding-item">
-                  <span className="sidebar-onboarding-item-icon">
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                      <circle cx="12" cy="12" r="6" />
-                    </svg>
-                  </span>
-                  <div className="sidebar-onboarding-item-copy">
-                    Each account stays live. Expand an account when you want more folders, not
-                    more noise.
-                  </div>
-                </div>
-              </div>
-              <div className="sidebar-onboarding-actions">
-                <button
-                  type="button"
-                  className="sidebar-onboarding-btn sidebar-onboarding-btn-primary"
-                  onClick={() => {
-                    clearPrioritizedSenderFocus();
-                    setLightweightOnboardingDismissed(true);
-                    setMailboxViewMode("new-mail");
-                    if (isInboxMailboxNode(activeMailboxNode)) {
-                      setInboxAttentionView("new-mail");
-                    }
-                  }}
-                >
-                  Try New Mail
-                </button>
-                <button
-                  type="button"
-                  className="sidebar-onboarding-btn"
-                  onClick={() => setLightweightOnboardingDismissed(true)}
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="panel sidebar-shell">
+          <div ref={sidebarShellRef} className="panel sidebar-shell">
             <div className="sidebar-section">
               <div className="sidebar-label">Prioritized</div>
               {prioritizedSenders.length > 0 ? (
@@ -17180,16 +17268,24 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 })
               ) : (
                 <div className="sidebar-smart-empty">
-                  <div className="sidebar-smart-empty-title">No Prioritized Senders yet</div>
-                  <div className="sidebar-smart-empty-sub">
-                    Keep important people here when you want a quieter, more focused relationship view.
-                  </div>
+                  <div className="sidebar-smart-empty-title">No prioritized senders</div>
+                  <div className="sidebar-smart-empty-sub">Right-click any sender → Prioritize</div>
                 </div>
               )}
             </div>
 
             <div className="sidebar-cleanup-btn-wrap">
-              <button className="sidebar-cleanup-btn" onClick={() => setCleanupMode(true)}>
+              <button
+                className="sidebar-cleanup-btn"
+                onClick={() => setCleanupMode(true)}
+                ref={
+                  onboardingStep === 1
+                    ? (node) => {
+                        onboardingAnchorRef.current = node;
+                      }
+                    : undefined
+                }
+              >
                 <svg
                   width="14"
                   height="14"
@@ -17200,11 +17296,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <line x1="4" y1="7" x2="20" y2="7" />
-                  <line x1="4" y1="12" x2="16" y2="12" />
-                  <line x1="4" y1="17" x2="12" y2="17" />
+                  <path d="M4 6h16" />
+                  <path d="M6 12h12" />
+                  <path d="M9 18h6" />
                 </svg>
-                Cleanup Inbox
+                Inbox cleanup…
+                {isInboxMailboxNode(activeMailboxNode) && messages.length > 20 ? (
+                  <span className="sidebar-cleanup-count">{messages.length}</span>
+                ) : null}
               </button>
             </div>
 
@@ -17213,7 +17312,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <div className="sidebar-folders-header-copy">
                   <div className="sidebar-folders-header-title-row">
                     <span className="sidebar-label">Mailboxes</span>
-                    <button className="sidebar-refresh-btn" onClick={() => forceRefresh()}>
+                    <button
+                      className={`sidebar-refresh-btn ${
+                        sidebarRefreshing ? "sidebar-refresh-btn-spinning" : ""
+                      }`}
+                      onClick={async () => {
+                        if (sidebarRefreshing) {
+                          return;
+                        }
+                        setSidebarRefreshing(true);
+                        try {
+                          await forceRefresh();
+                        } finally {
+                          setSidebarRefreshing(false);
+                        }
+                      }}
+                    >
                       <svg
                         width="11"
                         height="11"
@@ -17233,10 +17347,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <div className="sidebar-folders-header-actions">
                   <div
                     className="mailbox-view-toggle"
-                    title="New Mail View: An optional attention-first mode where Inbox becomes New Mail, read inbox items appear in a virtual Read Mail folder, and threaded conversations stay complete."
+                    ref={
+                      onboardingStep === 0
+                        ? (node) => {
+                            onboardingAnchorRef.current = node;
+                          }
+                        : undefined
+                    }
+                    title="Split inbox into New and Read mail"
                   >
                     <span className="mailbox-view-label">
-                      {mailboxViewMode === "new-mail" ? "New Mail" : "Classic"}
+                      {mailboxViewMode === "new-mail" ? "New Mail" : "Standard"}
                     </span>
                     <button
                       type="button"
@@ -17256,7 +17377,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           setInboxAttentionView("new-mail");
                         }
                       }}
-                      aria-label="Toggle between Classic and New Mail view"
+                      aria-label="Toggle between Standard and New Mail view"
                       aria-pressed={mailboxViewMode === "new-mail"}
                     >
                       <span className="mailbox-view-switch-track">
@@ -17303,7 +17424,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       activeProviderPath: mailboxQuery.target.providerPath,
                       activeInboxAttentionView,
                       includeActiveSortFoldersInCollapsed:
-                        collapsedSortFolderVisibility === "include_active_sort_folders"
+                        collapsedSortFolderVisibility === "include_active_sort_folders",
+                      sortFoldersHidden,
+                      hiddenSortFolderPaths
                     };
                     const { visibleTargets, quietTargets } = getAccountMailboxDisclosureTargets(
                       mailboxTargets,
@@ -17515,7 +17638,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           title={sortFolderTooltip ?? undefined}
                           draggable={canReorder && !mailboxTarget.isVirtual && !sidebarMailDragState}
                           onContextMenu={(event) => {
-                            if (mailboxNode.systemKey !== "trash") {
+                            if (mailboxTarget.isVirtual) {
                               return;
                             }
 
@@ -17527,7 +17650,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               accountId: account.id,
                               accountEmail: account.email,
                               folderPath: mailboxNode.identity.providerPath,
-                              folderName: mailboxTarget.name
+                              folderName: mailboxTarget.name,
+                              systemKey: mailboxNode.systemKey,
+                              isSortFolder: Boolean(sortFolderPresentation)
                             });
                           }}
                           onClick={async () => {
@@ -17689,6 +17814,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           <button
                             type="button"
                             className="sidebar-mailbox-disclosure-btn"
+                            ref={
+                              onboardingStep === 2 && isAccountActive
+                                ? (node) => {
+                                    onboardingAnchorRef.current = node;
+                                  }
+                                : undefined
+                            }
                             aria-label={`Show ${
                               disclosureState === 1
                                 ? "more"
@@ -17696,19 +17828,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   ? "all"
                                   : "fewer"
                             } folders`}
+                            title={
+                              disclosureState === 1
+                                ? "Show sort folders and custom folders"
+                                : disclosureState === 2
+                                  ? "Show all folders including Sent, Drafts, and Archive"
+                                  : "Collapse to essential folders"
+                            }
                             aria-expanded={disclosureState === 3}
                             onClick={(event) => {
                               event.stopPropagation();
                               cycleDisclosureState();
                             }}
                           >
-                            <span className="sidebar-mailbox-disclosure-lines">
-                              {Array.from({ length: disclosureState }).map((_, index) => (
-                                <span
-                                  key={`disclosure-line-${index + 1}`}
-                                  className="sidebar-mailbox-disclosure-line active"
-                                />
-                              ))}
+                            <span
+                              className={`sidebar-mailbox-disclosure-chevron disclosure-state-${disclosureState}`}
+                            >
+                              <svg
+                                width="10"
+                                height="10"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
                             </span>
                           </button>
                         </div>
@@ -17734,7 +17882,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   )}
                                   {animatedEssentialTargets.length > 0 &&
                                   animatedWorkingTargets.length > 0 ? (
-                                    <div className="sidebar-mailbox-history-divider sidebar-sep" />
+                                    <div className="sidebar-mailbox-history-divider sidebar-sep sidebar-tier-label">
+                                      <span className="sidebar-tier-label-text">Folders</span>
+                                    </div>
                                   ) : null}
                                   {animatedWorkingTargets.map((mailboxTarget, index) =>
                                     renderMailboxRow(mailboxTarget, {
@@ -17758,8 +17908,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                           disclosureAnimation.currentQuietIds.length === 0
                                         ? "sidebar-mailbox-history-divider-exiting"
                                         : ""
-                                  } sidebar-sep`}
-                                />
+                                  } sidebar-sep sidebar-tier-label`}
+                                >
+                                  <span className="sidebar-tier-label-text">System</span>
+                                </div>
                                 {animatedQuietTargets.map((mailboxTarget, index) =>
                                   renderMailboxRow(mailboxTarget, {
                                     quiet: true,
@@ -20176,6 +20328,89 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           : null}
       </section>
 
+      {shouldShowOnboarding && onboardingStepMeta && onboardingTooltipPosition ? (
+        <>
+          <div className="onboarding-overlay" />
+          <div
+            className="onboarding-tooltip"
+            role="dialog"
+            aria-live="polite"
+            style={{
+              top: onboardingTooltipPosition.top,
+              left: onboardingTooltipPosition.left
+            }}
+          >
+            <div
+              className="onboarding-tooltip-arrow"
+              style={{ left: onboardingTooltipPosition.arrowLeft }}
+              aria-hidden="true"
+            />
+            <button
+              type="button"
+              className="onboarding-tooltip-close"
+              onClick={() => setOnboardingStep(null)}
+              aria-label="Skip tour"
+            >
+              ×
+            </button>
+            <div className="onboarding-tooltip-content">{onboardingStepMeta.message}</div>
+            <div className="onboarding-tooltip-step">{onboardingStepMeta.indicator}</div>
+            <div className="onboarding-tooltip-actions">
+              {onboardingStep === 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className="onboarding-tooltip-btn onboarding-tooltip-btn-primary"
+                    onClick={() => {
+                      clearPrioritizedSenderFocus();
+                      setMailboxViewMode("new-mail");
+                      if (isInboxMailboxNode(activeMailboxNode)) {
+                        setInboxAttentionView("new-mail");
+                      }
+                      setOnboardingStep(1);
+                    }}
+                  >
+                    Try it
+                  </button>
+                  <button
+                    type="button"
+                    className="onboarding-tooltip-btn"
+                    onClick={() => setOnboardingStep(1)}
+                  >
+                    Skip
+                  </button>
+                </>
+              ) : null}
+              {onboardingStep === 1 ? (
+                <button
+                  type="button"
+                  className="onboarding-tooltip-btn onboarding-tooltip-btn-primary"
+                  onClick={() => setOnboardingStep(2)}
+                >
+                  Got it
+                </button>
+              ) : null}
+              {onboardingStep === 2 ? (
+                <button
+                  type="button"
+                  className="onboarding-tooltip-btn onboarding-tooltip-btn-primary"
+                  onClick={() => setOnboardingStep(null)}
+                >
+                  Done
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="onboarding-tooltip-skip"
+                onClick={() => setOnboardingStep(null)}
+              >
+                Skip tour
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
       {contextMenu ? (
         (() => {
           const senderFilterValue = getSenderFilterValue(contextMenu.msg);
@@ -20419,7 +20654,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             top:
               typeof window === "undefined"
                 ? folderContextMenu.y
-                : Math.min(folderContextMenu.y, window.innerHeight - 180),
+                : Math.min(folderContextMenu.y, window.innerHeight - 240),
             left:
               typeof window === "undefined"
                 ? folderContextMenu.x
@@ -20431,21 +20666,60 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             <div className="ctx-sender-name">{folderContextMenu.folderName}</div>
             <div className="ctx-sender-email">{folderContextMenu.accountEmail}</div>
           </div>
-          <div
-            className="ctx-item ctx-item-danger"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void emptyTrashForAccount(
-                folderContextMenu.accountId,
-                folderContextMenu.folderPath,
-                folderContextMenu.accountEmail
-              );
-              setFolderContextMenu(null);
-            }}
-          >
-            <span className="ctx-icon">{renderContextIcon("delete")}</span> Empty Trash
-          </div>
+          {folderContextMenu.systemKey === "trash" ? (
+            <div
+              className="ctx-item ctx-item-danger"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void emptyTrashForAccount(
+                  folderContextMenu.accountId,
+                  folderContextMenu.folderPath,
+                  folderContextMenu.accountEmail
+                );
+                setFolderContextMenu(null);
+              }}
+            >
+              <span className="ctx-icon">{renderContextIcon("delete")}</span> Empty Trash
+            </div>
+          ) : null}
+          {folderContextMenu.isSortFolder ? (
+            <>
+              {folderContextMenu.systemKey === "trash" ? <div className="ctx-sep" /> : null}
+              <div
+                className="ctx-item"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  addHiddenSortFolder(folderContextMenu.folderPath);
+                  setFolderContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">{renderContextIcon("mute")}</span> Remove from sidebar
+              </div>
+            </>
+          ) : null}
+          {folderContextMenu.systemKey === null ? (
+            <>
+              <div className="ctx-sep" />
+              <div
+                className="ctx-item ctx-item-danger"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDeleteFolderConfirm({
+                    accountId: folderContextMenu.accountId,
+                    accountEmail: folderContextMenu.accountEmail,
+                    folderPath: folderContextMenu.folderPath,
+                    folderName: folderContextMenu.folderName
+                  });
+                  setFolderContextMenu(null);
+                }}
+              >
+                <span className="ctx-icon">{renderContextIcon("delete")}</span> Delete folder from server…
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -21313,6 +21587,82 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 {messages.filter((message) => message.from === deleteTarget.from).length !== 1
                   ? "s"
                   : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteFolderConfirm ? (
+        <div className="modal-overlay" onMouseDown={() => setDeleteFolderConfirm(null)}>
+          <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete &quot;{deleteFolderConfirm.folderName}&quot;?</div>
+              <button className="modal-close" onClick={() => setDeleteFolderConfirm(null)}>
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 6 12 12" />
+                  <path d="m18 6-12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              This will permanently delete the folder and all its messages from the mail server
+              for {deleteFolderConfirm.accountEmail}. This cannot be undone.
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn-cancel" onClick={() => setDeleteFolderConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="modal-btn-delete"
+                onClick={async () => {
+                  const target = deleteFolderConfirm;
+                  setDeleteFolderConfirm(null);
+                  try {
+                    const response = await fetch(`/api/accounts/${target.accountId}/folders/delete`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ folderPath: target.folderPath })
+                    });
+
+                    if (!response.ok) {
+                      const payload = (await response.json().catch(() => ({}))) as {
+                        error?: string;
+                      };
+                      throw new Error(payload.error || "Failed to delete folder.");
+                    }
+
+                    if (activeAccountId === target.accountId && currentFolderPath === target.folderPath) {
+                      persistConnection((current) => ({
+                        ...current,
+                        folder: "INBOX"
+                      }));
+                      setInboxAttentionView(null);
+                    }
+
+                    await fetchFoldersForAccount(target.accountId, { sync: true });
+                    showToast(`Deleted "${target.folderName}"`);
+                  } catch (error) {
+                    showToast(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : "Failed to delete folder",
+                      "error"
+                    );
+                  }
+                }}
+              >
+                Delete Permanently
               </button>
             </div>
           </div>
@@ -22525,6 +22875,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         Include active sort folders
                       </button>
                     </div>
+                  </div>
+                  <div className="settings-row settings-card-row">
+                    <div className="settings-row-info">
+                      <div className="settings-row-title">Hide sort folders from sidebar</div>
+                      <div className="settings-row-sub">
+                        Removes Receipts, Travel, Follow-Up, and Reference from the sidebar folder
+                        list. Sort actions still work - messages are filed normally, but the
+                        folders won&apos;t appear in the sidebar.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`mailbox-view-switch-btn ${sortFoldersHidden ? "is-on" : ""}`}
+                      onClick={() => setSortFoldersHidden((current) => !current)}
+                      aria-pressed={sortFoldersHidden}
+                    >
+                      <span className="mailbox-view-switch-track">
+                        <span className="mailbox-view-switch-thumb" />
+                      </span>
+                    </button>
                   </div>
                   <div className="sort-settings-account-list">
                     {sortFolderSettingsGroups.map(({ account, presets }) => {
