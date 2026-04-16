@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   Fragment,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
@@ -130,7 +131,6 @@ import {
   getMailboxEmptyMessage,
   getMailboxResultState,
   normalizeMailboxSearchText,
-  shouldResetSelectionForMailboxQueryChange,
   type MailboxQueryState
 } from "@/lib/mailbox-query";
 import {
@@ -259,6 +259,7 @@ const NEW_MAIL_AUTO_READ_DWELL_MS = 60_000;
 const NEW_MAIL_SORT_PENDING_MUTATION_TTL_MS = 90_000;
 const NEW_MAIL_EXIT_ANIMATION_MS = 180;
 const LINK_SCAN_SOURCE_CHAR_LIMIT = 250_000;
+const LIGHTBOX_MIN_ACTIVATION_EDGE_PX = 160;
 
 type LightboxImage = {
   src: string;
@@ -464,6 +465,8 @@ type TrustAwareMessage = Pick<
   MailSummary,
   "from" | "fromAddress" | "authResultsDmarc" | "authResultsDkim" | "authResultsSpf"
 >;
+const SENDER_TRUST_CACHE_LIMIT = 1024;
+const senderTrustPresentationCache = new Map<string, SenderTrustPresentation>();
 
 function makeCachedMessageId(uid: number, folder: string, accountId: string) {
   return `${accountId}:${folder}:${uid}`;
@@ -476,6 +479,23 @@ function resolveSenderTrustPresentation(
     "bimiVerified" | "domain" | "dmarcPolicy" | "isEsp" | "trancoRank"
   > | null
 ): SenderTrustPresentation {
+  const cacheKey = [
+    message.from.trim().toLowerCase(),
+    message.fromAddress.trim().toLowerCase(),
+    message.authResultsDmarc ?? "",
+    message.authResultsDkim ?? "",
+    message.authResultsSpf ?? "",
+    domainVerification?.domain ?? "",
+    domainVerification?.dmarcPolicy ?? "",
+    domainVerification?.isEsp ? "1" : "0",
+    domainVerification?.bimiVerified ? "1" : "0",
+    domainVerification?.trancoRank == null ? "none" : String(domainVerification.trancoRank)
+  ].join("|");
+  const cached = senderTrustPresentationCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   function finalizeTrustPresentation(presentation: SenderTrustPresentation) {
     if (
       process.env.NODE_ENV === "development" &&
@@ -495,6 +515,14 @@ function resolveSenderTrustPresentation(
         summary: presentation.summary,
         signals: presentation.signals
       });
+    }
+
+    senderTrustPresentationCache.set(cacheKey, presentation);
+    if (senderTrustPresentationCache.size > SENDER_TRUST_CACHE_LIMIT) {
+      const oldestKey = senderTrustPresentationCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        senderTrustPresentationCache.delete(oldestKey);
+      }
     }
 
     return presentation;
@@ -825,6 +853,33 @@ function isInlineViewerMedia(item: ReceivedMessageMedia) {
   return item.role === "inline-image" && item.viewerEligible;
 }
 
+function getLightboxImageLongestVisibleEdge(image: HTMLImageElement) {
+  let renderedWidth = image.offsetWidth;
+  let renderedHeight = image.offsetHeight;
+
+  if (renderedWidth <= 0 || renderedHeight <= 0) {
+    const bounds = image.getBoundingClientRect();
+    renderedWidth = Math.round(bounds.width);
+    renderedHeight = Math.round(bounds.height);
+  }
+
+  const longestRenderedEdge = Math.max(renderedWidth, renderedHeight);
+  if (longestRenderedEdge > 0) {
+    return longestRenderedEdge;
+  }
+
+  const longestNaturalEdge = Math.max(image.naturalWidth || 0, image.naturalHeight || 0);
+  if (longestNaturalEdge > 0) {
+    return longestNaturalEdge;
+  }
+
+  return 0;
+}
+
+function isLightboxActivationEligibleImage(image: HTMLImageElement) {
+  return getLightboxImageLongestVisibleEdge(image) >= LIGHTBOX_MIN_ACTIVATION_EDGE_PX;
+}
+
 function isViewerFileAttachment(item: ReceivedMessageMedia) {
   return (
     item.contentDisposition === "attachment" ||
@@ -1068,7 +1123,12 @@ function isAlwaysVisibleMailboxTarget(target: SidebarMailboxTarget) {
   }
 
   const normalized = `${target.name} ${target.mailboxNode.identity.providerPath}`.toLowerCase();
-  return normalized.includes("trash");
+  return (
+    normalized.includes("trash") ||
+    normalized.includes("deleted messages") ||
+    normalized.includes("deleted items") ||
+    normalized.includes("deleteditems")
+  );
 }
 
 function isQuietSystemMailboxTarget(target: SidebarMailboxTarget) {
@@ -1173,9 +1233,12 @@ function getAccountMailboxDisclosureTargets(
 
     for (const target of targets) {
       const providerPathKey = target.mailboxNode.identity.providerPath.trim().toLowerCase();
-      const dedupeKey = `${target.isVirtual ? "virtual" : "physical"}:${providerPathKey}:${
-        target.inboxAttentionView ?? "none"
-      }`;
+      const dedupeKey =
+        !target.isVirtual && isAlwaysVisibleMailboxTarget(target)
+          ? `physical:${target.accountId}:always-visible-trash`
+          : `${target.isVirtual ? "virtual" : "physical"}:${providerPathKey}:${
+              target.inboxAttentionView ?? "none"
+            }`;
       if (seen.has(dedupeKey)) {
         continue;
       }
@@ -1236,6 +1299,376 @@ function mergeSidebarMailboxTargetsById(
 
   const targetIdSet = new Set(targetIds);
   return mailboxTargets.filter((target) => targetIdSet.has(target.id));
+}
+
+const SidebarMailboxDisclosureChevron = memo(function SidebarMailboxDisclosureChevron({
+  disclosureState
+}: {
+  disclosureState: AccountMailboxDisclosureState;
+}) {
+  return (
+    <span className={`sidebar-mailbox-disclosure-chevron disclosure-state-${disclosureState}`}>
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="9 18 15 12 9 6" />
+      </svg>
+    </span>
+  );
+});
+
+const FolderRowContent = memo(function FolderRowContent({
+  name,
+  mobileHint,
+  iconColor,
+  iconNode,
+  badgeCount,
+  badgeEmphasize,
+  badgeDramatic,
+  sortFolderPresentation
+}: {
+  name: string;
+  mobileHint: string | null;
+  iconColor?: string;
+  iconNode: React.ReactNode;
+  badgeCount: number;
+  badgeEmphasize: boolean;
+  badgeDramatic: boolean;
+  sortFolderPresentation: ReturnType<typeof getSortFolderPresentation>;
+}) {
+  return (
+    <>
+      <div className="folder-row-main">
+        <span
+          className={`folder-row-icon folder-icon ${
+            sortFolderPresentation
+              ? `sort-folder-glyph sort-folder-glyph-${sortFolderPresentation.tone}`
+              : ""
+          }`}
+          style={sortFolderPresentation ? undefined : { color: iconColor }}
+        >
+          {iconNode}
+        </span>
+        <span className="folder-row-labels">
+          <span className="folder-row-name">{name}</span>
+          {mobileHint ? <span className="folder-row-meta">{mobileHint}</span> : null}
+        </span>
+      </div>
+      {renderSidebarCountBadge(badgeCount, {
+        emphasize: badgeEmphasize,
+        dramatic: badgeDramatic
+      })}
+    </>
+  );
+});
+
+const SwipeRowContent = memo(function SwipeRowContent({
+  selected,
+  seen,
+  cautionSender,
+  spoofed,
+  isChecked,
+  dragEnabled,
+  rowAvatarSeed,
+  rowAvatarLabel,
+  rowIdentity,
+  senderTrustLabel,
+  senderTrustSummary,
+  positiveSenderTrust,
+  showFocusPill,
+  isSentFolder,
+  typeLabel,
+  hasAttachments,
+  formattedDate,
+  subject,
+  onSelect,
+  onFocus,
+  onContextMenu,
+  onDragStart,
+  onDragEnd
+}: {
+  selected: boolean;
+  seen: boolean;
+  cautionSender: boolean;
+  spoofed: boolean;
+  isChecked: boolean;
+  dragEnabled: boolean;
+  rowAvatarSeed: string;
+  rowAvatarLabel: string;
+  rowIdentity: string;
+  senderTrustLabel: string | null;
+  senderTrustSummary: string | null;
+  positiveSenderTrust: boolean;
+  showFocusPill: boolean;
+  isSentFolder: boolean;
+  typeLabel: string | null;
+  hasAttachments: boolean;
+  formattedDate: string;
+  subject: string;
+  onSelect: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onFocus: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onDragStart?: (event: ReactDragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <div
+      className={[
+        "message-row",
+        selected ? "selected" : "",
+        !seen ? "unread" : "",
+        cautionSender ? "caution-row" : "",
+        spoofed ? "spoof-row" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      role="button"
+      tabIndex={0}
+      draggable={dragEnabled}
+      onDragStart={dragEnabled ? onDragStart : undefined}
+      onDragEnd={dragEnabled ? onDragEnd : undefined}
+      onContextMenu={onContextMenu}
+    >
+      <div
+        className={`row-checkbox ${isChecked ? "checked" : ""}`}
+        onClick={onSelect}
+        role="checkbox"
+        aria-checked={isChecked}
+        tabIndex={-1}
+      >
+        {isChecked ? (
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        ) : null}
+      </div>
+      <div className="row-avatar" style={{ background: getAvatarColor(rowAvatarSeed) }}>
+        {rowAvatarLabel}
+      </div>
+      <div className="row-body">
+        <div className="row-top">
+          <div className="row-sender-group">
+            <span className="row-sender">{rowIdentity}</span>
+            {!isSentFolder && cautionSender && senderTrustLabel ? (
+              <span className="sender-trust-row-chip sender-trust-row-chip-amber">
+                {senderTrustLabel}
+              </span>
+            ) : null}
+            {!isSentFolder && positiveSenderTrust ? (
+              <span
+                className="sender-trust-row-check sender-trust-row-check-verified"
+                aria-label={senderTrustSummary ?? undefined}
+                title={senderTrustSummary ?? undefined}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            ) : null}
+            {!isSentFolder && spoofed ? (
+              <span className="sender-trust-row-warning" title="High Risk sender">
+                ⚠
+              </span>
+            ) : null}
+            {typeLabel ? <span className={`type-chip type-chip-${typeLabel.toLowerCase()}`}>{typeLabel}</span> : null}
+            {!isSentFolder && showFocusPill ? (
+              <button type="button" className="focus-pill" onClick={onFocus}>
+                <span className="focus-pill-icon">
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="7.5" cy="15.5" r="4.5" />
+                    <circle cx="16.5" cy="15.5" r="4.5" />
+                    <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                    <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                    <path d="M12 11v4" />
+                  </svg>
+                </span>
+                <span>Focus</span>
+              </button>
+            ) : null}
+          </div>
+          <span className="row-meta">
+            {hasAttachments ? (
+              <span className="mail-list-attachment-indicator" aria-label="Message has attachments" title="Has attachment">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+                </svg>
+              </span>
+            ) : null}
+            <span className="row-date">{formattedDate}</span>
+          </span>
+        </div>
+        <div className="row-subject">
+          {isSentFolder ? <span className="row-to-label">To:</span> : null}
+          {subject}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const ThreadRowContent = memo(function ThreadRowContent({
+  isSelected,
+  unread,
+  cautionSender,
+  spoofed,
+  isChecked,
+  recipientLabel,
+  conversationCount,
+  hasMultipleMessages,
+  senderTrustLabel,
+  senderTrustSummary,
+  positiveSenderTrust,
+  isSentFolder,
+  typeLabel,
+  hasAttachments,
+  formattedDate,
+  subject,
+  preview,
+  onToggleSelect,
+  onFocus,
+  childrenAvatars,
+  isExpanded
+}: {
+  isSelected: boolean;
+  unread: boolean;
+  cautionSender: boolean;
+  spoofed: boolean;
+  isChecked: boolean;
+  recipientLabel: string;
+  conversationCount: number;
+  hasMultipleMessages: boolean;
+  senderTrustLabel: string | null;
+  senderTrustSummary: string | null;
+  positiveSenderTrust: boolean;
+  isSentFolder: boolean;
+  typeLabel: string | null;
+  hasAttachments: boolean;
+  formattedDate: string;
+  subject: string;
+  preview: string;
+  onToggleSelect: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onFocus: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  childrenAvatars: React.ReactNode;
+  isExpanded: boolean;
+}) {
+  return (
+    <>
+      <div className={`row-checkbox ${isChecked ? "checked" : ""}`} onClick={onToggleSelect} role="checkbox" aria-checked={isChecked} tabIndex={-1}>
+        {isChecked ? (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        ) : null}
+      </div>
+      {unread ? <div className="unread-dot" /> : null}
+      <div className="thread-avatars">{childrenAvatars}</div>
+      <div className="row-body">
+        <div className="row-top">
+          <div className="row-sender-group">
+            <span className="row-sender">{recipientLabel}</span>
+            {!isSentFolder && cautionSender && senderTrustLabel ? (
+              <span className="sender-trust-row-chip sender-trust-row-chip-amber">{senderTrustLabel}</span>
+            ) : null}
+            {!isSentFolder && positiveSenderTrust ? (
+              <span className="sender-trust-row-check sender-trust-row-check-verified" aria-label={senderTrustSummary ?? undefined} title={senderTrustSummary ?? undefined}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            ) : null}
+            {hasMultipleMessages ? <span className="thread-count-badge">{conversationCount}</span> : null}
+            {!isSentFolder && spoofed ? <span className="sender-trust-row-warning" title="High Risk sender">⚠</span> : null}
+            {typeLabel ? <span className={`type-chip type-chip-${typeLabel.toLowerCase()}`}>{typeLabel}</span> : null}
+            {!isSentFolder ? (
+              <button type="button" className="focus-pill" onClick={onFocus}>
+                <span className="focus-pill-icon">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="7.5" cy="15.5" r="4.5" />
+                    <circle cx="16.5" cy="15.5" r="4.5" />
+                    <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
+                    <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
+                    <path d="M12 11v4" />
+                  </svg>
+                </span>
+                <span>Focus</span>
+              </button>
+            ) : null}
+          </div>
+          <span className="row-meta">
+            {hasAttachments ? (
+              <span className="mail-list-attachment-indicator" aria-label="Message has attachments" title="Has attachment">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
+                </svg>
+              </span>
+            ) : null}
+            <span className="row-date">{formattedDate}</span>
+          </span>
+        </div>
+        <div className="row-subject" style={{ fontWeight: unread ? 600 : 400 }}>
+          {isSentFolder ? <span className="row-to-label">To:</span> : null}
+          {subject}
+        </div>
+        <div className="thread-snippet">{preview}</div>
+      </div>
+      {hasMultipleMessages ? (
+        <svg className={`thread-chevron ${isExpanded ? "open" : ""}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      ) : null}
+    </>
+  );
+});
+
+function getSidebarFolderListSignature(folders: MailFolder[]) {
+  return folders
+    .map(
+      (folder) =>
+        `${folder.path}::${folder.name}::${folder.specialUse ?? ""}::${folder.count ?? ""}::${
+          folder.unread ?? ""
+        }`
+    )
+    .join("|");
 }
 
 function resolveResponsiveInteractionMode(input: {
@@ -3044,7 +3477,13 @@ function getFolderIcon(folderName: string, specialUse?: string) {
   if (specialUse === "\\Junk" || name.includes("spam") || name.includes("junk")) {
     return { icon: "warning", color: "var(--amber)" };
   }
-  if (specialUse === "\\Trash" || name.includes("trash")) {
+  if (
+    specialUse === "\\Trash" ||
+    name.includes("trash") ||
+    name === "deleted messages" ||
+    name === "deleted items" ||
+    name === "deleteditems"
+  ) {
     return { icon: "trash", color: "var(--sidebar-icon-muted)" };
   }
   if (specialUse === "\\Archive" || name.includes("archive")) {
@@ -3813,10 +4252,34 @@ function SwipeRow({
     swipeThreshold,
     swipeEnabled
   );
-  const spoofed = detectSpoof(message).isSpoofed;
-  const senderTrust = !isSentFolder
-    ? resolveSenderTrustPresentation(message, domainVerification)
-    : null;
+  const spoofed = useMemo(
+    () =>
+      detectSpoof({
+        from: message.from,
+        fromAddress: message.fromAddress,
+        authResultsDmarc: message.authResultsDmarc
+      }).isSpoofed,
+    [message.authResultsDmarc, message.from, message.fromAddress]
+  );
+  const senderTrust = useMemo(
+    () =>
+      !isSentFolder
+        ? resolveSenderTrustPresentation(message, domainVerification)
+        : null,
+    [
+      domainVerification?.bimiVerified,
+      domainVerification?.domain,
+      domainVerification?.dmarcPolicy,
+      domainVerification?.isEsp,
+      domainVerification?.trancoRank,
+      isSentFolder,
+      message.authResultsDkim,
+      message.authResultsDmarc,
+      message.authResultsSpf,
+      message.from,
+      message.fromAddress
+    ]
+  );
   const cautionSender = senderTrust?.tier === "amber";
   const positiveSenderTrust =
     senderTrust?.label === "Verified domain" || senderTrust?.label === "Verified";
@@ -3826,6 +4289,11 @@ function SwipeRow({
   const rowAvatarLabel = isSentFolder
     ? getSenderInitials(sentRecipientLabel)
     : getSenderInitials(message.from || message.fromAddress);
+  const type = useMemo(
+    () => getSenderType(message.from, message.fromAddress ?? ""),
+    [message.from, message.fromAddress]
+  );
+  const formattedDate = useMemo(() => formatTimestamp(message.date), [message.date]);
 
   useEffect(() => {
     if (activeSwipeUid !== message.uid && revealedSide) {
@@ -3940,20 +4408,6 @@ function SwipeRow({
         className={`swipe-foreground ${revealedSide ? `swipe-foreground-${revealedSide}` : ""}`}
       >
         <div
-        className={[
-          "message-row",
-          selected ? "selected" : "",
-          !message.seen ? "unread" : "",
-          cautionSender ? "caution-row" : "",
-          spoofed ? "spoof-row" : ""
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          role="button"
-          tabIndex={0}
-          draggable={dragEnabled}
-          onDragStart={dragEnabled ? onDragStart : undefined}
-          onDragEnd={dragEnabled ? onDragEnd : undefined}
           onClick={(event) => {
             if (didSwipe.current) {
               didSwipe.current = false;
@@ -3976,141 +4430,38 @@ function SwipeRow({
               onOpen();
             }
           }}
-          onContextMenu={onContextMenu}
         >
-          <div
-            className={`row-checkbox ${isChecked ? "checked" : ""}`}
-            onClick={(event) => {
+          <SwipeRowContent
+            selected={selected}
+            seen={message.seen}
+            cautionSender={cautionSender}
+            spoofed={spoofed}
+            isChecked={isChecked}
+            dragEnabled={dragEnabled}
+            rowAvatarSeed={rowAvatarSeed}
+            rowAvatarLabel={rowAvatarLabel}
+            rowIdentity={rowIdentity}
+            senderTrustLabel={senderTrust ? `${senderTrust.icon} ${senderTrust.label}` : null}
+            senderTrustSummary={senderTrust?.summary ?? null}
+            positiveSenderTrust={positiveSenderTrust}
+            showFocusPill={showFocusPill}
+            isSentFolder={isSentFolder}
+            typeLabel={type ? type.toUpperCase() : null}
+            hasAttachments={message.hasAttachments}
+            formattedDate={formattedDate}
+            subject={message.subject}
+            onSelect={(event) => {
               event.stopPropagation();
               onSelect();
             }}
-            role="checkbox"
-            aria-checked={isChecked}
-            tabIndex={-1}
-          >
-            {isChecked ? (
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : null}
-          </div>
-          <div
-            className="row-avatar"
-            style={{ background: getAvatarColor(rowAvatarSeed) }}
-          >
-            {rowAvatarLabel}
-          </div>
-          <div className="row-body">
-            <div className="row-top">
-              <div className="row-sender-group">
-                <span className="row-sender">{rowIdentity}</span>
-                {!isSentFolder && cautionSender ? (
-                  <span className="sender-trust-row-chip sender-trust-row-chip-amber">
-                    {senderTrust?.icon} {senderTrust?.label}
-                  </span>
-                ) : null}
-                {!isSentFolder && positiveSenderTrust ? (
-                  <span
-                    className="sender-trust-row-check sender-trust-row-check-verified"
-                    aria-label={senderTrust?.summary}
-                    title={senderTrust?.summary}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                ) : null}
-                {!isSentFolder && spoofed ? (
-                  <span className="sender-trust-row-warning" title="High Risk sender">
-                    ⚠
-                  </span>
-                ) : null}
-                {(() => {
-                  const type = getSenderType(message.from, message.fromAddress ?? "");
-
-                  if (!type) {
-                    return null;
-                  }
-
-                  return (
-                    <span className={`type-chip type-chip-${type}`}>
-                      {type.toUpperCase()}
-                    </span>
-                  );
-                })()}
-            {!isSentFolder && showFocusPill ? (
-              <button
-                type="button"
-                className="focus-pill"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onFocus();
-                    }}
-                  >
-                    <span className="focus-pill-icon">
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <circle cx="7.5" cy="15.5" r="4.5" />
-                        <circle cx="16.5" cy="15.5" r="4.5" />
-                        <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
-                        <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
-                        <path d="M12 11v4" />
-                      </svg>
-                    </span>
-                    <span>Focus</span>
-                  </button>
-                ) : null}
-              </div>
-              <span className="row-meta">
-                {message.hasAttachments ? (
-                  <span
-                    className="mail-list-attachment-indicator"
-                    aria-label="Message has attachments"
-                    title="Has attachment"
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
-                    </svg>
-                  </span>
-                ) : null}
-                <span className="row-date">{formatTimestamp(message.date)}</span>
-              </span>
-            </div>
-            <div className="row-subject">
-              {isSentFolder ? <span className="row-to-label">To:</span> : null}
-              {message.subject}
-            </div>
-          </div>
+            onFocus={(event) => {
+              event.stopPropagation();
+              onFocus();
+            }}
+            onContextMenu={onContextMenu}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
         </div>
       </div>
     </div>
@@ -4638,6 +4989,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [lightboxRotation, setLightboxRotation] = useState(0);
   const [lightboxOffset, setLightboxOffset] = useState({ x: 0, y: 0 });
   const [lightboxDragging, setLightboxDragging] = useState(false);
+  const [lightboxChromeVisible, setLightboxChromeVisible] = useState(true);
   const [moveFolderOpen, setMoveFolderOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<MailSummary | MailDetail | null>(null);
   const [moveConversationTargetId, setMoveConversationTargetId] = useState<string | null>(null);
@@ -5038,6 +5390,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const bulkMoreMenuRef = useRef<HTMLDivElement | null>(null);
   const lightboxAreaRef = useRef<HTMLDivElement | null>(null);
   const lightboxImageRef = useRef<HTMLImageElement | null>(null);
+  const lightboxChromeHideTimerRef = useRef<number | null>(null);
+  const lightboxLastTouchTapRef = useRef<{ at: number; x: number; y: number } | null>(null);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropImageRef = useRef<HTMLImageElement | null>(null);
   const previousResponsiveInteractionModeRef = useRef<ResponsiveInteractionMode>(
@@ -5047,11 +5401,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const restoredFolderRef = useRef<string | null>(null);
   const activeAccountIdRef = useRef<string | null>(initialActiveAccountId);
   const explicitActiveAccountIdRef = useRef<string | null>(null);
-  const previousMailboxQueryRef = useRef<ReturnType<typeof createMailboxQueryState> | null>(null);
+  const previousMailboxQueryScopeKeyRef = useRef<string | null>(null);
   const autoSyncInFlightRef = useRef(false);
   const refreshFromEventTimerRef = useRef<number | null>(null);
   const pollRefreshCooldownUntilRef = useRef(0);
   const pollRefreshQueuedRef = useRef(false);
+  const loadMessagesRef = useRef<typeof loadMessages>(loadMessages);
+  const refreshFolderCountsRef = useRef<typeof refreshFolderCounts>(refreshFolderCounts);
   const folderLoadSeqByAccountRef = useRef<Record<string, number>>({});
   const folderLoadStateByAccountRef = useRef<
     Record<
@@ -6984,7 +7340,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   useEffect(() => {
     attachmentHydrationAttemptedRef.current.clear();
-  }, [activeAccountId, currentFolderPath]);
+  }, [activeAccountId, currentFolderPath, getJson, loadMessagesRef, refreshFolderCountsRef]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -7335,7 +7691,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         resolveMobileStackedScreen({
           hasAccounts: accounts.length > 0,
           hasActiveMailboxContext: Boolean(activeAccountId && currentFolderPath),
-          hasSelectedMessage: Boolean(selectedMessage)
+          hasSelectedMessage: Boolean(selectedMessage?.uid)
         })
       );
     }
@@ -7359,7 +7715,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     currentFolderPath,
     mobileStackedScreen,
     responsiveInteractionMode,
-    selectedMessage
+    selectedMessage?.uid
   ]);
 
   useEffect(() => {
@@ -7378,7 +7734,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       return current;
     });
-  }, [accounts.length, activeAccountId, currentFolderPath, isMobileStackedMode, selectedMessage]);
+  }, [accounts.length, activeAccountId, currentFolderPath, isMobileStackedMode, selectedMessage?.uid]);
 
   useEffect(() => {
     if (!openMenu) {
@@ -8370,11 +8726,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       cancelled = true;
     };
   }, [selectedMessage?.uid, selectedMessage?.fromAddress]);
+  const selectedMessageSpoofForLinkScan = useMemo(
+    () =>
+      selectedMessage
+        ? detectSpoof({
+            from: selectedMessage.from,
+            fromAddress: selectedMessage.fromAddress,
+            authResultsDmarc: selectedMessage.authResultsDmarc
+          }).isSpoofed
+        : false,
+    [selectedMessage?.authResultsDmarc, selectedMessage?.from, selectedMessage?.fromAddress]
+  );
 
   useEffect(() => {
     setSuspiciousLinks([]);
 
-    if (!selectedMessage || detectSpoof(selectedMessage).isSpoofed) {
+    if (!selectedMessage || selectedMessageSpoofForLinkScan) {
       return;
     }
 
@@ -8452,7 +8819,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       cancelled = true;
       cancelScheduled(scheduledId);
     };
-  }, [selectedMessage?.uid, selectedMessage?.html]);
+  }, [selectedMessage?.uid, selectedMessage?.html, selectedMessageSpoofForLinkScan]);
 
   useEffect(() => {
     if (!selectedImg) {
@@ -8583,6 +8950,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     });
   }, [activeAccountId, currentFolderPath, loadMessages]);
 
+  useLayoutEffect(() => {
+    loadMessagesRef.current = loadMessages;
+  }, [loadMessages]);
+
+  useLayoutEffect(() => {
+    refreshFolderCountsRef.current = refreshFolderCounts;
+  }, [refreshFolderCounts]);
+
   useEffect(() => {
     if (typeof window === "undefined" || !activeAccountId) {
       return;
@@ -8673,6 +9048,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const BACKGROUND_REFRESH_COOLDOWN_MS = 10_000;
     let pollInterval: number | null = null;
     let pollCursor = new Date().toISOString();
+    let pollRequestInFlight = false;
     let disposed = false;
 
     const runPollRefresh = () => {
@@ -8704,8 +9080,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       pollRefreshCooldownUntilRef.current = now + cooldownMs;
       pollRefreshQueuedRef.current = false;
-      void refreshFolderCounts(activeAccountId);
-      void loadMessages(currentFolderPath, {
+      void refreshFolderCountsRef.current(activeAccountId);
+      void loadMessagesRef.current(currentFolderPath, {
         force: true,
         manageBusy: false,
         accountIdOverride: activeAccountId,
@@ -8757,6 +9133,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     };
 
     const pollEvents = async () => {
+      if (pollRequestInFlight) {
+        return;
+      }
+
+      pollRequestInFlight = true;
       try {
         const response = await getJson<{
           events?: Array<{ folderPath?: string | null }>;
@@ -8769,6 +9150,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         }
       } catch {
         // Silent fallback; background sync and future polls will retry.
+      } finally {
+        pollRequestInFlight = false;
       }
     };
 
@@ -8810,6 +9193,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     return () => {
       disposed = true;
+      pollRequestInFlight = false;
       pollRefreshQueuedRef.current = false;
       pollRefreshCooldownUntilRef.current = 0;
       if (refreshFromEventTimerRef.current) {
@@ -8821,7 +9205,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       window.removeEventListener("offline", handleVisibilityOrConnectivity);
       document.removeEventListener("visibilitychange", handleVisibilityOrConnectivity);
     };
-  }, [activeAccountId, currentFolderPath, getJson, loadMessages, refreshFolderCounts]);
+  }, [activeAccountId, currentFolderPath]);
 
   function persistConnection(
     nextConnection:
@@ -9148,10 +9532,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   (message) =>
                     message.uid === selectedUid &&
                     (message.accountId ?? resolvedAccountId) === resolvedAccountId
-                )?.messageId ?? null
+              )?.messageId ?? null
               : null,
           preserveSelection,
-          scopeAccountId: resolvedAccountId
+          scopeAccountId: resolvedAccountId,
+          authoritative: false
         });
         const preservePrioritizedSelection =
           senderFilterScope === "prioritized" &&
@@ -9338,10 +9723,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 (message) =>
                   message.uid === selectedUid &&
                   (message.accountId ?? resolvedAccountId) === resolvedAccountId
-              )?.messageId ?? null
+                )?.messageId ?? null
             : null,
         preserveSelection,
-        scopeAccountId: resolvedAccountId
+        scopeAccountId: resolvedAccountId,
+        authoritative: true
       });
       const preservePrioritizedSelection =
         senderFilterScope === "prioritized" &&
@@ -14557,6 +14943,46 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         : renderedConversationSummaries,
     [isPrioritizedSenderView, prioritizedNewMailOnly, renderedConversationSummaries]
   );
+  const displayedMessageUidSignature = useMemo(
+    () => displayedMessages.map((message) => message.uid).join(","),
+    [displayedMessages]
+  );
+  const displayedConversationLatestUidSignature = useMemo(
+    () =>
+      displayedConversationSummaries
+        .map((summary) => summary.latestMessage.uid)
+        .join(","),
+    [displayedConversationSummaries]
+  );
+  const displayedMessageUidSet = useMemo(
+    () => new Set(displayedMessages.map((message) => message.uid)),
+    [displayedMessageUidSignature]
+  );
+  const displayedMessageIdByUid = useMemo(() => {
+    const next = new Map<number, string | null>();
+    for (const message of displayedMessages) {
+      next.set(message.uid, message.messageId ?? null);
+    }
+    return next;
+  }, [displayedMessageUidSignature]);
+  const displayedVisibleUidSet = useMemo(
+    () =>
+      threadingEnabled
+        ? new Set(displayedConversationSummaries.map((summary) => summary.latestMessage.uid))
+        : displayedMessageUidSet,
+    [displayedConversationLatestUidSignature, displayedMessageUidSet, threadingEnabled]
+  );
+  const firstVisibleUidForAutoOpen = useMemo(
+    () =>
+      threadingEnabled
+        ? displayedConversationSummaries[0]?.latestMessage.uid ?? null
+        : displayedMessages[0]?.uid ?? null,
+    [
+      displayedConversationLatestUidSignature,
+      displayedMessageUidSignature,
+      threadingEnabled
+    ]
+  );
   const sortedUnreadCount = sortedMessages.filter((message) => !message.seen).length;
   function clearNewMailExitAnimationTargets(input: {
     messageUids?: number[];
@@ -15302,6 +15728,45 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       clearSidebarMailDrag();
     }
   }, [clearSidebarMailDrag, dragFirstMessageList]);
+  const sidebarMailboxAccountsSignature = useMemo(
+    () =>
+      accounts
+        .map(
+          (account) =>
+            `${account.id}:${account.provider.kind}:${Number(
+              account.provider.capabilities.supportsServerSideThreads
+            )}:${Number(account.provider.capabilities.supportsLabels)}:${Number(
+              account.provider.capabilities.supportsServerSideSearch
+            )}`
+        )
+        .join("|"),
+    [accounts]
+  );
+  const sidebarMailboxFoldersSignature = useMemo(
+    () =>
+      accounts
+        .map((account) => {
+          const accountFolders =
+            account.id === activeAccountId
+              ? orderedFolders
+              : (foldersByAccount[account.id] ?? []);
+          return `${account.id}:${getSidebarFolderListSignature(accountFolders)}`;
+        })
+        .join("||"),
+    [accounts, activeAccountId, foldersByAccount, orderedFolders]
+  );
+  const sidebarInboxCountsSignature = useMemo(
+    () =>
+      `${shouldUseDerivedInboxAttentionCounts ? "derived" : "provider"}::${
+        activeMailboxNode?.identity.providerPath ?? ""
+      }::${activeInboxAttentionCounts.newMailCount}::${activeInboxAttentionCounts.readCount}`,
+    [
+      activeInboxAttentionCounts.newMailCount,
+      activeInboxAttentionCounts.readCount,
+      activeMailboxNode?.identity.providerPath,
+      shouldUseDerivedInboxAttentionCounts
+    ]
+  );
   const sidebarMailboxGroups = useMemo(
     () =>
       accounts.map((account) => {
@@ -15334,14 +15799,34 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         };
       }),
     [
-      accounts,
       activeAccountId,
-      activeInboxAttentionCounts,
-      activeMailboxNode,
-      foldersByAccount,
       mailboxViewMode,
-      orderedFolders,
-      shouldUseDerivedInboxAttentionCounts
+      sidebarInboxCountsSignature,
+      sidebarMailboxAccountsSignature,
+      sidebarMailboxFoldersSignature
+    ]
+  );
+  const sidebarRenderableMailboxTargetCount = useMemo(
+    () => sidebarMailboxGroups.reduce((sum, group) => sum + group.mailboxTargets.length, 0),
+    [sidebarMailboxGroups]
+  );
+  const sidebarDisclosureTargetInput = useMemo(
+    () => ({
+      mailboxViewMode,
+      activeProviderPath: mailboxQuery.target.providerPath,
+      activeInboxAttentionView,
+      includeActiveSortFoldersInCollapsed:
+        collapsedSortFolderVisibility === "include_active_sort_folders",
+      sortFoldersHidden,
+      hiddenSortFolderPaths
+    }),
+    [
+      activeInboxAttentionView,
+      collapsedSortFolderVisibility,
+      hiddenSortFolderPaths,
+      mailboxQuery.target.providerPath,
+      mailboxViewMode,
+      sortFoldersHidden
     ]
   );
   useEffect(() => {
@@ -15381,13 +15866,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       },
       sidebar: {
         renderableGroupCount: sidebarMailboxGroups.length,
-        renderableMailboxTargetCount: sidebarMailboxGroups.reduce(
-          (sum, group) => sum + group.mailboxTargets.length,
-          0
-        )
+        renderableMailboxTargetCount: sidebarRenderableMailboxTargetCount
       }
     });
-  }, [accounts, activeAccountId, currentFolderPath, folders.length, foldersByAccount, sidebarMailboxGroups]);
+  }, [
+    accounts,
+    activeAccountId,
+    currentFolderPath,
+    folders.length,
+    foldersByAccount,
+    sidebarMailboxGroups.length,
+    sidebarRenderableMailboxTargetCount
+  ]);
 
   useEffect(() => {
     if (!isMailboxDebugEnabled()) {
@@ -15538,13 +16028,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   useEffect(() => {
     setSelectMode(selectedUids.size > 0);
-  }, [selectedUids]);
+  }, [selectedUids.size]);
 
   useEffect(() => {
     if (selectedUids.size === 0) {
       setBulkSelectionMenu(null);
     }
-  }, [selectedUids]);
+  }, [selectedUids.size]);
 
   useEffect(() => {
     if (!senderFilter && senderFilterScope !== null) {
@@ -15553,15 +16043,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [senderFilter, senderFilterScope]);
 
   useEffect(() => {
-    const previousQuery = previousMailboxQueryRef.current;
-    if (shouldResetSelectionForMailboxQueryChange(previousQuery, mailboxQuery)) {
+    const previousScopeKey = previousMailboxQueryScopeKeyRef.current;
+    if (previousScopeKey !== null && previousScopeKey !== mailboxQuery.scopeKey) {
       openMessageSeqRef.current += 1;
       setSelectedMessage(null);
       setSelectedUid(null);
     }
 
-    previousMailboxQueryRef.current = mailboxQuery;
-  }, [mailboxQuery]);
+    previousMailboxQueryScopeKeyRef.current = mailboxQuery.scopeKey;
+  }, [mailboxQuery.scopeKey]);
 
   useEffect(() => {
     clearSelection();
@@ -15638,7 +16128,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     currentFolderPath,
     isScopedNewMailReadDelayActive,
     markMessageSeenForContext,
-    selectedMessage
+    selectedMessage?.seen,
+    selectedMessage?.uid
   ]);
 
   useEffect(() => {
@@ -15648,11 +16139,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       selectedMessageAccountId: selectedMessage?.accountId ?? null,
       selectedMessageMessageId: selectedMessage?.messageId ?? null,
       selectedUidMessageId:
-        selectedUid !== null
-          ? displayedMessages.find((message) => message.uid === selectedUid)?.messageId ?? null
-          : null,
+        selectedUid !== null ? displayedMessageIdByUid.get(selectedUid) ?? null : null,
       preserveSelection: true,
-      scopeAccountId: activeAccountId
+      scopeAccountId: activeAccountId,
+      authoritative: false
     });
     const attachmentGuard = attachmentSelectionGuardRef.current;
     const guardActive =
@@ -15675,21 +16165,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     ) {
       setSelectedUid(nextSelection.selectedUid);
     }
-
-    if (nextSelection.clearSelectedMessage && !guardActive && !prioritizedGuardActive) {
-      openMessageSeqRef.current += 1;
-      setSelectedMessage(null);
-    }
   }, [
     activeAccountId,
     currentFolderPath,
+    displayedMessageUidSignature,
     senderFilter,
     senderFilterScope,
     selectedMessage?.from,
     selectedMessage?.accountId,
+    selectedMessage?.seen,
     selectedMessage?.uid,
     selectedUid,
-    displayedMessages
+    displayedMessageIdByUid
   ]);
 
   useEffect(() => {
@@ -15717,11 +16204,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
-    const visibleUids = new Set(
-      threadingEnabled
-        ? displayedConversationSummaries.map((summary) => summary.latestMessage.uid)
-        : displayedMessages.map((message) => message.uid)
-    );
+    const visibleUids = displayedVisibleUidSet;
     const selectedVisible =
       (selectedUid !== null && visibleUids.has(selectedUid)) ||
       (selectedMessage?.uid !== null && visibleUids.has(selectedMessage?.uid ?? -1));
@@ -15736,9 +16219,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
-    const firstVisibleUid = threadingEnabled
-      ? displayedConversationSummaries[0]?.latestMessage.uid ?? null
-      : displayedMessages[0]?.uid ?? null;
+    const firstVisibleUid = firstVisibleUidForAutoOpen;
     if (firstVisibleUid === null) {
       return;
     }
@@ -15749,25 +16230,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [
     activeAccountId,
     currentFolderPath,
+    displayedConversationLatestUidSignature,
+    displayedMessageUidSignature,
     isBusy,
     mailboxQuery.scopeKey,
-    displayedConversationSummaries,
-    displayedMessages,
+    displayedVisibleUidSet,
+    firstVisibleUidForAutoOpen,
     openMessage,
-    selectedMessage,
+    selectedMessage?.uid,
     selectedUid,
     threadingEnabled
   ]);
 
   useEffect(() => {
-    const visibleUids = new Set(displayedMessages.map((message) => message.uid));
     setSelectedUids((current) => {
       const next = new Set(
-        Array.from(current).filter((uid) => visibleUids.has(uid))
+        Array.from(current).filter((uid) => displayedMessageUidSet.has(uid))
       );
       return next.size === current.size ? current : next;
     });
-  }, [displayedMessages]);
+  }, [displayedMessageUidSet, displayedMessageUidSignature]);
 
   const menuWidth = 220;
   const menuHeight = 280;
@@ -15930,10 +16412,54 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     activeConversationMessages.length > 1;
   const printThreadAvailable = showConversationView && activeConversationMessages.length > 1;
   const effectivePrintTargetUid = printTargetUid ?? selectedMessage?.uid ?? null;
-  const selectedSpoof = selectedMessage ? detectSpoof(selectedMessage) : null;
+  const selectedSpoof = useMemo(
+    () => (selectedMessage ? detectSpoof(selectedMessage) : null),
+    [selectedMessage?.from, selectedMessage?.fromAddress, selectedMessage?.authResultsDmarc]
+  );
   const selectedSenderIsVerified = Boolean(
     selectedMessage && !selectedSpoof?.isSpoofed && domainVerification?.bimiVerified
   );
+  const displayedConversationSenderVerificationSignature = useMemo(
+    () =>
+      displayedConversationSummaries
+        .map((conversation) => {
+          const latest = conversation.latestMessage.raw;
+          return `${conversation.id}:${latest.uid}:${latest.from}:${latest.fromAddress}:${latest.authResultsDmarc ?? ""}:${latest.authResultsDkim ?? ""}:${latest.authResultsSpf ?? ""}`;
+        })
+        .join("|"),
+    [displayedConversationSummaries]
+  );
+  const conversationVerificationById = useMemo(() => {
+    const next = new Map<
+      string,
+      { latestSpoof: boolean; latestSenderTrust: SenderTrustPresentation | null }
+    >();
+
+    for (const conversation of displayedConversationSummaries) {
+      const latestMessage = conversation.latestMessage.raw;
+      next.set(conversation.id, {
+        latestSpoof: detectSpoof({
+          from: latestMessage.from,
+          fromAddress: latestMessage.fromAddress,
+          authResultsDmarc: latestMessage.authResultsDmarc
+        }).isSpoofed,
+        latestSenderTrust: !isSentFolder
+          ? resolveSenderTrustPresentation(latestMessage, domainVerification)
+          : null
+      });
+    }
+
+    return next;
+  }, [
+    displayedConversationLatestUidSignature,
+    displayedConversationSenderVerificationSignature,
+    domainVerification?.bimiVerified,
+    domainVerification?.domain,
+    domainVerification?.dmarcPolicy,
+    domainVerification?.isEsp,
+    domainVerification?.trancoRank,
+    isSentFolder
+  ]);
   const currentLightboxImage = lightboxImages[lightboxIndex] ?? null;
   const cropScaleX =
     cropCanvasSize.width > 0 ? cropNaturalSize.width / cropCanvasSize.width : 1;
@@ -15947,6 +16473,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     typeof navigator !== "undefined" &&
     typeof navigator.share === "function" &&
     typeof navigator.canShare === "function";
+
+  const activeConversationPreloadSignature = useMemo(() => {
+    if (!activeConversation) {
+      return "";
+    }
+
+    return activeConversation.messages
+      .map((message) => `${message.uid}:${cleanupPreviewCache[message.uid] ? 1 : 0}`)
+      .join("|");
+  }, [activeConversation?.id, activeConversationMessageUidSignature, cleanupPreviewCache]);
 
   useEffect(() => {
     if (!threadingEnabled || !activeConversation || activeConversation.messageCount < 2) {
@@ -15968,7 +16504,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [
     activeConversation?.id,
     activeConversationMessageUidSignature,
-    cleanupPreviewCache,
+    activeConversationPreloadSignature,
     selectedMessage?.uid,
     threadingEnabled
   ]);
@@ -16069,9 +16605,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setLightboxImages([]);
     setLightboxIndex(0);
     setLightboxDragging(false);
+    setLightboxChromeVisible(true);
     lightboxPointersRef.current.clear();
     lightboxPanRef.current = null;
     lightboxPinchRef.current = null;
+    lightboxLastTouchTapRef.current = null;
+    if (lightboxChromeHideTimerRef.current !== null) {
+      window.clearTimeout(lightboxChromeHideTimerRef.current);
+      lightboxChromeHideTimerRef.current = null;
+    }
     resetLightboxView();
   }
 
@@ -16306,6 +16848,55 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       current === lightboxImages.length - 1 ? 0 : current + 1
     );
   }, [lightboxImages.length]);
+
+  const rotateLightboxLeft = useCallback(() => {
+    setLightboxRotation((current) => (current + 270) % 360);
+    setLightboxOffset({ x: 0, y: 0 });
+  }, []);
+
+  const rotateLightboxRight = useCallback(() => {
+    setLightboxRotation((current) => (current + 90) % 360);
+    setLightboxOffset({ x: 0, y: 0 });
+  }, []);
+
+  const markLightboxInteraction = useCallback(() => {
+    setLightboxChromeVisible(true);
+    if (!lightboxOpen) {
+      return;
+    }
+    if (lightboxChromeHideTimerRef.current !== null) {
+      window.clearTimeout(lightboxChromeHideTimerRef.current);
+    }
+    lightboxChromeHideTimerRef.current = window.setTimeout(() => {
+      if (!lightboxDragging) {
+        setLightboxChromeVisible(false);
+      }
+    }, 1500);
+  }, [lightboxDragging, lightboxOpen]);
+
+  useEffect(() => {
+    if (!lightboxOpen) {
+      return;
+    }
+
+    setLightboxChromeVisible(true);
+    markLightboxInteraction();
+
+    const reveal = () => markLightboxInteraction();
+    window.addEventListener("mousemove", reveal);
+    window.addEventListener("pointerdown", reveal);
+    window.addEventListener("touchstart", reveal, { passive: true });
+
+    return () => {
+      window.removeEventListener("mousemove", reveal);
+      window.removeEventListener("pointerdown", reveal);
+      window.removeEventListener("touchstart", reveal);
+      if (lightboxChromeHideTimerRef.current !== null) {
+        window.clearTimeout(lightboxChromeHideTimerRef.current);
+        lightboxChromeHideTimerRef.current = null;
+      }
+    };
+  }, [lightboxOpen, markLightboxInteraction]);
 
   const fallbackDownload = useCallback((src: string, alt: string) => {
     const link = document.createElement("a");
@@ -16564,11 +17155,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         return false;
       }
 
-      const bounds = image.getBoundingClientRect();
-      const width = image.naturalWidth || image.width || bounds.width || 0;
-      const height = image.naturalHeight || image.height || bounds.height || 0;
-
-      if (width > 0 && height > 0 && width <= 1 && height <= 1) {
+      if (!isLightboxActivationEligibleImage(image)) {
         return false;
       }
 
@@ -16603,70 +17190,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         return;
       }
 
-      const resolveImageFromPoint = (event: Event) => {
-        if (!(event instanceof win.MouseEvent)) {
-          return null;
-        }
-
-        const elementsAtPoint = doc.elementsFromPoint(event.clientX, event.clientY);
-        for (const element of elementsAtPoint) {
-          if (element instanceof win.HTMLImageElement) {
-            return element as HTMLImageElement;
-          }
-
-          const nestedImage = element.querySelector("img");
-          if (nestedImage instanceof win.HTMLImageElement) {
-            return nestedImage as HTMLImageElement;
-          }
-        }
-
-        return null;
-      };
-
-      const resolveTargetImage = (target: EventTarget | null, event?: Event) => {
-        const baseNode =
-          target instanceof win.Node ? target : null;
-        const baseElement =
-          baseNode instanceof win.Element
-            ? baseNode
-            : baseNode?.parentElement ?? null;
-
-        if (!baseElement) {
-          return null;
-        }
-
-        if (baseElement instanceof win.HTMLImageElement) {
-          return baseElement as HTMLImageElement;
-        }
-
-        const closestImage = baseElement.closest("img");
-        if (closestImage instanceof win.HTMLImageElement) {
-          return closestImage as HTMLImageElement;
-        }
-
-        const nestedImage = baseElement.querySelector("img");
-        if (nestedImage instanceof win.HTMLImageElement) {
-          return nestedImage as HTMLImageElement;
-        }
-
-        return event ? resolveImageFromPoint(event) : null;
-      };
-
-      const resolveTargetAnchor = (target: EventTarget | null) => {
-        const baseNode = target instanceof win.Node ? target : null;
-        const baseElement =
-          baseNode instanceof win.Element
-            ? baseNode
-            : baseNode?.parentElement ?? null;
-
-        if (!baseElement) {
-          return null;
-        }
-
-        const anchor = baseElement.closest("a");
-        return anchor instanceof win.HTMLAnchorElement ? anchor : null;
-      };
-
       const handleImageActivation = (image: HTMLImageElement, event: Event) => {
         if (!(image.currentSrc || image.src || image.getAttribute("data-src"))) {
           return;
@@ -16684,17 +17207,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const markImagesInteractive = () => {
         doc.querySelectorAll("img").forEach((entry) => {
           const image = entry as HTMLImageElement;
-          const anchor = image.closest("a");
-          if (image.currentSrc || image.src || image.getAttribute("data-src")) {
+
+          const hasSource = Boolean(image.currentSrc || image.src || image.getAttribute("data-src"));
+          const eligibleForLightbox = hasSource && isLightboxActivationEligibleImage(image);
+          if (eligibleForLightbox) {
             image.style.cursor = "zoom-in";
-            image.style.pointerEvents = "auto";
             image.draggable = false;
-            image.setAttribute("role", "button");
-            image.tabIndex = image.tabIndex >= 0 ? image.tabIndex : 0;
-            if (anchor instanceof win.HTMLAnchorElement) {
-              anchor.style.cursor = "zoom-in";
-              anchor.style.pointerEvents = "auto";
-              anchor.draggable = false;
+            if (image.dataset.mmwbLightboxRoleSet !== "true") {
+              image.setAttribute("role", "button");
+              image.dataset.mmwbLightboxRoleSet = "true";
+            }
+            if (image.tabIndex < 0 && image.dataset.mmwbLightboxTabindexSet !== "true") {
+              image.tabIndex = 0;
+              image.dataset.mmwbLightboxTabindexSet = "true";
+            }
+          } else {
+            image.style.cursor = "";
+            if (image.dataset.mmwbLightboxRoleSet === "true") {
+              image.removeAttribute("role");
+              delete image.dataset.mmwbLightboxRoleSet;
+            }
+            if (image.dataset.mmwbLightboxTabindexSet === "true") {
+              image.removeAttribute("tabindex");
+              delete image.dataset.mmwbLightboxTabindexSet;
             }
           }
 
@@ -16712,46 +17247,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               handleImageActivation(image, event);
             }
           });
-
-          if (
-            anchor instanceof win.HTMLAnchorElement &&
-            anchor.dataset.mmwbLightboxBound !== "true"
-          ) {
-            anchor.dataset.mmwbLightboxBound = "true";
-            anchor.addEventListener("click", (event) => {
-              handleImageActivation(image, event);
-            });
-            anchor.addEventListener("keydown", (event) => {
-              const keyboardEvent = event as KeyboardEvent;
-              if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
-                handleImageActivation(image, event);
-              }
-            });
-          }
         });
-      };
-
-      const handleDocumentPointerDown = (event: Event) => {
-        const image = resolveTargetImage(event.target, event);
-        if (!image) {
-          return;
-        }
-
-        const anchor = resolveTargetAnchor(event.target);
-        if (!anchor) {
-          return;
-        }
-
-        handleImageActivation(image, event);
-      };
-
-      const handleDocumentClick = (event: Event) => {
-        const image = resolveTargetImage(event.target, event);
-        if (!image || !(image.currentSrc || image.src || image.getAttribute("data-src"))) {
-          return;
-        }
-
-        handleImageActivation(image, event);
       };
 
       const observer = new MutationObserver(() => {
@@ -16760,9 +17256,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       });
       applyReceivedInlineImageSources(doc, receivedMedia);
       markImagesInteractive();
-      doc.addEventListener("pointerdown", handleDocumentPointerDown, true);
-      doc.addEventListener("mousedown", handleDocumentPointerDown, true);
-      doc.addEventListener("click", handleDocumentClick, true);
 
       if (doc.body || doc.documentElement) {
         observer.observe(doc.body ?? doc.documentElement, {
@@ -16774,9 +17267,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       }
 
       frame.__mmwbmailLightboxCleanup = () => {
-        doc.removeEventListener("pointerdown", handleDocumentPointerDown, true);
-        doc.removeEventListener("mousedown", handleDocumentPointerDown, true);
-        doc.removeEventListener("click", handleDocumentClick, true);
         observer.disconnect();
       };
     },
@@ -16809,6 +17299,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      markLightboxInteraction();
+
       if (event.key === "Escape") {
         event.preventDefault();
         closeLightbox();
@@ -16839,10 +17331,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         return;
       }
 
+      if (event.key === "0") {
+        event.preventDefault();
+        resetLightboxView();
+        return;
+      }
+
       if (event.key.toLowerCase() === "r") {
         event.preventDefault();
-        setLightboxRotation((current) => (current + 90) % 360);
-        setLightboxOffset({ x: 0, y: 0 });
+        rotateLightboxRight();
       }
     };
 
@@ -16854,7 +17351,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     goToNextLightboxImage,
     goToPreviousLightboxImage,
     lightboxOpen,
-    lightboxZoom
+    lightboxZoom,
+    markLightboxInteraction,
+    rotateLightboxRight
   ]);
 
   async function executePrint(options: {
@@ -17274,7 +17773,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     handleReply,
     handleReplyAll,
     handleToggleRead,
-    selectedMessage,
+    selectedMessage?.uid,
     selectedUids.size,
     selectedUid,
     senderFilter,
@@ -18084,20 +18583,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     const disclosureState = sidebarMailDragState
                       ? 3
                       : persistedDisclosureState;
-                    const disclosureTargetInput = {
-                      mailboxViewMode,
-                      activeProviderPath: mailboxQuery.target.providerPath,
-                      activeInboxAttentionView,
-                      includeActiveSortFoldersInCollapsed:
-                        collapsedSortFolderVisibility === "include_active_sort_folders",
-                      sortFoldersHidden,
-                      hiddenSortFolderPaths
-                    };
                     const { visibleTargets, quietTargets } = getAccountMailboxDisclosureTargets(
                       mailboxTargets,
                       {
                         disclosureState,
-                        ...disclosureTargetInput
+                        ...sidebarDisclosureTargetInput
                       }
                     );
                     const persistedDisclosureTargets =
@@ -18105,7 +18595,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       persistedDisclosureState !== 3
                         ? getAccountMailboxDisclosureTargets(mailboxTargets, {
                             disclosureState: persistedDisclosureState,
-                            ...disclosureTargetInput
+                            ...sidebarDisclosureTargetInput
                           })
                         : null;
                     const disclosureAnimation =
@@ -18149,7 +18639,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       const nextDisclosureState = nextAccountMailboxDisclosureState(disclosureState);
                       const nextTargets = getAccountMailboxDisclosureTargets(mailboxTargets, {
                         disclosureState: nextDisclosureState,
-                        ...disclosureTargetInput
+                        ...sidebarDisclosureTargetInput
                       });
 
                       queueAccountMailboxDisclosureAnimation(account.id, {
@@ -18413,30 +18903,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             }
                           }}
                         >
-                          <div className="folder-row-main">
-                            <span
-                              className={`folder-row-icon folder-icon ${
-                                sortFolderPresentation
-                                  ? `sort-folder-glyph sort-folder-glyph-${sortFolderPresentation.tone}`
-                                  : ""
-                              }`}
-                              style={sortFolderPresentation ? undefined : { color: folderGlyph.color }}
-                            >
-                              {sortFolderPresentation
+                          <FolderRowContent
+                            name={mailboxTarget.name}
+                            mobileHint={mobileMailboxRowHint}
+                            iconColor={folderGlyph.color}
+                            iconNode={
+                              sortFolderPresentation
                                 ? renderSortFolderGlyph(sortFolderPresentation)
-                                : folderGlyph.glyph}
-                            </span>
-                            <span className="folder-row-labels">
-                              <span className="folder-row-name">{mailboxTarget.name}</span>
-                              {mobileMailboxRowHint ? (
-                                <span className="folder-row-meta">{mobileMailboxRowHint}</span>
-                              ) : null}
-                            </span>
-                          </div>
-                          {renderSidebarCountBadge(badgeCount, {
-                            emphasize: isNewMailVirtualRow,
-                            dramatic: showDramaticBadge
-                          })}
+                                : folderGlyph.glyph
+                            }
+                            badgeCount={badgeCount}
+                            badgeEmphasize={isNewMailVirtualRow}
+                            badgeDramatic={showDramaticBadge}
+                            sortFolderPresentation={sortFolderPresentation}
+                          />
                         </div>
                       );
                     };
@@ -18506,23 +18986,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               cycleDisclosureState();
                             }}
                           >
-                            <span
-                              className={`sidebar-mailbox-disclosure-chevron disclosure-state-${disclosureState}`}
-                            >
-                              <svg
-                                width="10"
-                                height="10"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="3.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <polyline points="9 18 15 12 9 6" />
-                              </svg>
-                            </span>
+                            <SidebarMailboxDisclosureChevron disclosureState={disclosureState} />
                           </button>
                         </div>
 
@@ -18538,7 +19002,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               );
                               const animatedWorkingTargets = animatedVisibleTargets.filter(
                                 (target) =>
-                                  !isEssentialMailboxTarget(target, mailboxViewMode)
+                                  !isEssentialMailboxTarget(target, mailboxViewMode) &&
+                                  !isAlwaysVisibleMailboxTarget(target)
                               );
 
                               return (
@@ -19309,14 +19774,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   (message) =>
                     message.uid === conversationSelection.selectedMessageUid
                 );
-                const latestSpoof = detectSpoof(latestMessage).isSpoofed;
-                const latestSenderTrust = !isSentFolder
-                  ? resolveSenderTrustPresentation(latestMessage, domainVerification)
-                  : null;
+                const latestVerification = conversationVerificationById.get(conversation.id);
+                const latestSpoof = latestVerification?.latestSpoof ?? false;
+                const latestSenderTrust = latestVerification?.latestSenderTrust ?? null;
                 const latestCautionSender = latestSenderTrust?.tier === "amber";
                 const latestPositiveSenderTrust =
                   latestSenderTrust?.label === "Verified domain" ||
                   latestSenderTrust?.label === "Verified";
+                const latestType = getSenderType(
+                  latestMessage.from,
+                  latestMessage.fromAddress ?? ""
+                );
+                const formattedConversationDate = formatTimestamp(conversation.latestDate);
                 const recipientLabel = isSentFolder
                   ? (() => {
                       const allTo = conversationMessages.flatMap(
@@ -19399,196 +19868,56 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           msg: latestMessage
                         });
                       }}
-                    >
-                      <div
-                        className={`row-checkbox ${
-                          selectedUids.has(latestMessage.uid) ? "checked" : ""
-                        }`}
-                        onClick={(event) => {
+                      >
+                      <ThreadRowContent
+                        isSelected={isSelected}
+                        unread={conversation.unreadCount > 0}
+                        cautionSender={latestCautionSender}
+                        spoofed={latestSpoof}
+                        isChecked={selectedUids.has(latestMessage.uid)}
+                        recipientLabel={recipientLabel}
+                        conversationCount={conversation.messageCount}
+                        hasMultipleMessages={!isSingleMessage}
+                        senderTrustLabel={
+                          latestSenderTrust
+                            ? `${latestSenderTrust.icon} ${latestSenderTrust.label}`
+                            : null
+                        }
+                        senderTrustSummary={latestSenderTrust?.summary ?? null}
+                        positiveSenderTrust={latestPositiveSenderTrust}
+                        isSentFolder={isSentFolder}
+                        typeLabel={latestType ? latestType.toUpperCase() : null}
+                        hasAttachments={conversationHasAttachments}
+                        formattedDate={formattedConversationDate}
+                        subject={conversation.subject || latestMessage.subject}
+                        preview={conversation.preview ?? ""}
+                        onToggleSelect={(event) => {
                           event.stopPropagation();
                           toggleSelectUid(latestMessage.uid);
                         }}
-                        role="checkbox"
-                        aria-checked={selectedUids.has(latestMessage.uid)}
-                        tabIndex={-1}
-                      >
-                        {selectedUids.has(latestMessage.uid) ? (
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        ) : null}
-                      </div>
-                      {conversation.unreadCount > 0 ? <div className="unread-dot" /> : null}
-
-                      <div className="thread-avatars">
-                        {conversationMessages.slice(0, 3).map((message, index) => (
+                        onFocus={(event) => {
+                          event.stopPropagation();
+                          applySenderPivot(latestMessage, isSentFolder);
+                        }}
+                        childrenAvatars={conversationMessages.slice(0, 3).map((message, index) => (
                           <div
                             key={`${conversation.id}-${message.uid}`}
                             className="thread-avatar"
                             style={{
                               background: getAvatarColor(
-                                isSentFolder
-                                  ? (message.raw.to?.[0] ?? "")
-                                  : message.raw.fromAddress
+                                isSentFolder ? (message.raw.to?.[0] ?? "") : message.raw.fromAddress
                               ),
                               zIndex: 3 - index,
                               left: index * 10
                             }}
                           >
                             {getSenderInitials(
-                              isSentFolder
-                                ? formatSentRowRecipient(message.raw.to)
-                                : message.raw.from
+                              isSentFolder ? formatSentRowRecipient(message.raw.to) : message.raw.from
                             )}
                           </div>
                         ))}
-                      </div>
-
-                      <div className="row-body">
-                        <div className="row-top">
-                          <div className="row-sender-group">
-                            <span className="row-sender">{recipientLabel}</span>
-                            {!isSentFolder && latestCautionSender ? (
-                              <span className="sender-trust-row-chip sender-trust-row-chip-amber">
-                                {latestSenderTrust?.icon} {latestSenderTrust?.label}
-                              </span>
-                            ) : null}
-                            {!isSentFolder && latestPositiveSenderTrust ? (
-                              <span
-                                className="sender-trust-row-check sender-trust-row-check-verified"
-                                aria-label={latestSenderTrust?.summary}
-                                title={latestSenderTrust?.summary}
-                              >
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="m7.5 12.5 3 3 6-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </span>
-                            ) : null}
-
-                            {!isSingleMessage ? (
-                              <span className="thread-count-badge">
-                                {conversation.messageCount}
-                              </span>
-                            ) : null}
-
-                            {!isSentFolder && latestSpoof ? (
-                              <span className="sender-trust-row-warning" title="High Risk sender">
-                                ⚠
-                              </span>
-                            ) : null}
-
-                              {(() => {
-                                const type = getSenderType(
-                                  latestMessage.from,
-                                  latestMessage.fromAddress ?? ""
-                                );
-                                return type ? (
-                                  <span className={`type-chip type-chip-${type}`}>
-                                  {type.toUpperCase()}
-                                </span>
-                              ) : null;
-                            })()}
-
-                            {!isSentFolder && !isPrioritizedSenderView ? (
-                              <button
-                                type="button"
-                                className="focus-pill"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  applySenderPivot(latestMessage, isSentFolder);
-                                }}
-                              >
-                                <span className="focus-pill-icon">
-                                  <svg
-                                    width="10"
-                                    height="10"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden="true"
-                                  >
-                                    <circle cx="7.5" cy="15.5" r="4.5" />
-                                    <circle cx="16.5" cy="15.5" r="4.5" />
-                                    <path d="M7.5 11V6a2 2 0 0 1 2-2h1" />
-                                    <path d="M16.5 11V6a2 2 0 0 0-2-2h-1" />
-                                    <path d="M12 11v4" />
-                                  </svg>
-                                </span>
-                                <span>Focus</span>
-                              </button>
-                            ) : null}
-                          </div>
-
-                          <span className="row-meta">
-                            {conversationHasAttachments ? (
-                              <span
-                                className="mail-list-attachment-indicator"
-                                aria-label="Message has attachments"
-                                title="Has attachment"
-                              >
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.48" />
-                                </svg>
-                              </span>
-                            ) : null}
-                            <span className="row-date">
-                              {formatTimestamp(conversation.latestDate)}
-                            </span>
-                          </span>
-                        </div>
-
-                        <div
-                          className="row-subject"
-                          style={{ fontWeight: conversation.unreadCount > 0 ? 600 : 400 }}
-                        >
-                          {isSentFolder ? <span className="row-to-label">To:</span> : null}
-                          {conversation.subject || latestMessage.subject}
-                        </div>
-
-                        <div className="thread-snippet">
-                          {conversation.preview ?? ""}
-                        </div>
-                      </div>
-
-                      {!isSingleMessage ? (
-                        <svg
-                          className={`thread-chevron ${isExpanded ? "open" : ""}`}
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
-                      ) : null}
+                        isExpanded={isExpanded}
+                      />
                     </div>
 
                     {isExpanded && !isSingleMessage ? (
@@ -22680,36 +23009,80 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 className={`settings-tab ${settingsTab === "ui" ? "active" : ""}`}
                 onClick={() => setSettingsTab("ui")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="4" y1="6" x2="10" y2="6" />
+                    <line x1="14" y1="6" x2="20" y2="6" />
+                    <line x1="4" y1="12" x2="7" y2="12" />
+                    <line x1="11" y1="12" x2="20" y2="12" />
+                    <line x1="4" y1="18" x2="13" y2="18" />
+                    <line x1="17" y1="18" x2="20" y2="18" />
+                    <circle cx="12" cy="6" r="2" />
+                    <circle cx="9" cy="12" r="2" />
+                    <circle cx="15" cy="18" r="2" />
+                  </svg>
+                </span>
                 Interface
               </button>
               <button
                 className={`settings-tab ${settingsTab === "account" ? "active" : ""}`}
                 onClick={() => setSettingsTab("account")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M5 20a7 7 0 0 1 14 0" />
+                    <circle cx="12" cy="12" r="10" />
+                  </svg>
+                </span>
                 Account
               </button>
               <button
                 className={`settings-tab ${settingsTab === "ai" ? "active" : ""}`}
                 onClick={() => setSettingsTab("ai")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7L12 3z" />
+                    <path d="M18.5 14l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z" />
+                  </svg>
+                </span>
                 AI
               </button>
               <button
                 className={`settings-tab ${settingsTab === "sorting" ? "active" : ""}`}
                 onClick={() => setSettingsTab("sorting")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H3z" />
+                    <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </span>
                 Sort Folders
               </button>
               <button
                 className={`settings-tab ${settingsTab === "blocked" ? "active" : ""}`}
                 onClick={() => setSettingsTab("blocked")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3a9 9 0 0 0-9 9v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a9 9 0 0 0-9-9z" />
+                    <line x1="7" y1="7" x2="17" y2="17" />
+                  </svg>
+                </span>
                 Blocked
               </button>
               <button
                 className={`settings-tab ${settingsTab === "rules" ? "active" : ""}`}
                 onClick={() => setSettingsTab("rules")}
               >
+                <span className="settings-tab-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15.5 14" />
+                  </svg>
+                </span>
                 Keep Recent
               </button>
             </div>
@@ -22722,7 +23095,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   <div className="settings-card-group">
                     <div className="settings-row settings-card-row">
                       <div className="settings-row-info">
-                        <div className="settings-row-title">Density</div>
+                        <div className="settings-row-title">Sidebar text size</div>
                         <div className="settings-row-sub">
                           Controls sidebar row spacing and label density only
                         </div>
@@ -23418,64 +23791,79 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="settings-body">
                 <div className="settings-section">
                   <div className="settings-section-label">Sort Folders</div>
-                  <div className="settings-section-subtle">
-                    Sort folders are created the first time you use them from the email
-                    viewer. Unused folders stay hidden from the sidebar.
-                  </div>
-                  <div className="settings-row sort-settings-visibility-row">
-                    <div className="settings-row-info">
-                      <div className="settings-row-title">Collapsed sidebar visibility</div>
-                      <div className="settings-row-sub">
-                        Choose whether collapsed account sections show only essential
-                        folders or also include non-empty built-in sort folders.
-                      </div>
+                  <div className="sort-settings-intro">
+                    <div>
+                      Sort folders appear automatically when you use them: Receipts, Travel,
+                      Follow-Up, and Reference.
                     </div>
-                    <div className="sort-settings-visibility-picker">
+                    <div>You control when they show in your sidebar.</div>
+                  </div>
+                  <div className="sort-settings-controls-group">
+                    <div className="settings-row sort-settings-visibility-row sort-settings-control-row">
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Show sort folders in sidebar</div>
+                        <div className="settings-row-sub">
+                          Folders stay hidden when this is off, but sort actions still work.
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        className={`sort-settings-visibility-btn ${
-                          collapsedSortFolderVisibility === "essential_only" ? "active" : ""
+                        className={`mailbox-view-switch-btn ${
+                          !sortFoldersHidden ? "is-on" : ""
                         }`}
-                        onClick={() => setCollapsedSortFolderVisibility("essential_only")}
+                        onClick={() => setSortFoldersHidden((current) => !current)}
+                        aria-pressed={!sortFoldersHidden}
                       >
-                        Only essential folders
-                      </button>
-                      <button
-                        type="button"
-                        className={`sort-settings-visibility-btn ${
-                          collapsedSortFolderVisibility === "include_active_sort_folders"
-                            ? "active"
-                            : ""
-                        }`}
-                        onClick={() =>
-                          setCollapsedSortFolderVisibility("include_active_sort_folders")
-                        }
-                      >
-                        Include active sort folders
+                        <span className="mailbox-view-switch-track">
+                          <span className="mailbox-view-switch-thumb" />
+                        </span>
                       </button>
                     </div>
-                  </div>
-                  <div className="settings-row settings-card-row">
-                    <div className="settings-row-info">
-                      <div className="settings-row-title">Hide sort folders from sidebar</div>
-                      <div className="settings-row-sub">
-                        Removes Receipts, Travel, Follow-Up, and Reference from the sidebar folder
-                        list. Sort actions still work - messages are filed normally, but the
-                        folders won&apos;t appear in the sidebar.
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className={`mailbox-view-switch-btn ${sortFoldersHidden ? "is-on" : ""}`}
-                      onClick={() => setSortFoldersHidden((current) => !current)}
-                      aria-pressed={sortFoldersHidden}
+
+                    <div
+                      className={`settings-row sort-settings-visibility-row sort-settings-control-row sort-settings-control-row-child ${
+                        sortFoldersHidden ? "sort-settings-control-row-disabled" : ""
+                      }`}
                     >
-                      <span className="mailbox-view-switch-track">
-                        <span className="mailbox-view-switch-thumb" />
-                      </span>
-                    </button>
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">When collapsed, sidebar shows</div>
+                        <div className="settings-row-sub">
+                          Applies only when sort folders are shown in the sidebar.
+                        </div>
+                      </div>
+                      <div
+                        className={`sort-settings-visibility-picker ${
+                          sortFoldersHidden ? "disabled" : ""
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          disabled={sortFoldersHidden}
+                          className={`sort-settings-visibility-btn ${
+                            collapsedSortFolderVisibility === "essential_only" ? "active" : ""
+                          }`}
+                          onClick={() => setCollapsedSortFolderVisibility("essential_only")}
+                        >
+                          Essentials only
+                        </button>
+                        <button
+                          type="button"
+                          disabled={sortFoldersHidden}
+                          className={`sort-settings-visibility-btn ${
+                            collapsedSortFolderVisibility === "include_active_sort_folders"
+                              ? "active"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            setCollapsedSortFolderVisibility("include_active_sort_folders")
+                          }
+                        >
+                          Add sort folders
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="sort-settings-account-list">
+                  <div className="sort-settings-account-list sort-settings-account-block">
                     {sortFolderSettingsGroups.map(({ account, presets }) => {
                       const isExpanded = sortSettingsExpandedAccounts[account.id] ?? false;
 
@@ -23486,10 +23874,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       >
                         <div className="sort-settings-account-header">
                           <div className="sort-settings-account-header-main">
-                            <div className="sort-settings-account-label">
-                              {account.label || account.email}
+                            <div className="sort-settings-account-label">{account.email}</div>
+                            <div className="sort-settings-account-email">
+                              Customize sort folders for this account
                             </div>
-                            <div className="sort-settings-account-email">{account.email}</div>
                           </div>
                           <button
                             type="button"
@@ -25880,154 +26268,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       {typeof document !== "undefined" && lightboxOpen && currentLightboxImage
         ? createPortal(
-            <div className="lightbox-backdrop" onClick={closeLightbox}>
-              <div className="lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
-                <div className="lightbox-toolbar-left">
-                  {lightboxImages.length > 1 ? (
-                    <>
-                      <button
-                        type="button"
-                        className="lightbox-btn"
-                        title="Previous image"
-                        onClick={goToPreviousLightboxImage}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="15 18 9 12 15 6" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        className="lightbox-btn"
-                        title="Next image"
-                        onClick={goToNextLightboxImage}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
-                      </button>
-                    </>
-                  ) : null}
-                  <span className="lightbox-caption">
-                    image {lightboxIndex + 1} of {lightboxImages.length}
-                  </span>
-                </div>
-
-                <div className="lightbox-toolbar-center">
-                  {getLightboxImageLabel(currentLightboxImage)}
-                </div>
-
-                <div className="lightbox-toolbar-right">
-                  <button
-                    type="button"
-                    className="lightbox-btn"
-                    title="Rotate"
-                    onClick={() => {
-                      setLightboxRotation((current) => (current + 90) % 360);
-                      setLightboxOffset({ x: 0, y: 0 });
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                      <path d="M3 3v5h5" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    className="lightbox-btn"
-                    title="Zoom out"
-                    onClick={() => applyLightboxZoom(lightboxZoom - 0.25)}
-                  >
-                    −
-                  </button>
-                  <span className="lightbox-zoom-label">
-                    {Math.round(lightboxZoom * 100)}%
-                  </span>
-                  <button
-                    type="button"
-                    className="lightbox-btn"
-                    title="Zoom in"
-                    onClick={() => applyLightboxZoom(lightboxZoom + 0.25)}
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    className="lightbox-btn lightbox-btn-labeled"
-                    title="Save to Files"
-                    onClick={() =>
-                      void handleLightboxSaveToFiles(
-                        currentLightboxImage.saveSrc,
-                        currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
-                      )
-                    }
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 3v12" />
-                      <path d="m7 10 5 5 5-5" />
-                      <path d="M5 21h14" />
-                    </svg>
-                    <span className="lightbox-btn-text">Files</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="lightbox-btn lightbox-btn-labeled"
-                    title="Save to Photos"
-                    onClick={() =>
-                      void handleLightboxSaveToPhotos(
-                        currentLightboxImage.saveSrc,
-                        currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
-                      )
-                    }
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
-                      <circle cx="9" cy="10" r="1.4" />
-                      <path d="m6.5 16 4.2-4.1a1.5 1.5 0 0 1 2.08-.03L17.5 16" />
-                    </svg>
-                    <span className="lightbox-btn-text">Photos</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="lightbox-btn"
-                    title="Close"
-                    onClick={closeLightbox}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m6 6 12 12" />
-                      <path d="m18 6-12 12" />
-                    </svg>
-                  </button>
-                </div>
+            <div
+              className="lightbox-backdrop"
+              onClick={closeLightbox}
+              onMouseMove={markLightboxInteraction}
+              onPointerDown={markLightboxInteraction}
+            >
+              <div className="lightbox-topbar" onClick={(event) => event.stopPropagation()}>
+                <div className="lightbox-topbar-label">{getLightboxImageLabel(currentLightboxImage)}</div>
+                <button
+                  type="button"
+                  className="lightbox-btn"
+                  title="Close"
+                  onClick={closeLightbox}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m6 6 12 12" />
+                    <path d="m18 6-12 12" />
+                  </svg>
+                </button>
               </div>
-
-              {lightboxImages.length > 1 ? (
-                <>
-                  <button
-                    type="button"
-                    className="lightbox-nav-arrow prev"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      goToPreviousLightboxImage();
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="15 18 9 12 15 6" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    className="lightbox-nav-arrow next"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      goToNextLightboxImage();
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </button>
-                </>
-              ) : null}
 
               <div
                 ref={lightboxAreaRef}
@@ -26046,6 +26306,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   applyLightboxZoom(nextZoom, event.clientX, event.clientY);
                 }}
                 onPointerDown={(event) => {
+                  markLightboxInteraction();
                   lightboxPointersRef.current.set(event.pointerId, {
                     x: event.clientX,
                     y: event.clientY
@@ -26074,6 +26335,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }
                 }}
                 onPointerMove={(event) => {
+                  markLightboxInteraction();
                   if (!lightboxPointersRef.current.has(event.pointerId)) {
                     return;
                   }
@@ -26149,38 +26411,194 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   event.currentTarget.releasePointerCapture(event.pointerId);
                 }}
               >
-                <img
-                  ref={lightboxImageRef}
-                  src={currentLightboxImage.src}
-                  alt={currentLightboxImage.alt}
-                  className={`lightbox-img ${lightboxZoom > 1 ? "zoomed" : ""} ${
-                    lightboxDragging ? "dragging" : ""
-                  }`}
-                  style={{
-                    transform: `rotate(${lightboxRotation}deg) scale(${lightboxZoom}) translate(${lightboxOffset.x}px, ${lightboxOffset.y}px)`,
-                    transition: lightboxDragging ? "none" : "transform 0.15s ease",
-                    cursor:
-                      lightboxZoom > 1
-                        ? lightboxDragging
-                          ? "grabbing"
-                          : "grab"
-                        : "zoom-in",
-                    userSelect: "none",
-                    maxWidth: lightboxZoom > 1 ? "none" : undefined,
-                    maxHeight: lightboxZoom > 1 ? "none" : undefined,
-                    touchAction: "none"
-                  }}
-                  draggable={false}
-                  onClick={(event) => event.stopPropagation()}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    if (lightboxZoom > 1) {
-                      resetLightboxView();
-                    } else {
-                      applyLightboxZoom(2, event.clientX, event.clientY);
-                    }
-                  }}
-                />
+                <div className="lightbox-active-stage">
+                  {lightboxImages.length > 1 && lightboxZoom <= 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        className="lightbox-image-zone lightbox-image-zone-prev"
+                        aria-label="Previous image"
+                        title="Previous image"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          goToPreviousLightboxImage();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="lightbox-image-zone lightbox-image-zone-next"
+                        aria-label="Next image"
+                        title="Next image"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          goToNextLightboxImage();
+                        }}
+                      />
+                    </>
+                  ) : null}
+
+                  {lightboxImages.length > 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        className={`lightbox-nav-arrow prev ${
+                          lightboxChromeVisible ? "chrome-visible" : "chrome-hidden"
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          goToPreviousLightboxImage();
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        className={`lightbox-nav-arrow next ${
+                          lightboxChromeVisible ? "chrome-visible" : "chrome-hidden"
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          goToNextLightboxImage();
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </button>
+                    </>
+                  ) : null}
+
+                  <img
+                    ref={lightboxImageRef}
+                    src={currentLightboxImage.src}
+                    alt={currentLightboxImage.alt}
+                    className={`lightbox-img ${lightboxZoom > 1 ? "zoomed" : ""} ${
+                      lightboxDragging ? "dragging" : ""
+                    }`}
+                    style={{
+                      transform: `rotate(${lightboxRotation}deg) scale(${lightboxZoom}) translate(${lightboxOffset.x}px, ${lightboxOffset.y}px)`,
+                      transition: lightboxDragging ? "none" : "transform 0.15s ease",
+                      cursor:
+                        lightboxZoom > 1
+                          ? lightboxDragging
+                            ? "grabbing"
+                            : "grab"
+                          : "zoom-in",
+                      userSelect: "none",
+                      maxWidth: lightboxZoom > 1 ? "none" : undefined,
+                      maxHeight: lightboxZoom > 1 ? "none" : undefined,
+                      touchAction: "none"
+                    }}
+                    draggable={false}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      if (lightboxZoom > 1) {
+                        resetLightboxView();
+                      } else {
+                        applyLightboxZoom(2, event.clientX, event.clientY);
+                      }
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.pointerType !== "touch") {
+                        return;
+                      }
+                      const previousTap = lightboxLastTouchTapRef.current;
+                      const nextTap = {
+                        at: Date.now(),
+                        x: event.clientX,
+                        y: event.clientY
+                      };
+                      lightboxLastTouchTapRef.current = nextTap;
+                      if (!previousTap) {
+                        return;
+                      }
+                      const elapsed = nextTap.at - previousTap.at;
+                      const distance = Math.hypot(nextTap.x - previousTap.x, nextTap.y - previousTap.y);
+                      if (elapsed > 320 || distance > 24) {
+                        return;
+                      }
+                      event.stopPropagation();
+                      if (lightboxZoom > 1) {
+                        resetLightboxView();
+                      } else {
+                        applyLightboxZoom(2, event.clientX, event.clientY);
+                      }
+                    }}
+                  />
+
+                  <div
+                    className={`lightbox-bottom-toolbar ${
+                      lightboxChromeVisible ? "chrome-visible" : "chrome-hidden"
+                    }`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="lightbox-btn"
+                      title="Rotate left"
+                      onClick={rotateLightboxLeft}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                        <path d="M21 3v5h-5" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="lightbox-btn"
+                      title="Rotate right"
+                      onClick={rotateLightboxRight}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="lightbox-btn"
+                      title="Zoom out"
+                      onClick={() => applyLightboxZoom(lightboxZoom - 0.25)}
+                    >
+                      −
+                    </button>
+                    <span className="lightbox-zoom-label">
+                      {Math.round(lightboxZoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      className="lightbox-btn"
+                      title="Zoom in"
+                      onClick={() => applyLightboxZoom(lightboxZoom + 0.25)}
+                    >
+                      +
+                    </button>
+                    <button
+                      type="button"
+                      className="lightbox-btn lightbox-btn-labeled"
+                      title="Save / Download"
+                      onClick={() =>
+                        void handleLightboxSaveToFiles(
+                          currentLightboxImage.saveSrc,
+                          currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
+                        )
+                      }
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 3v12" />
+                        <path d="m7 10 5 5 5-5" />
+                        <path d="M5 21h14" />
+                      </svg>
+                      <span className="lightbox-btn-text">Save</span>
+                    </button>
+                    <span className="lightbox-caption">
+                      {lightboxIndex + 1} of {lightboxImages.length}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>,
             document.body

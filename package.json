@@ -10,6 +10,7 @@
     "electron:dev": "npm run electron:rebuild && npm run electron:shell",
     "electron:shell": "env -u ELECTRON_RUN_AS_NODE ELECTRON_START_URL=http://localhost:3000 electron ./electron/main.cjs",
     "electron:server": "npm run electron:rebuild && ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./node_modules/next/dist/bin/next dev",
+    "electron:profile": "/bin/zsh -lc 'set -e; npm run build; npm run native:rebuild:node; npm run electron:rebuild; NODE_ENV=production PORT=3000 npm run start > /tmp/mmwbmail-profile-server.log 2>&1 & SERVER_PID=$!; trap \"kill $SERVER_PID 2>/dev/null || true\" EXIT; for _ in {1..80}; do curl -sf http://localhost:3000 >/dev/null && break; sleep 0.25; done; env -u ELECTRON_RUN_AS_NODE ELECTRON_START_URL=http://localhost:3000 electron ./electron/main.cjs'",
     "electron:rebuild": "node ./scripts/rebuild-electron-native.cjs",
     "electron:check-native": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./scripts/check-electron-sqlite-abi.cjs",
     "build": "node ./node_modules/next/dist/bin/next build --webpack",

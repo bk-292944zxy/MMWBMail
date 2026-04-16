@@ -217,8 +217,10 @@ button {
 .composePanel {
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(24px);
+  backdrop-filter: none;
   box-shadow: var(--shadow);
+  contain: paint;
+  isolation: isolate;
 }
 
 .rail,
@@ -1992,6 +1994,33 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   animation: lightboxFadeIn 0.18s ease;
 }
 
+.lightbox-topbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 760px);
+  width: max-content;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: rgba(16,16,16,0.52);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.lightbox-topbar-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(70vw, 560px);
+}
+
 @keyframes lightboxFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -2046,6 +2075,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   justify-content: center;
   overflow: hidden;
   position: relative;
+}
+
+.lightbox-active-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .lightbox-img {
@@ -2118,6 +2156,67 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   white-space: nowrap;
 }
 
+.lightbox-bottom-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: -56px;
+  transform: translateX(-50%);
+  z-index: 10002;
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(16,16,16,0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  white-space: nowrap;
+  max-width: min(94vw, 780px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.lightbox-bottom-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.lightbox-bottom-toolbar.chrome-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
+  pointer-events: none;
+}
+
+.lightbox-bottom-toolbar.chrome-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.lightbox-bottom-toolbar .lightbox-caption {
+  margin-left: 4px;
+}
+
+.lightbox-image-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 26%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lightbox-image-zone-prev {
+  left: 0;
+}
+
+.lightbox-image-zone-next {
+  right: 0;
+}
+
 .lightbox-nav-arrow {
   position: absolute;
   top: 50%;
@@ -2136,17 +2235,26 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   transition: background 0.12s, color 0.12s;
 }
 
+.lightbox-nav-arrow.chrome-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lightbox-nav-arrow.chrome-visible {
+  opacity: 1;
+}
+
 .lightbox-nav-arrow:hover {
   background: rgba(255,255,255,0.18);
   color: #fff;
 }
 
 .lightbox-nav-arrow.prev {
-  left: 16px;
+  left: -60px;
 }
 
 .lightbox-nav-arrow.next {
-  right: 16px;
+  right: -60px;
 }
 
 .lightbox-nav-arrow svg {
@@ -2155,6 +2263,32 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 @media (max-width: 760px) {
+  .lightbox-topbar {
+    top: 8px;
+    padding: 5px 7px 5px 10px;
+  }
+
+  .lightbox-topbar-label {
+    max-width: min(68vw, 340px);
+  }
+
+  .lightbox-bottom-toolbar {
+    bottom: -50px;
+    max-width: min(96vw, 620px);
+  }
+
+  .lightbox-nav-arrow.prev {
+    left: -14px;
+  }
+
+  .lightbox-nav-arrow.next {
+    right: -14px;
+  }
+
+  .lightbox-image-zone {
+    width: 20%;
+  }
+
   .lightbox-toolbar {
     padding: 8px 12px;
   }
@@ -10780,8 +10914,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   padding: 0 8px !important;
   gap: 0 !important;
   flex-shrink: 0 !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   position: relative !important;
   z-index: 500 !important;
   user-select: none !important;
@@ -10825,7 +10959,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   min-width: 200px !important;
   padding: 4px 0 !important;
   z-index: 9999 !important;
-  backdrop-filter: blur(20px) !important;
+  backdrop-filter: none !important;
   animation: menuFadeIn 0.08s ease !important;
 }
 
@@ -10949,6 +11083,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-tab {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
   background: none !important;
   border: none !important;
   border-bottom: 2px solid transparent !important;
@@ -10961,6 +11099,19 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   transition: color 0.12s, border-color 0.12s !important;
   white-space: nowrap !important;
   flex-shrink: 0 !important;
+}
+
+.settings-tab-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0.75 !important;
+}
+
+.settings-tab-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+  display: block !important;
 }
 
 .settings-tab:hover {
@@ -10979,7 +11130,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex-direction: column !important;
   gap: 20px !important;
   overflow-y: auto !important;
-  max-height: 480px !important;
+  max-height: calc(90vh - 170px) !important;
 }
 
 .settings-section {
@@ -11879,19 +12030,52 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .sort-settings-account-list {
   display: flex !important;
   flex-direction: column !important;
-  gap: 12px !important;
+  gap: 10px !important;
+}
+
+.sort-settings-intro {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  color: var(--text2) !important;
+  margin-bottom: 6px !important;
+}
+
+.sort-settings-controls-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin-bottom: 10px !important;
+}
+
+.sort-settings-control-row {
+  background: var(--surface2) !important;
+  border-radius: 10px !important;
+  border: none !important;
+  padding: 11px 14px !important;
+}
+
+.sort-settings-control-row-child {
+  margin-left: 14px !important;
+}
+
+.sort-settings-control-row-disabled {
+  opacity: 0.6 !important;
 }
 
 .sort-settings-visibility-row {
   display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   gap: 10px !important;
-  padding: 14px !important;
+  padding: 0 !important;
 }
 
 .sort-settings-visibility-row .settings-row-info {
-  width: 100% !important;
+  min-width: 0 !important;
+  flex: 1 !important;
 }
 
 .sort-settings-visibility-row .settings-row-title {
@@ -11900,33 +12084,36 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .sort-settings-visibility-row .settings-row-sub {
   max-width: 56ch !important;
+  margin-bottom: 0 !important;
 }
 
 .sort-settings-visibility-picker {
-  display: inline-flex !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   align-items: center !important;
-  align-self: flex-start !important;
-  flex-wrap: wrap !important;
-  gap: 6px !important;
-  padding: 4px !important;
+  gap: 2px !important;
+  width: 320px !important;
+  max-width: 320px !important;
+  min-width: 320px !important;
+  padding: 2px !important;
   background: rgba(17, 24, 39, 0.04) !important;
   border: 1px solid rgba(17, 24, 39, 0.06) !important;
-  border-radius: 12px !important;
-  max-width: 100% !important;
+  border-radius: 8px !important;
 }
 
 .sort-settings-visibility-btn {
   min-height: 30px !important;
-  padding: 0 10px !important;
+  padding: 0 8px !important;
   background: transparent !important;
   border: none !important;
-  border-radius: 10px !important;
+  border-radius: 6px !important;
   color: var(--text3) !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
   letter-spacing: 0.02em !important;
   cursor: pointer !important;
   transition: background 0.12s, color 0.12s !important;
+  white-space: nowrap !important;
 }
 
 .sort-settings-visibility-btn:hover {
@@ -11937,6 +12124,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: #fff !important;
   color: var(--accent) !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+}
+
+.sort-settings-visibility-picker.disabled .sort-settings-visibility-btn,
+.sort-settings-visibility-btn:disabled {
+  cursor: default !important;
+}
+
+.sort-settings-account-block {
+  margin-top: 2px !important;
 }
 
 .sort-settings-account-card {
@@ -12793,10 +12989,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-modal .sort-settings-visibility-row {
-  background: var(--surface2) !important;
-  border-radius: 10px !important;
+  background: transparent !important;
+  border-radius: 0 !important;
   border: none !important;
-  padding: 14px 16px !important;
+  padding: 0 !important;
 }
 
 .settings-modal .sort-settings-visibility-row .settings-row-title {
@@ -12806,7 +13002,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .settings-modal .sort-settings-visibility-row .settings-row-sub {
   font-size: 12px !important;
-  margin-bottom: 10px !important;
+  margin-bottom: 0 !important;
   color: var(--text3) !important;
 }
 
@@ -12816,6 +13012,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-radius: 8px !important;
   padding: 2px !important;
   gap: 2px !important;
+  width: 320px !important;
+  max-width: 320px !important;
+  min-width: 320px !important;
 }
 
 .settings-modal .sort-settings-visibility-btn {
@@ -12846,10 +13045,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   padding: 10px 14px !important;
   border-bottom: 0.5px solid var(--border) !important;
   background: transparent !important;
+  transition: background 0.12s ease !important;
 }
 
 .settings-modal .sort-settings-account-card:not(.expanded) .sort-settings-account-header {
   border-bottom: none !important;
+}
+
+.settings-modal .sort-settings-account-header:hover {
+  background: rgba(60, 60, 67, 0.07) !important;
 }
 
 .settings-modal .sort-settings-account-header-main {
@@ -12875,11 +13079,13 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   cursor: pointer !important;
   flex-shrink: 0 !important;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease !important;
+  opacity: 0.72 !important;
 }
 
 .settings-modal .sort-settings-account-toggle:hover {
   background: #fff !important;
   color: var(--text) !important;
+  opacity: 1 !important;
 }
 
 .settings-modal .sort-settings-account-toggle svg {
@@ -13952,7 +14158,7 @@ body {
   background: transparent !important;
   border-bottom: 1px solid rgba(60, 60, 67, 0.08) !important;
   box-shadow: none !important;
-  transition: padding 0.16s ease, margin 0.16s ease, opacity 0.16s ease !important;
+  transition: opacity 0.16s ease !important;
 }
 
 .sidebar-brand.collapsed {
@@ -15798,7 +16004,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .detail-transition-layer {
   opacity: 1;
-  transition: opacity 160ms var(--ease-out);
+  transition: none;
 }
 
 .detail-transition-layer.is-hidden {

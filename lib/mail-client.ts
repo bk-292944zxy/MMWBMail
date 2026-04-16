@@ -64,6 +64,262 @@ function extractTextPreview(text: string) {
   return text.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
+function normalizePreviewForComparison(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeHeaderPreview(value: string) {
+  const normalized = normalizePreviewForComparison(value);
+  if (!normalized) {
+    return true;
+  }
+
+  if (
+    normalized.startsWith("return-path:") ||
+    normalized.startsWith("delivered-to:") ||
+    normalized.startsWith("received:") ||
+    normalized.startsWith("authentication-results:") ||
+    normalized.startsWith("dkim-signature:") ||
+    /^x-[a-z0-9-]+:/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return normalized.includes("return-path:") && normalized.includes("delivered-to:");
+}
+
+function isLikelyMimeNoiseLine(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  if (/^--[-_A-Za-z0-9=.:/]+$/.test(trimmed)) {
+    return true;
+  }
+
+  if (
+    /^(content-type|content-transfer-encoding|content-disposition|content-id|content-location|mime-version):/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+
+  if (/^charset=/i.test(trimmed) || /^boundary=/i.test(trimmed)) {
+    return true;
+  }
+
+  if (/^[-_=]{3,}/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+function sanitizeBodySnippetCandidate(raw: string) {
+  if (!raw) {
+    return "";
+  }
+
+  const plain = decodeHtmlEntities(raw).replace(/<[^>]+>/g, " ");
+  const cleanedLines = plain
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => !isLikelyMimeNoiseLine(line));
+
+  return extractTextPreview(cleanedLines.join(" "));
+}
+
+function decodeQuotedPrintable(value: string) {
+  return value
+    .replace(/=\r?\n/g, "")
+    .replace(/=([A-Fa-f0-9]{2})/g, (_match, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
+}
+
+function decodeTransferEncoding(value: string, encoding: string | null) {
+  if (!encoding) {
+    return value;
+  }
+
+  const normalizedEncoding = encoding.toLowerCase();
+  if (normalizedEncoding.includes("quoted-printable")) {
+    return decodeQuotedPrintable(value);
+  }
+
+  if (normalizedEncoding.includes("base64")) {
+    const compact = value.replace(/\s+/g, "");
+    if (!compact) {
+      return "";
+    }
+    try {
+      return Buffer.from(compact, "base64").toString("utf8");
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, codepoint: string) =>
+      String.fromCharCode(Number.parseInt(codepoint, 10))
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_match, codepoint: string) =>
+      String.fromCharCode(Number.parseInt(codepoint, 16))
+    );
+}
+
+function extractMimeBodySection(
+  source: string,
+  type: "text/plain" | "text/html"
+): { body: string; encoding: string | null } | null {
+  const sectionPattern = new RegExp(
+    `Content-Type:\\s*${type.replace("/", "\\/")}\\b[\\s\\S]*?(?=\\r?\\n--[^\\r\\n]+|$)`,
+    "i"
+  );
+  const sectionMatch = source.match(sectionPattern);
+  if (!sectionMatch) {
+    return null;
+  }
+
+  const section = sectionMatch[0];
+  const encoding =
+    section.match(/Content-Transfer-Encoding:\s*([^\r\n;]+)/i)?.[1]?.trim() ?? null;
+  const body = section.split(/\r?\n\r?\n/).slice(1).join("\n\n").trim();
+  if (!body) {
+    return null;
+  }
+
+  return { body, encoding };
+}
+
+function extractBodySnippetFromSourceChunk(
+  source: Buffer | undefined,
+  subject: string
+) {
+  if (!source || source.length === 0) {
+    return "";
+  }
+
+  const raw = source.toString("utf8");
+  const bodySeparator = raw.match(/\r?\n\r?\n/);
+  if (!bodySeparator || bodySeparator.index === undefined) {
+    return "";
+  }
+
+  const normalizedSubject = normalizePreviewForComparison(subject);
+  const rootEncoding =
+    raw.match(/Content-Transfer-Encoding:\s*([^\r\n;]+)/i)?.[1]?.trim() ?? null;
+  const bodyChunk = raw
+    .slice(bodySeparator.index + bodySeparator[0].length)
+    .trim();
+  if (!bodyChunk) {
+    return "";
+  }
+
+  const plainSection = extractMimeBodySection(bodyChunk, "text/plain");
+  const htmlSection = extractMimeBodySection(bodyChunk, "text/html");
+
+  const plainCandidate = extractTextPreview(
+    decodeTransferEncoding(plainSection?.body ?? "", plainSection?.encoding ?? rootEncoding)
+  );
+  const htmlCandidate = extractTextPreview(
+    decodeHtmlEntities(
+      decodeTransferEncoding(htmlSection?.body ?? "", htmlSection?.encoding ?? rootEncoding)
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+    )
+  );
+  for (const candidate of [plainCandidate, htmlCandidate]) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (looksLikeHeaderPreview(candidate)) {
+      continue;
+    }
+
+    if (normalizePreviewForComparison(candidate) === normalizedSubject) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return "";
+}
+
+function buildMessageListPreview(
+  input: {
+    subject: string;
+    source?: Buffer;
+    existingPreview?: string | null;
+  }
+) {
+  const normalizedSubject = normalizePreviewForComparison(input.subject);
+  const preferredCandidates = [
+    extractTextPreview(input.existingPreview ?? ""),
+    extractBodySnippetFromSourceChunk(input.source, input.subject)
+  ];
+
+  for (const candidate of preferredCandidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (looksLikeHeaderPreview(candidate)) {
+      continue;
+    }
+
+    if (normalizePreviewForComparison(candidate) === normalizedSubject) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return extractTextPreview(input.subject);
+}
+
+function extractSnippetFromBodyParts(
+  bodyParts: Map<string, Buffer> | undefined,
+  subject: string
+) {
+  if (!bodyParts || bodyParts.size === 0) {
+    return "";
+  }
+
+  const normalizedSubject = normalizePreviewForComparison(subject);
+
+  for (const [, bodyPart] of bodyParts) {
+    const candidate = sanitizeBodySnippetCandidate(bodyPart.toString("utf8"));
+    if (!candidate || looksLikeHeaderPreview(candidate)) {
+      continue;
+    }
+    if (normalizePreviewForComparison(candidate) === normalizedSubject) {
+      continue;
+    }
+    return candidate;
+  }
+
+  return "";
+}
+
 function parseListUnsubscribeHeader(headerValue: string | undefined) {
   if (!headerValue) {
     return { listUnsubscribeUrl: undefined, listUnsubscribeEmail: undefined };
@@ -356,7 +612,13 @@ export async function listMessages(connection: MailConnectionPayload): Promise<M
       envelope: true,
       flags: true,
       bodyStructure: true,
-      internalDate: true
+      internalDate: true,
+      bodyParts: [
+        {
+          key: "TEXT",
+          maxLength: 2048
+        }
+      ]
     })) {
       const { seen, flagged, answered } = mapFlags(message.flags);
 
@@ -382,7 +644,14 @@ export async function listMessages(connection: MailConnectionPayload): Promise<M
         cc: ccList.length > 0 ? ccList.join(", ") : undefined,
         to: toList,
         subject: message.envelope?.subject || "(No subject)",
-        preview: extractTextPreview(message.envelope?.subject || ""),
+        preview: buildMessageListPreview({
+          subject: message.envelope?.subject || "(No subject)",
+          existingPreview: extractSnippetFromBodyParts(
+            message.bodyParts,
+            message.envelope?.subject || "(No subject)"
+          ),
+          source: message.source
+        }),
         date: normalizeDate(message.internalDate ?? message.envelope?.date),
         seen,
         flagged,

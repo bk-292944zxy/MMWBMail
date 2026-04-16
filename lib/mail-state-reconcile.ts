@@ -127,6 +127,7 @@ export function reconcileVisibleSelection(
     selectedUidMessageId?: string | null;
     preserveSelection: boolean;
     scopeAccountId?: string | null;
+    authoritative?: boolean;
   }
 ) {
   const visibleUids = new Set(messages.map((message) => message.uid));
@@ -139,6 +140,7 @@ export function reconcileVisibleSelection(
     !input.selectedMessageAccountId ||
     !input.scopeAccountId ||
     input.selectedMessageAccountId === input.scopeAccountId;
+  const authoritative = input.authoritative ?? false;
   const currentlyVisibleMessage =
     currentUid !== null ? messages.find((message) => message.uid === currentUid) ?? null : null;
   const currentMessageStillMatches =
@@ -172,7 +174,13 @@ export function reconcileVisibleSelection(
   }
 
   const nextUid = messages[0]?.uid ?? null;
+  const selectedMessageMissingFromScope =
+    authoritative &&
+    selectionMatchesScope &&
+    currentUid !== null &&
+    (messages.length === 0 || !visibleUids.has(currentUid));
   const shouldClearForMessageMismatch =
+    authoritative &&
     currentUid !== null &&
     Boolean(currentMessageId) &&
     Boolean(currentlyVisibleMessage) &&
@@ -181,7 +189,6 @@ export function reconcileVisibleSelection(
   return {
     selectedUid: nextUid,
     clearSelectedMessage:
-      shouldClearForMessageMismatch ||
-      (currentUid !== null && currentUid !== nextUid)
+      shouldClearForMessageMismatch || selectedMessageMissingFromScope
   };
 }

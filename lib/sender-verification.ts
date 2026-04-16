@@ -166,6 +166,29 @@ const HIGH_RISK_PHISHING_TERMS = [
   "payment"
 ] as const;
 const SOFT_BRAND_MISMATCH_TERMS = ["notice", "offers", "team"] as const;
+const VERIFICATION_CACHE_LIMIT = 1024;
+
+function memoizeWithLimit<K, V>(cache: Map<K, V>, key: K, compute: () => V) {
+  const cached = cache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const value = compute();
+  cache.set(key, value);
+  if (cache.size > VERIFICATION_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) {
+      cache.delete(oldestKey);
+    }
+  }
+
+  return value;
+}
+
+const tokenizedBrandTextCache = new Map<string, string[]>();
+const brandMatchCache = new Map<string, string | null>();
+const spoofDetectionCache = new Map<string, { isSpoofed: boolean; reason: string }>();
 
 function normalizeHost(value: string) {
   const trimmed = value.trim().toLowerCase();
@@ -183,13 +206,15 @@ function normalizeBrandKey(value: string) {
 }
 
 function tokenizeBrandableText(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  const normalizedValue = value.trim().toLowerCase();
+  return memoizeWithLimit(tokenizedBrandTextCache, normalizedValue, () =>
+    normalizedValue
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+  );
 }
 
 const BRAND_MATCH_ALIASES: Record<string, string[]> = {
@@ -307,22 +332,25 @@ export function isEspDomain(domain: string): boolean {
 }
 
 export function matchesBrand(displayName: string): string | null {
-  const displayTokens = tokenizeBrandableText(displayName);
-  if (displayTokens.length === 0) {
-    return null;
-  }
+  const normalizedDisplayName = displayName.trim().toLowerCase();
+  return memoizeWithLimit(brandMatchCache, normalizedDisplayName, () => {
+    const displayTokens = tokenizeBrandableText(displayName);
+    if (displayTokens.length === 0) {
+      return null;
+    }
 
-  const brandKeys = Object.keys(BRAND_DOMAINS).sort((left, right) => right.length - left.length);
-  for (const brand of brandKeys) {
-    for (const alias of getBrandMatchAliases(brand)) {
-      const aliasTokens = tokenizeBrandableText(alias);
-      if (hasTokenPhraseMatch(displayTokens, aliasTokens)) {
-        return brand;
+    const brandKeys = Object.keys(BRAND_DOMAINS).sort((left, right) => right.length - left.length);
+    for (const brand of brandKeys) {
+      for (const alias of getBrandMatchAliases(brand)) {
+        const aliasTokens = tokenizeBrandableText(alias);
+        if (hasTokenPhraseMatch(displayTokens, aliasTokens)) {
+          return brand;
+        }
       }
     }
-  }
 
-  return null;
+    return null;
+  });
 }
 
 export function getKnownDomainsForBrand(brand: string): string[] {
@@ -424,50 +452,58 @@ export function detectSpoof(
     authResultsDmarc?: string;
   }
 ): { isSpoofed: boolean; reason: string } {
-  if (!msg.fromAddress || !msg.from) {
+  const cacheKey = [
+    msg.from?.trim().toLowerCase() ?? "",
+    msg.fromAddress?.trim().toLowerCase() ?? "",
+    msg.authResultsDmarc ?? ""
+  ].join("|");
+
+  return memoizeWithLimit(spoofDetectionCache, cacheKey, () => {
+    if (!msg.fromAddress || !msg.from) {
+      return { isSpoofed: false, reason: "" };
+    }
+
+    const brand = matchesBrand(msg.from);
+    const sendingDomain = getDomainFromEmail(msg.fromAddress);
+
+    if (!brand || !sendingDomain) {
+      return { isSpoofed: false, reason: "" };
+    }
+
+    if (isEspDomain(sendingDomain)) {
+      return { isSpoofed: false, reason: "" };
+    }
+
+    const legitimateDomains = getLegitimateDomainsForBrand(brand);
+    const legitimate = isLegitimateBrandDomain(sendingDomain, legitimateDomains);
+
+    if (msg.authResultsDmarc === "fail" && !legitimate) {
+      return {
+        isSpoofed: true,
+        reason: `This message failed DMARC authentication — the sending server was not authorized to send on behalf of ${formatBrandName(
+          brand
+        )}. This is a strong indicator of spoofing.`
+      };
+    }
+
+    if (
+      !legitimate &&
+      isClearlyPhishing(
+        sendingDomain,
+        brand,
+        msg.authResultsDmarc as "pass" | "fail" | "none" | undefined
+      )
+    ) {
+      return {
+        isSpoofed: true,
+        reason: `This message claims to be from ${msg.from.replace(/<.*>/, "").trim()} but was sent from ${msg.fromAddress} — a domain unrelated to ${formatBrandName(
+          brand
+        )}. This is a common phishing pattern. Do not click any links or provide personal information.`
+      };
+    }
+
     return { isSpoofed: false, reason: "" };
-  }
-
-  const brand = matchesBrand(msg.from);
-  const sendingDomain = getDomainFromEmail(msg.fromAddress);
-
-  if (!brand || !sendingDomain) {
-    return { isSpoofed: false, reason: "" };
-  }
-
-  if (isEspDomain(sendingDomain)) {
-    return { isSpoofed: false, reason: "" };
-  }
-
-  const legitimateDomains = getLegitimateDomainsForBrand(brand);
-  const legitimate = isLegitimateBrandDomain(sendingDomain, legitimateDomains);
-
-  if (msg.authResultsDmarc === "fail" && !legitimate) {
-    return {
-      isSpoofed: true,
-      reason: `This message failed DMARC authentication — the sending server was not authorized to send on behalf of ${formatBrandName(
-        brand
-      )}. This is a strong indicator of spoofing.`
-    };
-  }
-
-  if (
-    !legitimate &&
-    isClearlyPhishing(
-      sendingDomain,
-      brand,
-      msg.authResultsDmarc as "pass" | "fail" | "none" | undefined
-    )
-  ) {
-    return {
-      isSpoofed: true,
-      reason: `This message claims to be from ${msg.from.replace(/<.*>/, "").trim()} but was sent from ${msg.fromAddress} — a domain unrelated to ${formatBrandName(
-        brand
-      )}. This is a common phishing pattern. Do not click any links or provide personal information.`
-    };
-  }
-
-  return { isSpoofed: false, reason: "" };
+  });
 }
 
 export function detectUnverifiedSender(
