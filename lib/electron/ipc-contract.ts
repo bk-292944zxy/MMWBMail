@@ -20,7 +20,8 @@ export const ELECTRON_MAIL_CHANNELS = {
   saveDraft: "mail:save-draft",
   loadDraft: "mail:load-draft",
   listDrafts: "mail:list-drafts",
-  deleteDraft: "mail:delete-draft"
+  deleteDraft: "mail:delete-draft",
+  printToPdf: "mail:print-to-pdf"
 } as const;
 
 export type ElectronLoadFoldersInput = {
@@ -76,6 +77,16 @@ export type ElectronDeleteDraftInput = {
   draftId: string;
 };
 
+export type ElectronPrintToPdfInput = {
+  html: string;
+  suggestedFilename: string;
+};
+
+export type ElectronPrintToPdfResult = {
+  saved: boolean;
+  filePath: string | null;
+};
+
 export type ElectronMailBridge = {
   version: 2;
   isElectron: true;
@@ -96,6 +107,7 @@ export type ElectronMailBridge = {
   loadDraft(input: ElectronLoadDraftInput): Promise<LoadDraftResult>;
   listDrafts(input: ElectronListDraftsInput): Promise<{ drafts: StoredComposerDraft[] }>;
   deleteDraft(input: ElectronDeleteDraftInput): Promise<{ deleted: boolean }>;
+  printToPdf(input: ElectronPrintToPdfInput): Promise<ElectronPrintToPdfResult>;
 };
 
 export type AccountCreateRequestBody = CreateMailAccountPayload;

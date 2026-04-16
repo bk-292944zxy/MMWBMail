@@ -1,10 +1,11 @@
 const path = require("node:path");
 const process = require("node:process");
+const fs = require("node:fs");
 
 require("tsx/cjs");
 require("dotenv/config");
 
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const {
   ELECTRON_MAIL_CHANNELS
 } = require("../lib/electron/ipc-contract.ts");
@@ -208,6 +209,63 @@ function registerIpcHandlers() {
       return await deleteComposeDraftService(input ?? {});
     } catch (error) {
       throw toIpcError(error, "Unable to delete draft.");
+    }
+  });
+
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.printToPdf, async (_event, input) => {
+    if (!input?.html || typeof input.html !== "string") {
+      throw toIpcError(new Error("HTML content is required."), "Unable to generate PDF.");
+    }
+
+    const suggestedFilename =
+      typeof input.suggestedFilename === "string" && input.suggestedFilename.trim().length > 0
+        ? input.suggestedFilename.trim()
+        : "message.pdf";
+
+    const pdfWindow = new BrowserWindow({
+      width: 794,
+      height: 1123,
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+
+    try {
+      const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(input.html)}`;
+      await pdfWindow.loadURL(dataUrl);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const pdfBuffer = await pdfWindow.webContents.printToPDF({
+        printBackground: true,
+        pageSize: "Letter",
+        margins: {
+          marginType: "custom",
+          top: 0.4,
+          bottom: 0.4,
+          left: 0.4,
+          right: 0.4
+        }
+      });
+
+      const result = await dialog.showSaveDialog({
+        title: "Save as PDF",
+        defaultPath: path.join(app.getPath("downloads"), suggestedFilename),
+        filters: [{ name: "PDF Documents", extensions: ["pdf"] }]
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { saved: false, filePath: null };
+      }
+
+      fs.writeFileSync(result.filePath, pdfBuffer);
+      return { saved: true, filePath: result.filePath };
+    } catch (error) {
+      throw toIpcError(error, "Unable to generate PDF.");
+    } finally {
+      pdfWindow.destroy();
     }
   });
 }

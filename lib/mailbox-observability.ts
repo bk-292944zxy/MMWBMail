@@ -88,6 +88,11 @@ function ensureMailboxDebugBridge() {
   return window.__MMWBMAIL_MAILBOX_DEBUG__;
 }
 
+export function isMailboxDebugEnabled() {
+  const bridge = ensureMailboxDebugBridge();
+  return Boolean(bridge?.enabled);
+}
+
 export function recordMailboxDebugEvent(
   event: string,
   payload: unknown,
@@ -98,6 +103,12 @@ export function recordMailboxDebugEvent(
 ) {
   const bridge = ensureMailboxDebugBridge();
   if (!bridge) {
+    return;
+  }
+
+  // Performance guard: when mailbox debug mode is not enabled, skip
+  // event allocation/storage entirely.
+  if (!bridge.enabled) {
     return;
   }
 
@@ -116,10 +127,6 @@ export function recordMailboxDebugEvent(
 
   if (options?.snapshotKey) {
     bridge.latest[options.snapshotKey] = payload;
-  }
-
-  if (!bridge.enabled) {
-    return;
   }
 
   const prefix = `[mailbox:${entry.event}]`;

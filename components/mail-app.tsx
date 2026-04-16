@@ -175,6 +175,7 @@ import type { QuickFactFallback, QuickFactResult } from "@/lib/quickfact";
 import { formatQuickFactForInsert } from "@/lib/quickfact";
 import { fetchQuickFacts } from "@/lib/quickfact-client";
 import { getPreviewBranchName, shouldShowPreviewBranchBadge } from "@/lib/preview-branch";
+import type { ElectronMailBridge } from "@/lib/electron/ipc-contract";
 import {
   createAccountClient,
   listAccountsClient,
@@ -198,6 +199,7 @@ import {
   type MailboxSystemKey
 } from "@/lib/mailbox-navigation";
 import {
+  isMailboxDebugEnabled,
   recordMailboxDebugEvent,
   updateMailboxDebugSnapshot
 } from "@/lib/mailbox-observability";
@@ -357,6 +359,8 @@ interface UserData {
     lightweightOnboardingDismissed: boolean;
     accentTheme: AccentTheme;
     themeMode: ThemeMode;
+    newEmailAlertsEnabled: boolean;
+    tabBadgeEnabled: boolean;
   };
 }
 
@@ -380,7 +384,9 @@ const DEFAULT_USER_DATA: UserData = {
     accountMailboxDisclosureStates: {},
     lightweightOnboardingDismissed: false,
     accentTheme: "warm-paper",
-    themeMode: "full"
+    themeMode: "full",
+    newEmailAlertsEnabled: true,
+    tabBadgeEnabled: true
   }
 };
 
@@ -1166,10 +1172,14 @@ function getAccountMailboxDisclosureTargets(
     const deduped: SidebarMailboxTarget[] = [];
 
     for (const target of targets) {
-      if (seen.has(target.id)) {
+      const providerPathKey = target.mailboxNode.identity.providerPath.trim().toLowerCase();
+      const dedupeKey = `${target.isVirtual ? "virtual" : "physical"}:${providerPathKey}:${
+        target.inboxAttentionView ?? "none"
+      }`;
+      if (seen.has(dedupeKey)) {
         continue;
       }
-      seen.add(target.id);
+      seen.add(dedupeKey);
       deduped.push(target);
     }
 
@@ -4646,6 +4656,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [aiSettingsTesting, setAiSettingsTesting] = useState(false);
   const [aiSettingsRemoving, setAiSettingsRemoving] = useState(false);
   const [aiApiKeyInput, setAiApiKeyInput] = useState("");
+  const [aiSettingsLastFour, setAiSettingsLastFour] = useState<string | null>(null);
   const [aiSettingsError, setAiSettingsError] = useState<string | null>(null);
   const [aiSettingsSuccess, setAiSettingsSuccess] = useState<string | null>(null);
   const [tavilySettings, setTavilySettings] = useState<TavilySettingsSummary | null>(null);
@@ -4653,6 +4664,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [tavilySettingsSaving, setTavilySettingsSaving] = useState(false);
   const [tavilySettingsRemoving, setTavilySettingsRemoving] = useState(false);
   const [tavilyApiKeyInput, setTavilyApiKeyInput] = useState("");
+  const [tavilySettingsLastFour, setTavilySettingsLastFour] = useState<string | null>(null);
   const [tavilySettingsError, setTavilySettingsError] = useState<string | null>(null);
   const [tavilySettingsSuccess, setTavilySettingsSuccess] = useState<string | null>(null);
   const [replacingOpenAI, setReplacingOpenAI] = useState(false);
@@ -4666,6 +4678,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
   const [accountFormSuccess, setAccountFormSuccess] = useState<string | null>(null);
   const [addAccountConfirmationEmail, setAddAccountConfirmationEmail] = useState<string | null>(
+    null
+  );
+  const [deleteAccountConfirm, setDeleteAccountConfirm] = useState<MailAccountSummary | null>(
     null
   );
   const [storedPasswordHintVisible, setStoredPasswordHintVisible] = useState(false);
@@ -4965,6 +4980,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const cleanupSortMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileViewerMenuRef = useRef<HTMLDivElement | null>(null);
+  const viewerMoreMenuRef = useRef<HTMLDivElement | null>(null);
   const [swipeHintShown, setSwipeHintShown] = useState(false);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const [activeSwipeUid, setActiveSwipeUid] = useState<number | null>(null);
@@ -4972,6 +4988,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [userDataReady, setUserDataReady] = useState(false);
   const [notifPlatform] = useState(() => detectNotificationPlatform());
+  const [newEmailAlertsEnabled, setNewEmailAlertsEnabled] = useState(true);
+  const [tabBadgeEnabled, setTabBadgeEnabled] = useState(true);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
     () => {
       if (typeof window === "undefined" || !("Notification" in window)) {
@@ -4991,6 +5009,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     msg: MailSummary;
   } | null>(null);
   const [mobileViewerMenuOpen, setMobileViewerMenuOpen] = useState(false);
+  const [viewerMoreMenuUid, setViewerMoreMenuUid] = useState<number | null>(null);
   const [listAreaContextMenu, setListAreaContextMenu] = useState<{
     x: number;
     y: number;
@@ -5031,6 +5050,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const previousMailboxQueryRef = useRef<ReturnType<typeof createMailboxQueryState> | null>(null);
   const autoSyncInFlightRef = useRef(false);
   const refreshFromEventTimerRef = useRef<number | null>(null);
+  const pollRefreshCooldownUntilRef = useRef(0);
+  const pollRefreshQueuedRef = useRef(false);
   const folderLoadSeqByAccountRef = useRef<Record<string, number>>({});
   const folderLoadStateByAccountRef = useRef<
     Record<
@@ -5596,6 +5617,103 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeSourceMessageMeta,
     mailboxContext
   ]);
+
+  function areComposeContentStatesEquivalent(
+    left: ComposeContentState | null,
+    right: ComposeContentState
+  ) {
+    if (left === right) {
+      return true;
+    }
+
+    if (!left) {
+      return false;
+    }
+
+    if (
+      left.identitySignatureId !== right.identitySignatureId ||
+      left.activeSignatureId !== right.activeSignatureId ||
+      left.activeSignatureLabel !== right.activeSignatureLabel ||
+      left.activeSignatureText !== right.activeSignatureText ||
+      left.defaultSignatureInserted !== right.defaultSignatureInserted
+    ) {
+      return false;
+    }
+
+    if (left.availableSignatures.length !== right.availableSignatures.length) {
+      return false;
+    }
+    for (let index = 0; index < left.availableSignatures.length; index += 1) {
+      const current = left.availableSignatures[index];
+      const next = right.availableSignatures[index];
+      if (
+        !current ||
+        !next ||
+        current.id !== next.id ||
+        current.label !== next.label ||
+        current.text !== next.text ||
+        (current.accountId ?? null) !== (next.accountId ?? null) ||
+        (current.signatureContextId ?? null) !== (next.signatureContextId ?? null) ||
+        Boolean(current.isDefault) !== Boolean(next.isDefault) ||
+        current.appliesTo.length !== next.appliesTo.length
+      ) {
+        return false;
+      }
+
+      for (let appliesIndex = 0; appliesIndex < current.appliesTo.length; appliesIndex += 1) {
+        if (current.appliesTo[appliesIndex] !== next.appliesTo[appliesIndex]) {
+          return false;
+        }
+      }
+    }
+
+    if (left.presets.length !== right.presets.length) {
+      return false;
+    }
+    for (let index = 0; index < left.presets.length; index += 1) {
+      const current = left.presets[index];
+      const next = right.presets[index];
+      if (
+        !current ||
+        !next ||
+        current.id !== next.id ||
+        current.label !== next.label ||
+        current.text !== next.text ||
+        (current.html ?? "") !== (next.html ?? "") ||
+        current.category !== next.category ||
+        current.appliesTo.length !== next.appliesTo.length
+      ) {
+        return false;
+      }
+
+      for (let appliesIndex = 0; appliesIndex < current.appliesTo.length; appliesIndex += 1) {
+        if (current.appliesTo[appliesIndex] !== next.appliesTo[appliesIndex]) {
+          return false;
+        }
+      }
+    }
+
+    if (left.insertedBlocks.length !== right.insertedBlocks.length) {
+      return false;
+    }
+    for (let index = 0; index < left.insertedBlocks.length; index += 1) {
+      const current = left.insertedBlocks[index];
+      const next = right.insertedBlocks[index];
+      if (
+        !current ||
+        !next ||
+        current.id !== next.id ||
+        current.kind !== next.kind ||
+        current.sourceId !== next.sourceId ||
+        current.label !== next.label
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   useEffect(() => {
     if (!composeOpen) {
       return;
@@ -5608,7 +5726,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         current
       );
 
-      if (JSON.stringify(current) === JSON.stringify(nextContent)) {
+      if (areComposeContentStatesEquivalent(current, nextContent)) {
         return current;
       }
 
@@ -5732,9 +5850,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       }
 
       const totalUnread = nextMessages.filter((message) => !message.seen).length;
-      document.title = document.hasFocus()
-        ? "MaxiMail"
-        : totalUnread > 0
+      document.title =
+        tabBadgeEnabled && !document.hasFocus() && totalUnread > 0
           ? `(${totalUnread}) MaxiMail`
           : "MaxiMail";
 
@@ -5747,15 +5864,34 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         clearAppBadge?: () => Promise<void>;
       };
 
-      if (document.hasFocus() || totalUnread === 0) {
+      if (!tabBadgeEnabled || document.hasFocus() || totalUnread === 0) {
         void badgeNavigator.clearAppBadge?.().catch(() => {});
         return;
       }
 
       void badgeNavigator.setAppBadge?.(totalUnread).catch(() => {});
     },
-    [notifPlatform.canBadge]
+    [notifPlatform.canBadge, tabBadgeEnabled]
   );
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (tabBadgeEnabled) {
+      syncUnreadIndicators(messages);
+      return;
+    }
+
+    document.title = "MaxiMail";
+    if (notifPlatform.canBadge && typeof navigator !== "undefined") {
+      const badgeNavigator = navigator as Navigator & {
+        clearAppBadge?: () => Promise<void>;
+      };
+      void badgeNavigator.clearAppBadge?.().catch(() => {});
+    }
+  }, [messages, notifPlatform.canBadge, syncUnreadIndicators, tabBadgeEnabled]);
 
   const syncServerPreferences = useCallback(
     (accountId: string, payload: ServerPreferencesPayload) => {
@@ -5838,7 +5974,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   const requestNotificationPermission = useCallback(async () => {
     if (!notifPlatform.canWebNotify) {
-      return;
+      return "unsupported" as const;
     }
 
     try {
@@ -5852,8 +5988,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           tag: "maximail-permission-confirmed"
         });
       }
+      return result;
     } catch {
       // Some browsers throw if this is not called from a user gesture.
+      return null;
     }
   }, [notifPlatform.canWebNotify, showToast]);
 
@@ -7139,7 +7277,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [mobileViewerMenuOpen]);
 
   useEffect(() => {
+    if (viewerMoreMenuUid === null) {
+      return;
+    }
+
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (viewerMoreMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setViewerMoreMenuUid(null);
+    };
+
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [viewerMoreMenuUid]);
+
+  useEffect(() => {
     setMobileViewerMenuOpen(false);
+  }, [isMobileStackedMode, selectedMessage?.uid]);
+
+  useEffect(() => {
+    setViewerMoreMenuUid(null);
   }, [isMobileStackedMode, selectedMessage?.uid]);
 
   useEffect(() => {
@@ -7285,6 +7445,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setSidebarSize(data.prefs.sidebarSize);
     setAccentTheme(normalizeAccentTheme(data.prefs.accentTheme));
     setThemeMode(data.prefs.themeMode ?? "full");
+    setNewEmailAlertsEnabled(data.prefs.newEmailAlertsEnabled ?? true);
+    setTabBadgeEnabled(data.prefs.tabBadgeEnabled ?? true);
     setDefaultSignature(data.prefs.signature);
     setSignatureDefinitions(data.signatureDefinitions ?? []);
     setPresetDefinitions(data.presetDefinitions ?? []);
@@ -7349,7 +7511,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         accountMailboxDisclosureStates,
         lightweightOnboardingDismissed: onboardingStep === null,
         accentTheme,
-        themeMode
+        themeMode,
+        newEmailAlertsEnabled,
+        tabBadgeEnabled
       }
     });
 
@@ -7382,6 +7546,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     onboardingStep,
     accentTheme,
     themeMode,
+    newEmailAlertsEnabled,
+    tabBadgeEnabled,
     userDataReady
   ]);
 
@@ -7408,6 +7574,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
+    let frameId: number | null = null;
     const updateTooltipPosition = () => {
       const anchor = onboardingAnchorRef.current;
       if (!anchor || typeof window === "undefined") {
@@ -7434,12 +7601,25 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setOnboardingTooltipPosition({ top, left, arrowLeft });
     };
 
+    const scheduleTooltipPositionUpdate = () => {
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updateTooltipPosition();
+      });
+    };
+
     updateTooltipPosition();
-    window.addEventListener("resize", updateTooltipPosition);
-    window.addEventListener("scroll", updateTooltipPosition, true);
+    window.addEventListener("resize", scheduleTooltipPositionUpdate);
+    window.addEventListener("scroll", scheduleTooltipPositionUpdate, true);
     return () => {
-      window.removeEventListener("resize", updateTooltipPosition);
-      window.removeEventListener("scroll", updateTooltipPosition, true);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", scheduleTooltipPositionUpdate);
+      window.removeEventListener("scroll", scheduleTooltipPositionUpdate, true);
     };
   }, [onboardingStep, shouldShowOnboarding]);
 
@@ -8487,9 +8667,52 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
 
+    const FOREGROUND_POLL_MS = 15_000;
+    const BACKGROUND_POLL_MS = 120_000;
+    const FOREGROUND_REFRESH_COOLDOWN_MS = 3_000;
+    const BACKGROUND_REFRESH_COOLDOWN_MS = 10_000;
     let pollInterval: number | null = null;
     let pollCursor = new Date().toISOString();
     let disposed = false;
+
+    const runPollRefresh = () => {
+      if (disposed) {
+        return;
+      }
+
+      const now = Date.now();
+      const cooldownMs = document.hidden
+        ? BACKGROUND_REFRESH_COOLDOWN_MS
+        : FOREGROUND_REFRESH_COOLDOWN_MS;
+
+      if (now < pollRefreshCooldownUntilRef.current) {
+        pollRefreshQueuedRef.current = true;
+        const waitMs = Math.max(pollRefreshCooldownUntilRef.current - now, 200);
+        if (refreshFromEventTimerRef.current) {
+          window.clearTimeout(refreshFromEventTimerRef.current);
+        }
+        refreshFromEventTimerRef.current = window.setTimeout(() => {
+          refreshFromEventTimerRef.current = null;
+          if (!pollRefreshQueuedRef.current) {
+            return;
+          }
+          pollRefreshQueuedRef.current = false;
+          runPollRefresh();
+        }, waitMs);
+        return;
+      }
+
+      pollRefreshCooldownUntilRef.current = now + cooldownMs;
+      pollRefreshQueuedRef.current = false;
+      void refreshFolderCounts(activeAccountId);
+      void loadMessages(currentFolderPath, {
+        force: true,
+        manageBusy: false,
+        accountIdOverride: activeAccountId,
+        preserveSelection: true,
+        skipServerSync: true
+      });
+    };
 
     const queueRefresh = (payload?: {
       events?: Array<{ folderPath?: string | null }>;
@@ -8528,14 +8751,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       }
 
       refreshFromEventTimerRef.current = window.setTimeout(() => {
-        void refreshFolderCounts(activeAccountId);
-        void loadMessages(currentFolderPath, {
-          force: true,
-          manageBusy: false,
-          accountIdOverride: activeAccountId,
-          preserveSelection: true,
-          skipServerSync: true
-        });
+        refreshFromEventTimerRef.current = null;
+        runPollRefresh();
       }, 250);
     };
 
@@ -8555,28 +8772,54 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       }
     };
 
+    const stopPolling = () => {
+      if (pollInterval != null) {
+        window.clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+
     const startPolling = () => {
-      if (pollInterval != null || disposed) {
+      if (disposed) {
         return;
       }
 
+      stopPolling();
+      const pollMs = document.hidden ? BACKGROUND_POLL_MS : FOREGROUND_POLL_MS;
       void pollEvents();
       pollInterval = window.setInterval(() => {
         void pollEvents();
-      }, 15_000);
+      }, pollMs);
+    };
+
+    const handleVisibilityOrConnectivity = () => {
+      if (disposed) {
+        return;
+      }
+      if (!navigator.onLine) {
+        stopPolling();
+        return;
+      }
+      startPolling();
     };
 
     startPolling();
+    window.addEventListener("online", handleVisibilityOrConnectivity);
+    window.addEventListener("offline", handleVisibilityOrConnectivity);
+    document.addEventListener("visibilitychange", handleVisibilityOrConnectivity);
 
     return () => {
       disposed = true;
+      pollRefreshQueuedRef.current = false;
+      pollRefreshCooldownUntilRef.current = 0;
       if (refreshFromEventTimerRef.current) {
         window.clearTimeout(refreshFromEventTimerRef.current);
         refreshFromEventTimerRef.current = null;
       }
-      if (pollInterval != null) {
-        window.clearInterval(pollInterval);
-      }
+      stopPolling();
+      window.removeEventListener("online", handleVisibilityOrConnectivity);
+      window.removeEventListener("offline", handleVisibilityOrConnectivity);
+      document.removeEventListener("visibilitychange", handleVisibilityOrConnectivity);
     };
   }, [activeAccountId, currentFolderPath, getJson, loadMessages, refreshFolderCounts]);
 
@@ -9027,7 +9270,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             showToast(`${newlyArrived.length} new messages arrived`, "info");
           }
 
-          if (notifPlatform.canWebNotify && Notification.permission === "granted") {
+          if (
+            newEmailAlertsEnabled &&
+            notifPlatform.canWebNotify &&
+            Notification.permission === "granted"
+          ) {
             if (newlyArrived.length === 1) {
               const message = newlyArrived[0];
               const notification = new Notification(displaySender(message.from), {
@@ -10234,26 +10481,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       !composePlainText &&
       pendingComposeEditorHydrationBodyRef.current !== null
     ) {
-      logDraftTrace("[DRAFT_BODY_RESET]", {
-        stage: "flush-compose-editor-text-sync",
-        reason: "skipped-while-pending-restore-hydration",
-        pendingRestoreBody: pendingComposeEditorHydrationBodyRef.current,
-        attemptedText: text,
-        composeBodyBefore: composeBodyRef.current
-      });
       return;
     }
 
-    if (composeRestoreTraceRef.current.active) {
-      logDraftTrace("[DRAFT_RESTORE]", {
-        stage: "flush-compose-editor-text-sync",
-        draftId: composeRestoreTraceRef.current.draftId,
-        textFromEditor: text,
-        composeBodyBefore: composeBodyRef.current
-      });
-    }
     writeComposeBodyState(text, "flush-compose-editor-text-sync");
-  }, [composePlainText, logDraftTrace, readComposeEditorTextSnapshot, writeComposeBodyState]);
+  }, [composePlainText, readComposeEditorTextSnapshot, writeComposeBodyState]);
 
   const scheduleComposeEditorTextSync = useCallback(() => {
     if (composeEditorSyncTimerRef.current !== null) {
@@ -10263,7 +10495,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     composeEditorSyncTimerRef.current = globalThis.setTimeout(() => {
       composeEditorSyncTimerRef.current = null;
       flushComposeEditorTextSync();
-    }, 260);
+    }, 400);
   }, [flushComposeEditorTextSync]);
 
   async function persistComposeDraftNow(showFeedback = false) {
@@ -12677,6 +12909,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             handleMove(message);
           }}
         >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <path d="m10 13 3 3 3-3" />
+          </svg>
           <span>Move</span>
         </button>
         <div
@@ -12691,6 +12927,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             onClick={() => setMobileViewerMenuOpen((current) => !current)}
             aria-label="More message actions"
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="6" r="1.5" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+            </svg>
             <span>More</span>
           </button>
           {mobileViewerMenuOpen ? (
@@ -12713,6 +12954,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   handleReply(message);
                 }}
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="9 17 4 12 9 7" />
+                  <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                </svg>
                 <span>Reply</span>
               </button>
               <button
@@ -12723,6 +12968,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   handleReplyAll(message);
                 }}
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="7 17 2 12 7 7" />
+                  <polyline points="12 17 7 12 12 7" />
+                  <path d="M22 18v-2a4 4 0 0 0-4-4H7" />
+                </svg>
                 <span>Reply All</span>
               </button>
               <button
@@ -12733,7 +12983,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   handleForward(message);
                 }}
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="15 17 20 12 15 7" />
+                  <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
+                </svg>
                 <span>Forward</span>
+              </button>
+              <button
+                type="button"
+                className="mobile-viewer-menu-item"
+                onClick={() => {
+                  setMobileViewerMenuOpen(false);
+                  void handleArchive(message);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="21 8 21 21 3 21 3 8" />
+                  <rect x="1" y="3" width="22" height="5" />
+                  <line x1="10" y1="12" x2="14" y2="12" />
+                </svg>
+                <span>Archive</span>
               </button>
               <button
                 type="button"
@@ -12743,6 +13012,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   void handleToggleRead(message);
                 }}
               >
+                {message.seen ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <polyline points="2 5 12 13 22 5" />
+                    <circle cx="19" cy="8" r="2.5" fill="currentColor" stroke="none" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M2 9l10 6 10-6" />
+                    <path d="M2 9v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9" />
+                    <path d="M2 9l10-6 10 6" />
+                  </svg>
+                )}
                 <span>{readToggleCopy.label}</span>
               </button>
               <button
@@ -12753,6 +13035,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   void handleDeleteOne(message);
                 }}
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                  <path d="M9 6V4h6v2" />
+                </svg>
                 <span>Delete</span>
               </button>
             </div>
@@ -13094,7 +13383,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   async function saveAiSettingsKey() {
-    if (!aiApiKeyInput.trim()) {
+    const normalizedApiKey = aiApiKeyInput.trim();
+
+    if (!normalizedApiKey) {
       setAiSettingsError("Paste an OpenAI API key to save it.");
       setAiSettingsSuccess(null);
       return;
@@ -13107,13 +13398,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await withTimeout(
         putJson<AiSettingsSummary>("/api/ai/settings", {
-          apiKey: aiApiKeyInput,
+          apiKey: normalizedApiKey,
           validate: false
         }),
         7000,
         "Saving the OpenAI API key took too long. Try again."
       );
       setAiSettings(settings);
+      setAiSettingsLastFour(normalizedApiKey.slice(-4).padStart(4, "0"));
       setAiApiKeyInput("");
       if (settings.configured) {
         void loadAiAvailability(true);
@@ -13182,6 +13474,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const settings = await deleteJson<AiSettingsSummary>("/api/ai/settings");
       setAiSettings(settings);
       setAiAvailabilitySummary(null);
+      setAiSettingsLastFour(null);
       setAiApiKeyInput("");
       setAiSettingsSuccess("Removed.");
     } catch (error) {
@@ -13196,7 +13489,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   async function saveTavilySettingsKey() {
-    if (!tavilyApiKeyInput.trim()) {
+    const normalizedApiKey = tavilyApiKeyInput.trim();
+
+    if (!normalizedApiKey) {
       setTavilySettingsError("Paste a Tavily API key to save it.");
       setTavilySettingsSuccess(null);
       return;
@@ -13209,12 +13504,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await withTimeout(
         putJson<TavilySettingsSummary>("/api/quickfact/settings", {
-          apiKey: tavilyApiKeyInput
+          apiKey: normalizedApiKey
         }),
         7000,
         "Saving the Tavily API key took too long. Try again."
       );
       setTavilySettings(settings);
+      setTavilySettingsLastFour(normalizedApiKey.slice(-4).padStart(4, "0"));
       setTavilyApiKeyInput("");
       setTavilySettingsSuccess("Saved.");
     } catch (error) {
@@ -13240,6 +13536,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await deleteJson<TavilySettingsSummary>("/api/quickfact/settings");
       setTavilySettings(settings);
+      setTavilySettingsLastFour(null);
       setTavilyApiKeyInput("");
       setTavilySettingsSuccess("Removed.");
     } catch (error) {
@@ -13254,10 +13551,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   async function deleteConfiguredAccount(account: MailAccountSummary) {
-    if (!window.confirm(`Delete ${account.email}? This removes the saved account from MaxiMail.`)) {
-      return;
-    }
-
     setAccountFormError(null);
     setAccountFormSuccess(null);
     setIsBusy(true);
@@ -14089,6 +14382,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeToolbarCustomizationEnabled = false;
   const handleComposeShortcutKeyDown = useCallback(
     async (event: React.KeyboardEvent<HTMLElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        if (discardConfirmOpen) {
+          return;
+        }
+        event.preventDefault();
+        void handleSend();
+        return;
+      }
+
       if (event.key === "Escape") {
         if (composeQuickInsertOpen || composeToolbarOverflowOpen || composeToolbarMenuOpen) {
           closeComposeQuickFact();
@@ -14126,6 +14428,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     [
       composeCommandContext,
       composeQuickInsertOpen,
+      discardConfirmOpen,
+      handleSend,
       composeToolbarMenuOpen,
       composeToolbarOverflowOpen,
       selectedImg
@@ -14197,8 +14501,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       isWithinDateFocusPreset(message.date, dateFocusPreset, now)
     );
   }, [blockedSenders, dateFocusPreset, isSentFolder, mailboxQuery, messages]);
-  const queriedSortedMessages = [...queriedMessages].sort((left, right) =>
-    compareMessages(left, right, sortBy, sortDirection)
+  const queriedSortedMessages = useMemo(
+    () =>
+      [...queriedMessages].sort((left, right) =>
+        compareMessages(left, right, sortBy, sortDirection)
+      ),
+    [queriedMessages, sortBy, sortDirection]
   );
   const conversations = useMemo(
     () => buildConversationCollection(queriedSortedMessages, sortBy, sortDirection),
@@ -15037,6 +15345,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     ]
   );
   useEffect(() => {
+    if (!isMailboxDebugEnabled()) {
+      return;
+    }
+
     updateMailboxDebugSnapshot("mailbox_readiness", {
       loader: {
         active: false,
@@ -15078,6 +15390,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [accounts, activeAccountId, currentFolderPath, folders.length, foldersByAccount, sidebarMailboxGroups]);
 
   useEffect(() => {
+    if (!isMailboxDebugEnabled()) {
+      return;
+    }
+
     updateMailboxDebugSnapshot("mailbox_query", {
       accountId: activeAccountId,
       folderPath: currentFolderPath,
@@ -15107,6 +15423,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ]);
 
   useEffect(() => {
+    if (!isMailboxDebugEnabled()) {
+      return;
+    }
+
     updateMailboxDebugSnapshot("mailbox_counts", {
       accountId: activeAccountId,
       folderPath: currentFolderPath,
@@ -15146,6 +15466,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ]);
 
   useEffect(() => {
+    if (!isMailboxDebugEnabled()) {
+      return;
+    }
+
     updateMailboxDebugSnapshot("mailbox_selection", {
       accountId: activeAccountId,
       folderPath: currentFolderPath,
@@ -16691,6 +17015,66 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   }
 
+  async function saveAsPdf(targetMessage?: MailDetail | null) {
+    const message = targetMessage ?? selectedMessage;
+    if (!message) {
+      showToast("No message selected", "error");
+      return;
+    }
+
+    const bridge =
+      typeof window !== "undefined"
+        ? (window.maximailDesktop as ElectronMailBridge | undefined)
+        : undefined;
+
+    if (!bridge?.printToPdf) {
+      await executePrint({
+        scope: "message",
+        includeHeaders: true,
+        includeQuoted: true,
+        format: "pdf"
+      });
+      return;
+    }
+
+    const html = buildPrintDocument([message], {
+      includeHeaders: true,
+      includeQuoted: true,
+      scope: "message"
+    });
+
+    const sanitizeFilePart = (value: string) =>
+      value.replace(/[^a-zA-Z0-9 ]/g, "").trim();
+    const safeTimestamp =
+      formatTimestamp(message.date)?.replace(/[^a-zA-Z0-9]/g, "-") ?? "undated";
+    const suggestedFilename = [
+      sanitizeFilePart(displaySender(message.from)),
+      sanitizeFilePart(message.subject || "No Subject").slice(0, 60),
+      safeTimestamp
+    ]
+      .filter(Boolean)
+      .join(" - ")
+      .concat(".pdf");
+
+    try {
+      const result = await bridge.printToPdf({
+        html,
+        suggestedFilename
+      });
+
+      if (result.saved && result.filePath) {
+        const normalizedPath = result.filePath.replaceAll("\\", "/");
+        const filename = normalizedPath.split("/").pop() ?? "PDF";
+        showToast(`Saved ${filename}`);
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Failed to save PDF",
+        "error"
+      );
+    }
+  }
+
   async function handlePrintAction() {
     await executePrint({
       scope: printScope,
@@ -16699,6 +17083,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       format: printFormat
     });
   }
+
+  const composeSubjectValueRef = useRef(composeSubject);
+  const composeToCountRef = useRef(composeToList.length);
+  const sortedMessagesRef = useRef(sortedMessages);
+
+  useEffect(() => {
+    composeSubjectValueRef.current = composeSubject;
+    composeToCountRef.current = composeToList.length;
+  }, [composeSubject, composeToList.length]);
+
+  useEffect(() => {
+    sortedMessagesRef.current = sortedMessages;
+  }, [sortedMessages]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -16773,9 +17170,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         if (composeOpen) {
           const editor = composeEditorRef.current;
           const hasContent =
-            composeToList.length > 0 ||
+            composeToCountRef.current > 0 ||
             (editor?.innerText?.trim().length ?? 0) > 2 ||
-            composeSubject.trim().length > 0;
+            composeSubjectValueRef.current.trim().length > 0;
 
           if (hasContent) {
             setDiscardConfirmOpen(true);
@@ -16831,22 +17228,25 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       if (!isEditing && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
         event.preventDefault();
+        const currentSortedMessages = sortedMessagesRef.current;
 
-        if (sortedMessages.length === 0) {
+        if (currentSortedMessages.length === 0) {
           return;
         }
 
-        const currentIndex = sortedMessages.findIndex(
+        const currentIndex = currentSortedMessages.findIndex(
           (message) => message.uid === (selectedMessage?.uid ?? selectedUid)
         );
 
         if (event.key === "ArrowDown") {
-          const next = sortedMessages[Math.min(currentIndex + 1, sortedMessages.length - 1)];
+          const next = currentSortedMessages[
+            Math.min(currentIndex + 1, currentSortedMessages.length - 1)
+          ];
           if (next) {
             void openMessage(next.uid);
           }
         } else {
-          const prev = sortedMessages[Math.max(currentIndex - 1, 0)];
+          const prev = currentSortedMessages[Math.max(currentIndex - 1, 0)];
           if (prev) {
             void openMessage(prev.uid);
           }
@@ -16864,15 +17264,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [
     cleanupMode,
     composeOpen,
-    composeSubject,
-    composeToList,
     contextMenu,
     listAreaContextMenu,
     bulkSelectionMenu,
     clearSelection,
     handleDeleteOne,
     handleForward,
-    handleBulkToggleRead,
     forceRefresh,
     handleReply,
     handleReplyAll,
@@ -16881,7 +17278,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     selectedUids.size,
     selectedUid,
     senderFilter,
-    sortedMessages,
     subjectFilter
   ]);
 
@@ -19272,6 +19668,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 </button>
                                 <button
                                   type="button"
+                                  className="thread-msg-action-btn"
+                                  title="Archive"
+                                  onClick={async (event) => {
+                                    event.stopPropagation();
+                                    const detail = await resolveMessageDetail(message.raw);
+                                    await handleArchive(detail);
+                                  }}
+                                >
+                                  Archive
+                                </button>
+                                <button
+                                  type="button"
                                   className="thread-msg-action-btn thread-msg-action-danger"
                                   title="Delete"
                                   onClick={async (event) => {
@@ -19511,7 +19919,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="email-toolbar">
                         <button
                           className="tb-btn"
-                          title="Reply"
+                          title="Reply (R)"
                           onClick={async (event) => {
                             event.stopPropagation();
                             const resolved = await resolveMessageDetail(message);
@@ -19535,7 +19943,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                         <button
                           className="tb-btn"
-                          title="Reply All"
+                          title="Reply All (⇧⌘R)"
                           onClick={async (event) => {
                             event.stopPropagation();
                             const resolved = await resolveMessageDetail(message);
@@ -19560,7 +19968,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                         <button
                           className="tb-btn"
-                          title="Forward"
+                          title="Forward (⇧⌘F)"
                           onClick={async (event) => {
                             event.stopPropagation();
                             const resolved = await resolveMessageDetail(message);
@@ -19612,7 +20020,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                         <button
                           className="tb-btn tb-btn-danger"
-                          title="Delete"
+                          title="Delete (⌫)"
                           onClick={async (event) => {
                             event.stopPropagation();
                             const resolved = await resolveMessageDetail(message);
@@ -19640,7 +20048,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                         <button
                           className="tb-btn"
-                          title={getReadToggleActionCopy(message.seen).title}
+                          title={`${getReadToggleActionCopy(message.seen).title} (U)`}
                           onClick={async (event) => {
                             event.stopPropagation();
                             const resolved = await resolveMessageDetail(message);
@@ -19734,10 +20142,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                         <button
                           className="tb-btn"
-                          title="Print"
-                          onClick={(event) => {
+                          title="Save as PDF (⌘P)"
+                          onClick={async (event) => {
                             event.stopPropagation();
-                            openPrintModal(message.uid);
+                            const resolved = await resolveMessageDetail(message);
+                            await saveAsPdf(resolved);
                           }}
                         >
                           <svg
@@ -19746,17 +20155,70 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="1.8"
+                            strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           >
-                            <rect x="6" y="3.5" width="12" height="5.5" rx="1" />
-                            <rect x="3" y="9" width="18" height="7" rx="2" />
-                            <rect x="7" y="14.5" width="10" height="6.5" rx="1" />
-                            <path d="M9 6h6" />
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <path d="M9 15v-2h3.5a1.5 1.5 0 0 1 0 3H9v2" />
                           </svg>
-                          <span>Print</span>
+                          <span>PDF</span>
                         </button>
+                        <div className="tb-more-wrap" ref={viewerMoreMenuUid === message.uid ? viewerMoreMenuRef : null}>
+                          <button
+                            className={`tb-btn ${viewerMoreMenuUid === message.uid ? "tb-btn-active" : ""}`}
+                            title="More actions"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setViewerMoreMenuUid((current) => (current === message.uid ? null : message.uid));
+                            }}
+                          >
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="6" r="1.5" fill="currentColor" />
+                              <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                              <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+                            </svg>
+                            <span>More</span>
+                          </button>
+                          {viewerMoreMenuUid === message.uid ? (
+                            <div className="tb-overflow-menu">
+                              <button
+                                className="tb-overflow-item"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setViewerMoreMenuUid(null);
+                                  openPrintModal(message.uid);
+                                }}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M6 9V3h12v6" />
+                                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                                  <rect x="6" y="14" width="12" height="7" rx="1" />
+                                </svg>
+                                <span>Print…</span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                       ) : null}
 
@@ -19850,7 +20312,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               >
                 <button
                   className="tb-btn"
-                  title="Reply"
+                  title="Reply (R)"
                   onClick={() => handleReply(selectedMessage)}
                 >
                   <svg
@@ -19870,7 +20332,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </button>
                 <button
                   className="tb-btn"
-                  title="Reply All"
+                  title="Reply All (⇧⌘R)"
                   onClick={() => handleReplyAll(selectedMessage)}
                 >
                   <svg
@@ -19891,7 +20353,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </button>
                 <button
                   className="tb-btn"
-                  title="Forward"
+                  title="Forward (⇧⌘F)"
                   onClick={() => handleForward(selectedMessage)}
                 >
                   <svg
@@ -19935,7 +20397,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </button>
                 <button
                   className="tb-btn tb-btn-danger"
-                  title="Delete"
+                  title="Delete (⌫)"
                   onClick={() => handleDeleteOne(selectedMessage)}
                 >
                   <svg
@@ -19959,7 +20421,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                 <button
                   className="tb-btn"
-                  title={getReadToggleActionCopy(selectedMessage.seen).title}
+                  title={`${getReadToggleActionCopy(selectedMessage.seen).title} (U)`}
                   onClick={() => handleToggleRead(selectedMessage)}
                 >
                   {selectedMessage.seen ? (
@@ -20041,8 +20503,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </button>
                 <button
                   className="tb-btn"
-                  title="Print"
-                  onClick={() => openPrintModal(selectedMessage.uid)}
+                  title="Save as PDF (⌘P)"
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    await saveAsPdf(selectedMessage);
+                  }}
                 >
                   <svg
                     width="15"
@@ -20050,17 +20515,71 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.8"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <rect x="6" y="3.5" width="12" height="5.5" rx="1" />
-                    <rect x="3" y="9" width="18" height="7" rx="2" />
-                    <rect x="7" y="14.5" width="10" height="6.5" rx="1" />
-                    <path d="M9 6h6" />
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <path d="M9 15v-2h3.5a1.5 1.5 0 0 1 0 3H9v2" />
                   </svg>
-                  <span>Print</span>
+                  <span>PDF</span>
                 </button>
+                <div className="tb-more-wrap" ref={viewerMoreMenuUid === selectedMessage.uid ? viewerMoreMenuRef : null}>
+                  <button
+                    className={`tb-btn ${viewerMoreMenuUid === selectedMessage.uid ? "tb-btn-active" : ""}`}
+                    title="More actions"
+                    onClick={() =>
+                      setViewerMoreMenuUid((current) =>
+                        current === selectedMessage.uid ? null : selectedMessage.uid
+                      )
+                    }
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="6" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+                    </svg>
+                    <span>More</span>
+                  </button>
+                  {viewerMoreMenuUid === selectedMessage.uid ? (
+                    <div className="tb-overflow-menu">
+                      <button
+                        className="tb-overflow-item"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setViewerMoreMenuUid(null);
+                          openPrintModal(selectedMessage.uid);
+                        }}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M6 9V3h12v6" />
+                          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                          <rect x="6" y="14" width="12" height="7" rx="1" />
+                        </svg>
+                        <span>Print…</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               ) : null}
 
@@ -20103,6 +20622,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           ) : (
             <div className="detail-empty">
               <div className="detail-empty-text">No message selected</div>
+              <div className="detail-empty-shortcuts">
+                <span className="detail-empty-shortcut"><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                <span className="detail-empty-shortcut"><kbd>R</kbd> Reply</span>
+                <span className="detail-empty-shortcut"><kbd>/</kbd> Search</span>
+                <span className="detail-empty-shortcut"><kbd>U</kbd> Read / Unread</span>
+              </div>
             </div>
           )}
           </div>
@@ -20206,6 +20731,43 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           <span style={{ fontSize: 12, color: "var(--text3)" }}>
                             {messages.length} messages · {senderGroups.length} senders
                           </span>
+                          {accounts.length > 1 ? (
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                marginTop: 4,
+                                fontSize: 11,
+                                color: "var(--text3)"
+                              }}
+                            >
+                              <span>Account</span>
+                              <select
+                                className="cleanup-account-select"
+                                value={activeAccountId ?? ""}
+                                onChange={(event) => {
+                                  const nextAccountId = event.target.value;
+                                  if (!nextAccountId || nextAccountId === activeAccountId) {
+                                    return;
+                                  }
+                                  const nextAccount = accounts.find(
+                                    (account) => account.id === nextAccountId
+                                  );
+                                  if (!nextAccount) {
+                                    return;
+                                  }
+                                  void activateAccount(nextAccount);
+                                }}
+                              >
+                                {accounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.email}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
                         </div>
                       </div>
                       <button
@@ -22067,6 +22629,39 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         </div>
       ) : null}
 
+      {deleteAccountConfirm ? (
+        <div className="modal-overlay" onMouseDown={() => setDeleteAccountConfirm(null)}>
+          <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Remove account?</div>
+            </div>
+            <div className="modal-body">
+              <div>This will disconnect the account from MaxiMail.</div>
+              {deleteAccountConfirm.isDefault ? (
+                <div className="settings-account-delete-note">
+                  This account is currently your default send account.
+                </div>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn-cancel" onClick={() => setDeleteAccountConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="modal-btn-delete"
+                onClick={async () => {
+                  const account = deleteAccountConfirm;
+                  setDeleteAccountConfirm(null);
+                  await deleteConfiguredAccount(account);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="modal settings-modal" onClick={(event) => event.stopPropagation()}>
@@ -22129,8 +22724,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-row-info">
                         <div className="settings-row-title">Density</div>
                         <div className="settings-row-sub">
-                          Controls font size and spacing of folders and prioritized
-                          senders
+                          Controls sidebar row spacing and label density only
                         </div>
                       </div>
                       <div className="settings-size-picker">
@@ -22142,18 +22736,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             }`}
                             onClick={() => setSidebarSize(size)}
                           >
-                            <span
-                              className="settings-size-icon"
-                              style={{
-                                fontSize:
-                                  size === "small"
-                                    ? "12px"
-                                    : size === "medium"
-                                      ? "15px"
-                                      : "18px"
-                              }}
-                            >
-                              A
+                            <span className="settings-size-icon-wrap" aria-hidden="true">
+                              <span
+                                className="settings-size-icon"
+                                style={{
+                                  fontSize:
+                                    size === "small"
+                                      ? "12px"
+                                      : size === "medium"
+                                        ? "15px"
+                                        : "18px"
+                                }}
+                              >
+                                A
+                              </span>
+                              <span className={`settings-density-bars settings-density-${size}`} />
                             </span>
                             <span className="settings-size-label">
                               {size.charAt(0).toUpperCase() + size.slice(1)}
@@ -22164,10 +22761,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     </div>
                     <div className="settings-row settings-card-row settings-theme-mode-row">
                       <div className="settings-row-info">
-                        <div className="settings-row-title">Theme mode</div>
+                        <div className="settings-row-title">Theme style</div>
                         <div className="settings-row-sub">
-                          Full applies atmosphere + accent; Highlight-only applies accent on
-                          neutral surfaces
+                          Full uses tinted surfaces plus accent presence. Highlight-only keeps surfaces mostly neutral and reserves accent for emphasis.
                         </div>
                       </div>
                       <div className="settings-theme-mode-picker">
@@ -22194,38 +22790,49 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-row-info">
                         <div className="settings-row-title">Theme color</div>
                         <div className="settings-row-sub">
-                          Choose the accent color used across the app interface
+                          Choose the accent palette used across interface controls
                         </div>
                       </div>
-                      <div className="settings-theme-picker">
-                        {([
-                          { key: "warm-paper", label: "Warm Paper", color: "#d97d54" },
-                          { key: "cool-slate", label: "Cool Slate", color: "#5b7394" },
-                          { key: "forest-mist", label: "Forest Mist", color: "#3d8b6e" },
-                          { key: "brushed-silver", label: "Brushed Silver", color: "#7a8694" }
-                        ] as const).map((themeOption) => {
-                          const active = accentTheme === themeOption.key;
-                          return (
-                            <button
-                              key={themeOption.key}
-                              type="button"
-                              onClick={() => setAccentTheme(themeOption.key)}
-                              className={`settings-theme-btn ${active ? "active" : ""}`}
-                              aria-pressed={active}
-                              data-theme-key={themeOption.key}
-                            >
-                              <span className="settings-theme-preview" aria-hidden="true">
-                                <span className="settings-theme-dot-wrap">
-                                  <span
-                                    className="settings-theme-dot"
-                                    style={{ "--theme-dot": themeOption.color } as CSSProperties}
-                                  />
+                      <div className="settings-theme-controls">
+                        <div className="settings-theme-picker">
+                          {([
+                            { key: "warm-paper", label: "Warm Paper", color: "#d97d54" },
+                            { key: "cool-slate", label: "Cool Slate", color: "#5b7394" },
+                            { key: "forest-mist", label: "Forest Mist", color: "#3d8b6e" },
+                            { key: "brushed-silver", label: "Brushed Silver", color: "#7a8694" }
+                          ] as const).map((themeOption) => {
+                            const active = accentTheme === themeOption.key;
+                            return (
+                              <button
+                                key={themeOption.key}
+                                type="button"
+                                onClick={() => setAccentTheme(themeOption.key)}
+                                className={`settings-theme-btn ${active ? "active" : ""}`}
+                                aria-pressed={active}
+                                data-theme-key={themeOption.key}
+                              >
+                                <span className="settings-theme-preview" aria-hidden="true">
+                                  <span className="settings-theme-dot-wrap">
+                                    <span
+                                      className="settings-theme-dot"
+                                      style={{ "--theme-dot": themeOption.color } as CSSProperties}
+                                    />
+                                  </span>
                                 </span>
-                              </span>
-                              <span className="settings-theme-label">{themeOption.label}</span>
-                            </button>
-                          );
-                        })}
+                                <span className="settings-theme-label">{themeOption.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {accentTheme !== "warm-paper" ? (
+                          <button
+                            type="button"
+                            className="settings-theme-reset-btn"
+                            onClick={() => setAccentTheme("warm-paper")}
+                          >
+                            Reset default
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -22240,32 +22847,50 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         <div className="settings-row-info">
                           <div className="settings-row-title">New email alerts</div>
                           <div className="settings-row-sub">
-                            {notifPermission === "granted"
-                              ? "OS notifications enabled — you'll see alerts when new mail arrives"
-                              : notifPermission === "denied"
-                                ? "Blocked in browser settings — open Safari \u203a Settings for this website to re-enable"
-                                : "Get an OS-level alert when new mail arrives, even if the tab is in the background"}
+                            {notifPermission === "denied"
+                              ? "Blocked in browser settings. Re-enable for this site, then turn alerts on."
+                              : "Show OS-level alerts when new mail arrives in the background."}
                           </div>
+                          {newEmailAlertsEnabled && notifPermission === "denied" ? (
+                            <div className="settings-row-sub settings-row-sub-state">
+                              Permission blocked
+                            </div>
+                          ) : null}
                         </div>
-                        {notifPermission === "default" ? (
-                          <button
-                            className="settings-notify-btn"
-                            onClick={() => {
-                              void requestNotificationPermission();
-                            }}
-                          >
-                            Enable
-                          </button>
-                        ) : notifPermission === "granted" ? (
-                          <span className="settings-notify-status on">
-                            <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                              <circle cx="12" cy="12" r="6" />
-                            </svg>
-                            <span>On</span>
+                        <button
+                          type="button"
+                          className={`mailbox-view-switch-btn ${
+                            newEmailAlertsEnabled ? "is-on" : ""
+                          }`}
+                          onClick={async () => {
+                            if (newEmailAlertsEnabled) {
+                              setNewEmailAlertsEnabled(false);
+                              return;
+                            }
+
+                            if (notifPermission === "denied") {
+                              showToast(
+                                "Notifications are blocked in browser settings for this site.",
+                                "error"
+                              );
+                              return;
+                            }
+
+                            if (notifPermission === "default") {
+                              const result = await requestNotificationPermission();
+                              if (result !== "granted") {
+                                return;
+                              }
+                            }
+
+                            setNewEmailAlertsEnabled(true);
+                          }}
+                          aria-pressed={newEmailAlertsEnabled}
+                        >
+                          <span className="mailbox-view-switch-track">
+                            <span className="mailbox-view-switch-thumb" />
                           </span>
-                        ) : (
-                          <span className="settings-notify-status off">Blocked</span>
-                        )}
+                        </button>
                       </div>
                     ) : notifPlatform.isIosSafariTab ? (
                       <div className="settings-row settings-card-row">
@@ -22277,6 +22902,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             Screen&quot;. Open the installed app to enable alerts.
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          className="mailbox-view-switch-btn"
+                          disabled
+                          aria-disabled="true"
+                          title="Not available in Safari tab mode"
+                        >
+                          <span className="mailbox-view-switch-track">
+                            <span className="mailbox-view-switch-thumb" />
+                          </span>
+                        </button>
                       </div>
                     ) : null}
 
@@ -22284,14 +22920,20 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <div className="settings-row-info">
                         <div className="settings-row-title">Tab badge</div>
                         <div className="settings-row-sub">
-                          Show unread count in the browser tab title — visible when
-                          MaxiMail is in the background
+                          Show unread count in browser tab title and app badge while
+                          MaxiMail is in the background.
                         </div>
                       </div>
-                      <span className="settings-always-on">
-                        <span className="settings-always-on-dot" />
-                        <span>Always on</span>
-                      </span>
+                      <button
+                        type="button"
+                        className={`mailbox-view-switch-btn ${tabBadgeEnabled ? "is-on" : ""}`}
+                        onClick={() => setTabBadgeEnabled((current) => !current)}
+                        aria-pressed={tabBadgeEnabled}
+                      >
+                        <span className="mailbox-view-switch-track">
+                          <span className="mailbox-view-switch-thumb" />
+                        </span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -22300,7 +22942,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="settings-body">
                 <div className="settings-section">
                   <div className="settings-section-header">
-                    <div className="settings-section-label">Email Accounts</div>
+                    <div>
+                      <div className="settings-section-label">Email Accounts</div>
+                      <div className="settings-section-subtle settings-account-header-subtle">
+                        Replies send from the original account. New messages use your
+                        default send account.
+                      </div>
+                    </div>
                     <button
                       className="settings-add-account-btn"
                       onClick={() => {
@@ -22308,19 +22956,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         openAddAccount();
                       }}
                     >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                      >
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                      Add Account
+                      Add account
                     </button>
                   </div>
 
@@ -22338,6 +22974,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         const isActive = account.id === activeAccountId;
                         const isEditing =
                           accountFormMode === "edit" && accountFormTarget === account.id;
+                        const secondaryIdentity =
+                          account.label && account.label !== account.email ? account.label : null;
 
                         return (
                           <div
@@ -22346,28 +22984,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               isEditing ? "editing" : ""
                             }`}
                           >
-                            <div
-                              className="settings-account-row-main"
-                              onClick={async () => {
-                                if (isActive) {
-                                  return;
-                                }
-                                setIsBusy(true);
-                                try {
-                                  await activateAccount(account, {
-                                    sync: true
-                                  });
-                                } catch (error) {
-                                  setStatus(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "Unable to switch accounts."
-                                  );
-                                } finally {
-                                  setIsBusy(false);
-                                }
-                              }}
-                            >
+                            <div className="settings-account-row-main">
                               <div
                                 className="settings-account-avatar"
                                 style={{
@@ -22380,28 +22997,27 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               >
                                 {getSenderInitials(account.label || account.email)}
                               </div>
-                              <div className="settings-account-info">
-                                <div className="settings-account-label">
-                                  {account.label || account.email}
-                                </div>
-                                <div className="settings-account-email">{account.email}</div>
-                              </div>
-                              <div className="settings-account-pills">
-                                {account.isDefault ? (
-                                  <span className="settings-account-pill">Default</span>
-                                ) : null}
-                                {isActive ? (
-                                  <span className="settings-account-pill active">Active</span>
+                              <div className="settings-account-info settings-account-info-primary">
+                                <div className="settings-account-label">{account.email}</div>
+                                {secondaryIdentity ? (
+                                  <div className="settings-account-email">{secondaryIdentity}</div>
                                 ) : null}
                               </div>
                             </div>
 
-                            <div className="settings-account-actions">
+                            <div className="settings-account-controls">
+                              <div className="settings-account-pills">
+                                {account.isDefault ? (
+                                  <span className="settings-account-pill">Default send</span>
+                                ) : null}
+                                {isActive ? (
+                                  <span className="settings-account-pill active">Viewing</span>
+                                ) : null}
+                              </div>
                               {!account.isDefault ? (
                                 <button
                                   type="button"
                                   className="settings-account-default-btn"
-                                  title="Set as default account"
                                   onClick={async (event) => {
                                     event.stopPropagation();
                                     setIsBusy(true);
@@ -22423,9 +23039,41 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     }
                                   }}
                                 >
-                                  Make Default
+                                  Set as default
                                 </button>
-                              ) : null}
+                              ) : (
+                                <span className="settings-account-action-label">Default send</span>
+                              )}
+                              {!isActive ? (
+                                <button
+                                  type="button"
+                                  className="settings-account-default-btn"
+                                  onClick={async (event) => {
+                                    event.stopPropagation();
+                                    setIsBusy(true);
+                                    try {
+                                      await activateAccount(account, {
+                                        sync: true
+                                      });
+                                    } catch (error) {
+                                      setStatus(
+                                        error instanceof Error
+                                          ? error.message
+                                          : "Unable to switch accounts."
+                                      );
+                                    } finally {
+                                      setIsBusy(false);
+                                    }
+                                  }}
+                                >
+                                  Switch to inbox
+                                </button>
+                              ) : (
+                                <span className="settings-account-action-label">Viewing</span>
+                              )}
+                            </div>
+
+                            <div className="settings-account-actions">
                               <button
                                 type="button"
                                 className={`settings-account-edit-btn ${
@@ -22458,10 +23106,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                               <button
                                 type="button"
                                 className="settings-account-delete-btn"
-                                title="Delete account"
+                                title="Remove account"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  void deleteConfiguredAccount(account);
+                                  setDeleteAccountConfirm(account);
                                 }}
                               >
                                 <svg
@@ -22551,664 +23199,208 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 {(() => {
                   const hasStoredAiKey = Boolean(aiSettings?.configured);
                   const hasStoredTavilyKey = Boolean(tavilySettings?.configured);
-                  const openAiOwnerLabel = aiSettings?.ownerLabel ?? "Current account";
-                  const tavilyOwnerLabel = tavilySettings?.ownerLabel ?? "Current account";
                   const openAiShowExpanded = replacingOpenAI;
                   const tavilyShowExpanded = replacingTavily;
+                  const aiMaskedKey = `••••${(aiSettingsLastFour ?? "0000")
+                    .slice(-4)
+                    .padStart(4, "0")}`;
+                  const tavilyMaskedKey = `••••${(tavilySettingsLastFour ?? "0000")
+                    .slice(-4)
+                    .padStart(4, "0")}`;
 
                   return (
-                    <>
-                      <div style={{ marginBottom: 20 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            marginBottom: 8
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 600,
-                              letterSpacing: "0.08em",
-                              textTransform: "uppercase",
-                              color: "var(--text3)"
-                            }}
-                          >
-                            AI Writing Assistant
-                          </span>
-                          <span
-                            style={{
-                              background: hasStoredAiKey
-                                ? "rgba(52,199,89,0.13)"
-                                : "var(--surface3)",
-                              color: hasStoredAiKey ? "#1a7f37" : "var(--text3)",
-                              fontSize: 11,
-                              fontWeight: 500,
-                              borderRadius: 6,
-                              padding: "2px 9px"
-                            }}
-                          >
-                            {hasStoredAiKey ? "Connected" : "Not connected"}
-                          </span>
+                    <div className="settings-ai-tab">
+                      <div className="settings-ai-surface settings-ai-surface-primary">
+                        <div className="settings-ai-header">AI Writing Assistant</div>
+                        <div className="settings-ai-description settings-ai-description-primary">
+                          Rewrite messages based on the outcome you want. Not tone — results.
                         </div>
-
-                        {!hasStoredAiKey && !openAiShowExpanded ? (
-                          <div
-                            style={{
-                              background: "var(--surface2)",
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              border: "0.5px solid var(--border)"
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 12,
-                                padding: "13px 14px"
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 34,
-                                  height: 34,
-                                  minWidth: 34,
-                                  borderRadius: "50%",
-                                  background: "var(--surface3)",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center"
-                                }}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                  <path
-                                    d="M8 4v8M4 8h8"
-                                    stroke="var(--text3)"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                  />
-                                </svg>
+                        <div className="settings-ai-capability-row" aria-hidden="true">
+                          <span className="settings-ai-capability-chip">Deescalate</span>
+                          <span className="settings-ai-capability-chip">Reduce Defensiveness</span>
+                          <span className="settings-ai-capability-chip">Executive Presence</span>
+                          <span className="settings-ai-capability-chip">Polite No</span>
+                          <span className="settings-ai-capability-chip">Decision-Ready</span>
+                        </div>
+                        <div className="settings-ai-safety-copy">
+                          Uses your API key only when you run a rewrite. Never scans your inbox.
+                        </div>
+                        <div className="settings-ai-summary-row">
+                          {hasStoredAiKey && !openAiShowExpanded ? (
+                            <div className="settings-ai-connection-row">
+                              <div className="settings-ai-connection-meta">
+                                <div className="settings-ai-connection-label">Connected</div>
+                                <div className="settings-ai-connection-key">{aiMaskedKey}</div>
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div
-                                  style={{ fontSize: 13, fontWeight: 500, color: "var(--text2)" }}
+                              <div className="settings-ai-connection-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-outline-btn"
+                                  onClick={() => setReplacingOpenAI(true)}
                                 >
-                                  No API key connected
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color: "var(--text3)",
-                                    marginTop: 2
+                                  Replace key
+                                </button>
+                                <button
+                                  type="button"
+                                  className="settings-ai-remove-btn"
+                                  disabled={aiSettingsRemoving}
+                                  onClick={() => {
+                                    void removeAiSettingsKey();
                                   }}
                                 >
-                                  Add a key to enable AI rewrite
-                                </div>
+                                  {aiSettingsRemoving ? "Removing..." : "Remove"}
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: 500,
-                                  color: "#fff",
-                                  background: "#0a84ff",
-                                  border: "none",
-                                  borderRadius: 7,
-                                  padding: "5px 12px",
-                                  cursor: "pointer"
-                                }}
-                                onClick={() => setReplacingOpenAI(true)}
-                              >
-                                Add key
-                              </button>
                             </div>
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              background: "var(--surface2)",
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              border: "0.5px solid var(--border)"
-                            }}
-                          >
-                            {hasStoredAiKey ? (
-                              <>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 12,
-                                    padding: "13px 14px"
-                                  }}
+                          ) : null}
+                          {!hasStoredAiKey && !openAiShowExpanded ? (
+                            <div className="settings-ai-connection-row">
+                              <div className="settings-ai-connection-meta" />
+                              <div className="settings-ai-connection-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-primary-btn"
+                                  onClick={() => setReplacingOpenAI(true)}
                                 >
-                                  <div
-                                    style={{
-                                      width: 34,
-                                      height: 34,
-                                      minWidth: 34,
-                                      borderRadius: "50%",
-                                      background: "#e8f4e8",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center"
-                                    }}
-                                  >
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path
-                                        d="M3.5 8.5l3 3 6-6"
-                                        stroke="#2d7a3a"
-                                        strokeWidth="1.8"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                      />
-                                    </svg>
-                                  </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div
-                                      style={{
-                                        fontSize: 13,
-                                        fontWeight: 500,
-                                        color: "var(--text)"
-                                      }}
-                                    >
-                                      OpenAI API key
-                                    </div>
-                                    <div
-                                      style={{
-                                        fontSize: 12,
-                                        color: "var(--text3)",
-                                        marginTop: 2
-                                      }}
-                                    >
-                                      {openAiOwnerLabel} · stored securely
-                                    </div>
-                                  </div>
-                                  {openAiShowExpanded ? (
-                                    <button
-                                      type="button"
-                                      style={{
-                                        fontSize: 12,
-                                        color: "var(--text3)",
-                                        background: "transparent",
-                                        border: "none",
-                                        padding: "5px 4px",
-                                        cursor: "pointer",
-                                        flexShrink: 0
-                                      }}
-                                      onClick={() => setReplacingOpenAI(false)}
-                                    >
-                                      Cancel
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      style={{
-                                        fontSize: 12,
-                                        color: "var(--text2)",
-                                        background: "var(--color-background-primary)",
-                                        border: "0.5px solid var(--border)",
-                                        borderRadius: 7,
-                                        padding: "5px 12px",
-                                        cursor: "pointer",
-                                        flexShrink: 0
-                                      }}
-                                      onClick={() => setReplacingOpenAI(true)}
-                                    >
-                                      Replace
-                                    </button>
-                                  )}
-                                </div>
-                                {!openAiShowExpanded ? (
-                                  <div
-                                    style={{
-                                      borderTop: "0.5px solid var(--border)",
-                                      padding: "9px 14px",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 6
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        width: 6,
-                                        height: 6,
-                                        borderRadius: "50%",
-                                        background: "#34c759",
-                                        minWidth: 6
-                                      }}
-                                    />
-                                    <span style={{ fontSize: 12, color: "var(--text3)" }}>
-                                      AI rewrite available
-                                    </span>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : null}
-
-                            {openAiShowExpanded ? (
-                              <div
-                                style={{
-                                  borderTop: hasStoredAiKey ? "0.5px solid var(--border)" : "none",
-                                  padding: "12px 14px",
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 10
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: 12,
-                                    color: "var(--text3)",
-                                    margin: "0 0 2px"
-                                  }}
-                                >
-                                  Enter a new key to replace the existing one
-                                </p>
-                                <input
-                                  type="password"
-                                  value={aiApiKeyInput}
-                                  onChange={(event) => {
-                                    setAiApiKeyInput(event.target.value);
-                                    setAiSettingsError(null);
-                                    setAiSettingsSuccess(null);
-                                  }}
-                                  placeholder="sk-..."
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  style={{
-                                    width: "100%",
-                                    boxSizing: "border-box",
-                                    background: "var(--color-background-primary)",
-                                    border: "0.5px solid var(--border)",
-                                    borderRadius: 8,
-                                    fontSize: 13,
-                                    padding: "9px 12px",
-                                    outline: "none"
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between"
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving
-                                    }
-                                    style={{
-                                      fontSize: 12,
-                                      color: "#d0230f",
-                                      background: "transparent",
-                                      border: "none",
-                                      padding: 0,
-                                      cursor: "pointer"
-                                    }}
-                                    onClick={() => {
-                                      void removeAiSettingsKey();
-                                    }}
-                                  >
-                                    {aiSettingsRemoving ? "Removing..." : "Remove key"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving
-                                    }
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: 500,
-                                      color: "#fff",
-                                      background: "#0a84ff",
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "7px 18px",
-                                      cursor: "pointer"
-                                    }}
-                                    onClick={() => {
-                                      void saveAiSettingsKey();
-                                    }}
-                                  >
-                                    {aiSettingsSaving ? "Saving..." : "Save"}
-                                  </button>
-                                </div>
+                                  Add API key
+                                </button>
                               </div>
-                            ) : null}
-                          </div>
-                        )}
-
+                            </div>
+                          ) : null}
+                          {openAiShowExpanded ? (
+                            <div className="settings-ai-edit-block">
+                              <input
+                                type="password"
+                                value={aiApiKeyInput}
+                                onChange={(event) => {
+                                  setAiApiKeyInput(event.target.value);
+                                  setAiSettingsError(null);
+                                  setAiSettingsSuccess(null);
+                                }}
+                                placeholder="sk-..."
+                                autoComplete="off"
+                                spellCheck={false}
+                                className="settings-ai-key-input"
+                              />
+                              <div className="settings-ai-edit-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-outline-btn"
+                                  onClick={() => setReplacingOpenAI(false)}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="settings-ai-primary-btn"
+                                  disabled={
+                                    aiSettingsSaving || aiSettingsTesting || aiSettingsRemoving
+                                  }
+                                  onClick={() => {
+                                    void saveAiSettingsKey();
+                                  }}
+                                >
+                                  {aiSettingsSaving ? "Saving..." : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         {aiSettingsError ? (
                           <div className="settings-ai-action-status error">{aiSettingsError}</div>
                         ) : null}
                         {aiSettingsSuccess ? (
                           <div className="settings-ai-action-status success">{aiSettingsSuccess}</div>
                         ) : null}
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "var(--text3)",
-                            margin: "7px 2px 0",
-                            lineHeight: 1.55
-                          }}
-                        >
-                          Bring your own OpenAI API key. Not a ChatGPT login — used only for
-                          composer rewrite requests in this account.
-                        </div>
                       </div>
 
-                      <div style={{ marginBottom: 20 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            marginBottom: 8
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                fontWeight: 600,
-                                letterSpacing: "0.08em",
-                                textTransform: "uppercase",
-                                color: "var(--text3)"
-                              }}
-                            >
-                              QuickFact
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: "var(--text3)",
-                                fontWeight: 400
-                              }}
-                            >
-                              via Tavily
-                            </span>
-                          </div>
-                          <span
-                            style={{
-                              background: hasStoredTavilyKey
-                                ? "rgba(52,199,89,0.13)"
-                                : "var(--surface3)",
-                              color: hasStoredTavilyKey ? "#1a7f37" : "var(--text3)",
-                              fontSize: 11,
-                              fontWeight: 500,
-                              borderRadius: 6,
-                              padding: "2px 9px"
-                            }}
-                          >
-                            {hasStoredTavilyKey ? "Connected" : "Not connected"}
-                          </span>
+                      <div className="settings-ai-surface settings-ai-surface-secondary">
+                        <div className="settings-ai-header">QuickFact</div>
+                        <div className="settings-ai-description">
+                          Pulls real-world facts and stats into your email as you write.
                         </div>
-
-                        {!hasStoredTavilyKey && !tavilyShowExpanded ? (
-                          <div
-                            style={{
-                              background: "var(--surface2)",
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              border: "0.5px solid var(--border)"
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 12,
-                                padding: "13px 14px"
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 34,
-                                  height: 34,
-                                  minWidth: 34,
-                                  borderRadius: "50%",
-                                  background: "var(--surface3)",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center"
-                                }}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                  <path
-                                    d="M8 4v8M4 8h8"
-                                    stroke="var(--text3)"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                  />
-                                </svg>
+                        <div className="settings-ai-safety-copy">
+                          Only runs when you trigger QuickFact.
+                        </div>
+                        <div className="settings-ai-summary-row">
+                          {hasStoredTavilyKey && !tavilyShowExpanded ? (
+                            <div className="settings-ai-connection-row">
+                              <div className="settings-ai-connection-meta">
+                                <div className="settings-ai-connection-label">Connected</div>
+                                <div className="settings-ai-connection-key">{tavilyMaskedKey}</div>
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div
-                                  style={{ fontSize: 13, fontWeight: 500, color: "var(--text2)" }}
+                              <div className="settings-ai-connection-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-outline-btn"
+                                  onClick={() => setReplacingTavily(true)}
                                 >
-                                  No API key connected
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color: "var(--text3)",
-                                    marginTop: 2
+                                  Replace key
+                                </button>
+                                <button
+                                  type="button"
+                                  className="settings-ai-remove-btn"
+                                  disabled={tavilySettingsRemoving}
+                                  onClick={() => {
+                                    void removeTavilySettingsKey();
                                   }}
                                 >
-                                  Add a key to enable QuickFact
-                                </div>
+                                  {tavilySettingsRemoving ? "Removing..." : "Remove"}
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: 500,
-                                  color: "#fff",
-                                  background: "#0a84ff",
-                                  border: "none",
-                                  borderRadius: 7,
-                                  padding: "5px 12px",
-                                  cursor: "pointer"
-                                }}
-                                onClick={() => setReplacingTavily(true)}
-                              >
-                                Add key
-                              </button>
                             </div>
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              background: "var(--surface2)",
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              border: "0.5px solid var(--border)"
-                            }}
-                          >
-                            {hasStoredTavilyKey ? (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 12,
-                                  padding: "13px 14px"
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: 34,
-                                    height: 34,
-                                    minWidth: 34,
-                                    borderRadius: "50%",
-                                    background: "#e8f4e8",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center"
-                                  }}
+                          ) : null}
+                          {!hasStoredTavilyKey && !tavilyShowExpanded ? (
+                            <div className="settings-ai-connection-row">
+                              <div className="settings-ai-connection-meta" />
+                              <div className="settings-ai-connection-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-primary-btn"
+                                  onClick={() => setReplacingTavily(true)}
                                 >
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path
-                                      d="M3.5 8.5l3 3 6-6"
-                                      stroke="#2d7a3a"
-                                      strokeWidth="1.8"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: 500,
-                                      color: "var(--text)"
-                                    }}
-                                  >
-                                    Tavily API key
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontSize: 12,
-                                      color: "var(--text3)",
-                                      marginTop: 2
-                                    }}
-                                  >
-                                    {tavilyOwnerLabel} · stored securely
-                                  </div>
-                                </div>
-                                {tavilyShowExpanded ? (
-                                  <button
-                                    type="button"
-                                    style={{
-                                      fontSize: 12,
-                                      color: "var(--text3)",
-                                      background: "transparent",
-                                      border: "none",
-                                      padding: "5px 4px",
-                                      cursor: "pointer",
-                                      flexShrink: 0
-                                    }}
-                                    onClick={() => setReplacingTavily(false)}
-                                  >
-                                    Cancel
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    style={{
-                                      fontSize: 12,
-                                      color: "var(--text2)",
-                                      background: "var(--color-background-primary)",
-                                      border: "0.5px solid var(--border)",
-                                      borderRadius: 7,
-                                      padding: "5px 12px",
-                                      cursor: "pointer",
-                                      flexShrink: 0
-                                    }}
-                                    onClick={() => setReplacingTavily(true)}
-                                  >
-                                    Replace
-                                  </button>
-                                )}
+                                  Add API key
+                                </button>
                               </div>
-                            ) : null}
-                            {tavilyShowExpanded ? (
-                              <div
-                                style={{
-                                  borderTop: hasStoredTavilyKey
-                                    ? "0.5px solid var(--border)"
-                                    : "none",
-                                  padding: "12px 14px",
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 10
+                            </div>
+                          ) : null}
+                          {tavilyShowExpanded ? (
+                            <div className="settings-ai-edit-block">
+                              <input
+                                type="password"
+                                value={tavilyApiKeyInput}
+                                onChange={(event) => {
+                                  setTavilyApiKeyInput(event.target.value);
+                                  setTavilySettingsError(null);
+                                  setTavilySettingsSuccess(null);
                                 }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: 12,
-                                    color: "var(--text3)",
-                                    margin: "0 0 2px"
+                                placeholder="tvly-..."
+                                autoComplete="off"
+                                spellCheck={false}
+                                className="settings-ai-key-input"
+                              />
+                              <div className="settings-ai-edit-actions">
+                                <button
+                                  type="button"
+                                  className="settings-ai-outline-btn"
+                                  onClick={() => setReplacingTavily(false)}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  className="settings-ai-primary-btn"
+                                  disabled={tavilySettingsSaving || tavilySettingsRemoving}
+                                  onClick={() => {
+                                    void saveTavilySettingsKey();
                                   }}
                                 >
-                                  Enter a new key to replace the existing one
-                                </p>
-                                <input
-                                  type="password"
-                                  value={tavilyApiKeyInput}
-                                  onChange={(event) => {
-                                    setTavilyApiKeyInput(event.target.value);
-                                    setTavilySettingsError(null);
-                                    setTavilySettingsSuccess(null);
-                                  }}
-                                  placeholder="tvly-..."
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  style={{
-                                    width: "100%",
-                                    boxSizing: "border-box",
-                                    background: "var(--color-background-primary)",
-                                    border: "0.5px solid var(--border)",
-                                    borderRadius: 8,
-                                    fontSize: 13,
-                                    padding: "9px 12px",
-                                    outline: "none"
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between"
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    disabled={tavilySettingsSaving || tavilySettingsRemoving}
-                                    style={{
-                                      fontSize: 12,
-                                      color: "#d0230f",
-                                      background: "transparent",
-                                      border: "none",
-                                      padding: 0,
-                                      cursor: "pointer"
-                                    }}
-                                    onClick={() => {
-                                      void removeTavilySettingsKey();
-                                    }}
-                                  >
-                                    {tavilySettingsRemoving ? "Removing..." : "Remove key"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={tavilySettingsSaving || tavilySettingsRemoving}
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: 500,
-                                      color: "#fff",
-                                      background: "#0a84ff",
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "7px 18px",
-                                      cursor: "pointer"
-                                    }}
-                                    onClick={() => {
-                                      void saveTavilySettingsKey();
-                                    }}
-                                  >
-                                    {tavilySettingsSaving ? "Saving..." : "Save"}
-                                  </button>
-                                </div>
+                                  {tavilySettingsSaving ? "Saving..." : "Save"}
+                                </button>
                               </div>
-                            ) : null}
-                          </div>
-                        )}
-
+                            </div>
+                          ) : null}
+                        </div>
                         {tavilySettingsError ? (
                           <div className="settings-ai-action-status error">{tavilySettingsError}</div>
                         ) : null}
@@ -23217,19 +23409,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             {tavilySettingsSuccess}
                           </div>
                         ) : null}
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "var(--text3)",
-                            margin: "7px 2px 0",
-                            lineHeight: 1.55
-                          }}
-                        >
-                          QuickFact retrieves context server-side using your Tavily key. Used only
-                          within this account.
-                        </div>
                       </div>
-                    </>
+                    </div>
                   );
                 })()}
               </div>
@@ -23944,7 +24125,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <button
                   type="button"
                   className="compose-header-btn"
-                  title={composeMinimized ? "Expand" : "Minimize"}
+                  title={composeMinimized ? "Expand composer" : "Minimize to title bar"}
                   onClick={() => {
                     setComposeToolbarMenuOpen(false);
                     setComposeToolbarMenuPosition(null);
@@ -24023,7 +24204,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => setShowCc((current) => !current)}
                     >
-                      Cc <span className="recipient-toggle-chevron">{showCc ? "▾" : "▸"}</span>
+                      Cc{" "}
+                      <span className="recipient-toggle-chevron">
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          style={{
+                            transform: showCc ? "rotate(0deg)" : "rotate(-90deg)",
+                            transition: "transform 0.14s ease"
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -24031,7 +24231,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => setShowBcc((current) => !current)}
                     >
-                      Bcc <span className="recipient-toggle-chevron">{showBcc ? "▾" : "▸"}</span>
+                      Bcc{" "}
+                      <span className="recipient-toggle-chevron">
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          style={{
+                            transform: showBcc ? "rotate(0deg)" : "rotate(-90deg)",
+                            transition: "transform 0.14s ease"
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -24041,7 +24260,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     >
                       Reply-To{" "}
                       <span className="recipient-toggle-chevron">
-                        {showReplyTo ? "▾" : "▸"}
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          style={{
+                            transform: showReplyTo ? "rotate(0deg)" : "rotate(-90deg)",
+                            transition: "transform 0.14s ease"
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
                       </span>
                     </button>
                   </div>
@@ -24167,8 +24402,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   }`}
                   title={
                     composeToolbarPreferences.mode === "expanded"
-                      ? "Collapse toolbar"
-                      : "Expand toolbar"
+                      ? "Collapse formatting toolbar"
+                      : "Expand formatting toolbar"
                   }
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -24191,13 +24426,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <polyline
-                      points={
-                        composeToolbarPreferences.mode === "expanded"
-                          ? "6 15 12 9 18 15"
-                          : "6 9 12 15 18 9"
-                      }
-                    />
+                    <line x1="4" y1="8" x2="20" y2="8" />
+                    {composeToolbarPreferences.mode === "expanded" ? (
+                      <line x1="4" y1="16" x2="14" y2="16" opacity="0.4" />
+                    ) : (
+                      <line x1="4" y1="16" x2="14" y2="16" />
+                    )}
                   </svg>
                 </button>
               </div>
@@ -24985,12 +25219,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   value={composeBody}
                   onChange={(event) => {
                     const nextValue = event.target.value;
-                    logDraftTrace("[DRAFT_BODY_WRITE]", {
-                      trigger: "plain-text-onchange",
-                      draftId: composeRestoreTraceRef.current.draftId,
-                      value: nextValue,
-                      valueLength: nextValue.length
-                    });
                     composeBodyRef.current = nextValue;
                     setComposeBody(nextValue);
                     updateComposeCounts(nextValue);
@@ -25097,20 +25325,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   onInput={(event) => {
                     const nextEditorText =
                       (event.currentTarget as HTMLDivElement).textContent ?? "";
-                    if (composeRestoreTraceRef.current.active) {
-                      logDraftTrace("[DRAFT_RESTORE]", {
-                        stage: "editor-on-input-during-restore",
-                        draftId: composeRestoreTraceRef.current.draftId,
-                        nextEditorText,
-                        currentComposeBody: composeBodyRef.current
-                      });
-                    }
-                    logDraftTrace("[DRAFT_BODY_WRITE]", {
-                      trigger: "editor-oninput-ref-sync",
-                      draftId: composeRestoreTraceRef.current.draftId,
-                      value: nextEditorText,
-                      valueLength: nextEditorText.length
-                    });
                     composeBodyRef.current = nextEditorText;
                     scheduleComposeEditorTextSync();
                   }}
@@ -25283,24 +25497,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 ) : null}
               </div>
               <div className="compose-footer-actions">
-                {!composeAiOpen ? (
-                  <button
-                    className="ghostButton compose-ai-open-btn"
-                    type="button"
-                    onClick={() => {
-                      openComposeAiPanel();
-                    }}
-                  >
-                    Elevate
-                  </button>
-                ) : null}
                 <button
                   className="modal-btn-cancel"
                   onClick={() => closeComposeDraft()}
                 >
                   Discard
                 </button>
-                <button className="modal-btn-confirm" onClick={handleSend} disabled={isBusy}>
+                <button
+                  className="modal-btn-confirm"
+                  onClick={() => void handleSend()}
+                  disabled={isBusy}
+                  title="Send message (⌘↵)"
+                >
                   Send
                 </button>
               </div>

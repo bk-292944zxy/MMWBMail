@@ -20,7 +20,8 @@ const bridge = {
   saveDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.saveDraft, input),
   loadDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.loadDraft, input),
   listDrafts: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.listDrafts, input),
-  deleteDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.deleteDraft, input)
+  deleteDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.deleteDraft, input),
+  printToPdf: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.printToPdf, input)
 };
 
 contextBridge.exposeInMainWorld("maximailDesktop", bridge);

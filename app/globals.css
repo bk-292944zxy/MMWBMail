@@ -4374,9 +4374,14 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .recipient-toggle-chevron {
-  font-size: 10px !important;
-  color: var(--text3) !important;
-  margin-left: 3px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-left: 2px !important;
+}
+
+.recipient-toggle-chevron svg {
+  display: block !important;
+  transition: transform 0.14s ease !important;
 }
 
 .compose-row-meta {
@@ -10335,7 +10340,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .autofilter-description {
   font-size: 12px !important;
-  color: var(--text3) !important;
+  color: var(--text) !important;
   line-height: 1.6 !important;
   background: var(--surface3) !important;
   border: 1px solid var(--border) !important;
@@ -10422,6 +10427,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex: 1 !important;
   font-size: 12px !important;
   color: var(--text3) !important;
+}
+
+.cleanup-account-select {
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  padding: 3px 8px !important;
+  max-width: 220px !important;
 }
 
 .cleanup-close {
@@ -11709,6 +11725,157 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   cursor: default !important;
 }
 
+.settings-ai-tab {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+}
+
+.settings-ai-surface {
+  border: 1px solid rgba(17, 24, 39, 0.06) !important;
+  border-radius: 12px !important;
+  background: rgba(60, 60, 67, 0.03) !important;
+}
+
+.settings-ai-surface-primary {
+  padding: 14px 16px !important;
+}
+
+.settings-ai-surface-secondary {
+  padding: 11px 16px !important;
+}
+
+.settings-ai-header {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--text3) !important;
+}
+
+.settings-ai-description {
+  margin-top: 8px !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  color: var(--text1) !important;
+}
+
+.settings-ai-description-primary {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.settings-ai-capability-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  margin-top: 10px !important;
+}
+
+.settings-ai-capability-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  border: 0.5px solid rgba(17, 24, 39, 0.08) !important;
+  background: rgba(60, 60, 67, 0.06) !important;
+  color: var(--text2) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  padding: 4px 9px !important;
+  white-space: nowrap !important;
+  user-select: none !important;
+  pointer-events: none !important;
+}
+
+.settings-ai-safety-copy {
+  margin-top: 9px !important;
+  font-size: 11px !important;
+  color: var(--text3) !important;
+  line-height: 1.5 !important;
+}
+
+.settings-ai-summary-row {
+  margin-top: 10px !important;
+}
+
+.settings-ai-connection-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+.settings-ai-connection-meta {
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+
+.settings-ai-connection-label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--text1) !important;
+}
+
+.settings-ai-connection-key {
+  margin-top: 2px !important;
+  font-size: 12px !important;
+  color: var(--text3) !important;
+}
+
+.settings-ai-connection-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  min-width: 270px !important;
+}
+
+.settings-ai-primary-btn {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  background: #0a84ff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  cursor: pointer !important;
+}
+
+.settings-ai-outline-btn {
+  font-size: 12px !important;
+  color: var(--text2) !important;
+  background: var(--surface2) !important;
+  border: 0.5px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 6px 12px !important;
+  cursor: pointer !important;
+}
+
+.settings-ai-edit-block {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.settings-ai-key-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: var(--color-background-primary) !important;
+  border: 0.5px solid var(--border) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  padding: 9px 12px !important;
+  outline: none !important;
+}
+
+.settings-ai-edit-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+}
+
 .sort-settings-account-list {
   display: flex !important;
   flex-direction: column !important;
@@ -11919,7 +12086,6 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .settings-add-account-btn {
   display: flex !important;
   align-items: center !important;
-  gap: 5px !important;
   background: none !important;
   border: 1px solid var(--border) !important;
   border-radius: 7px !important;
@@ -11965,9 +12131,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-account-row {
-  display: flex !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: 10px !important;
   padding: 8px 0 !important;
   border-bottom: 1px solid var(--border) !important;
   transition: background 0.1s !important;
@@ -11998,7 +12165,6 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   gap: 10px !important;
   flex: 1 !important;
   min-width: 0 !important;
-  cursor: pointer !important;
 }
 
 .settings-account-avatar {
@@ -12041,6 +12207,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   gap: 4px !important;
   flex-shrink: 0 !important;
+  justify-content: flex-end !important;
 }
 
 .settings-account-actions {
@@ -12048,13 +12215,21 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: center !important;
   gap: 2px !important;
   flex-shrink: 0 !important;
-  opacity: 0 !important;
-  transition: opacity 0.1s !important;
+  opacity: 0.72 !important;
+  transition: opacity 0.12s ease !important;
 }
 
 .settings-account-row:hover .settings-account-actions,
 .settings-account-row.editing .settings-account-actions {
   opacity: 1 !important;
+}
+
+.settings-account-controls {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  min-width: 0 !important;
 }
 
 .settings-account-default-btn {
@@ -12078,6 +12253,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-color: rgba(255, 107, 0, 0.3) !important;
   color: #ff6b00 !important;
   background: rgba(255, 107, 0, 0.05) !important;
+}
+
+.settings-account-action-label {
+  min-width: 104px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  color: var(--text3) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  background: rgba(60, 60, 67, 0.04) !important;
+  border: 1px solid rgba(17, 24, 39, 0.04) !important;
+  cursor: default !important;
+  user-select: none !important;
 }
 
 .settings-account-edit-btn {
@@ -12269,7 +12462,16 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
   color: var(--text3) !important;
-  margin-bottom: 8px !important;
+  margin-bottom: 6px !important;
+}
+
+.settings-modal .settings-body {
+  padding: 14px 18px !important;
+  gap: 14px !important;
+}
+
+.settings-modal .settings-section {
+  gap: 7px !important;
 }
 
 .settings-modal .settings-card-group {
@@ -12285,7 +12487,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border: none !important;
   border-radius: 0 !important;
   background: transparent !important;
-  padding: 14px 16px !important;
+  padding: 11px 14px !important;
 }
 
 .settings-modal .settings-card-row + .settings-card-row {
@@ -12307,7 +12509,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-modal .settings-size-picker {
-  width: 258px !important;
+  width: 272px !important;
   display: grid !important;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 0 !important;
@@ -12323,8 +12525,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-right: 0.5px solid var(--border) !important;
   border-radius: 0 !important;
   background: var(--surface2) !important;
-  padding: 8px 10px !important;
-  gap: 2px !important;
+  padding: 7px 8px !important;
+  gap: 3px !important;
+  align-items: flex-start !important;
 }
 
 .settings-modal .settings-size-btn:last-child {
@@ -12333,14 +12536,41 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .settings-modal .settings-size-btn.active {
   background: #fff !important;
-  color: #0a84ff !important;
-  border: 1.5px solid #0a84ff !important;
+  color: var(--accent) !important;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 70%, #0a84ff 30%) !important;
   margin: -1px !important;
   z-index: 1 !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12) !important;
 }
 
 .settings-modal .settings-size-icon {
   line-height: 1 !important;
+}
+
+.settings-size-icon-wrap {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 2px !important;
+}
+
+.settings-density-bars {
+  width: 16px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--text3) 70%, transparent 30%) !important;
+  display: block !important;
+}
+
+.settings-density-small {
+  height: 2px !important;
+}
+
+.settings-density-medium {
+  height: 4px !important;
+}
+
+.settings-density-large {
+  height: 6px !important;
 }
 
 .settings-modal .settings-size-label {
@@ -12349,7 +12579,32 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-modal .settings-size-btn.active .settings-size-label {
-  color: #0a84ff !important;
+  color: var(--accent) !important;
+}
+
+.settings-modal .settings-size-btn.active .settings-density-bars {
+  background: color-mix(in srgb, var(--accent) 80%, transparent 20%) !important;
+}
+
+.settings-modal .settings-theme-mode-picker {
+  border: 0.5px solid var(--border) !important;
+  border-radius: 10px !important;
+  padding: 2px !important;
+  background: var(--surface) !important;
+}
+
+.settings-modal .settings-theme-mode-btn {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--text2) !important;
+  min-height: 28px !important;
+}
+
+.settings-modal .settings-theme-mode-btn.active {
+  background: #fff !important;
+  color: var(--accent) !important;
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.12) !important;
 }
 
 .settings-modal .settings-notify-btn {
@@ -12404,7 +12659,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .settings-modal .settings-account-row {
   margin: 0 !important;
-  padding: 10px 14px !important;
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
+  gap: 12px !important;
+  padding: 8px 12px !important;
   border: none !important;
   border-top: 0.5px solid var(--border) !important;
 }
@@ -12422,12 +12679,20 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-modal .settings-account-label {
-  font-weight: 500 !important;
+  font-weight: 700 !important;
 }
 
 .settings-modal .settings-account-email {
   font-size: 12px !important;
   color: var(--text3) !important;
+}
+
+.settings-modal .settings-account-controls {
+  min-width: 340px !important;
+}
+
+.settings-modal .settings-account-pills {
+  min-width: 126px !important;
 }
 
 .settings-modal .settings-account-pill {
@@ -12440,8 +12705,22 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-modal .settings-account-pill.active {
-  background: rgba(10, 132, 255, 0.1) !important;
-  color: #0a84ff !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text2) 30%) !important;
+}
+
+.settings-account-header-subtle {
+  margin-top: 4px !important;
+  max-width: 54ch !important;
+}
+
+.settings-modal .settings-account-default-btn,
+.settings-modal .settings-account-action-label {
+  min-width: 104px !important;
+}
+
+.settings-account-delete-note {
+  margin-top: 10px !important;
 }
 
 .settings-modal .settings-ai-status-pill {
@@ -15277,6 +15556,29 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   flex-wrap: wrap !important;
 }
 
+.settings-theme-controls {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 6px !important;
+}
+
+.settings-theme-reset-btn {
+  border: 0.5px solid var(--border) !important;
+  background: var(--surface) !important;
+  color: var(--text2) !important;
+  border-radius: 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 4px 8px !important;
+  cursor: pointer !important;
+}
+
+.settings-theme-reset-btn:hover {
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+}
+
 .settings-theme-btn {
   display: inline-flex !important;
   align-items: center !important;
@@ -15311,9 +15613,16 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border: 1px solid var(--accent-border) !important;
   background: var(--accent-soft) !important;
   box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.24),
+    0 0 0 1px rgba(var(--accent-rgb), 0.32),
     0 6px 14px rgba(15, 23, 42, 0.08) !important;
   color: var(--text) !important;
+}
+
+.settings-row-sub-state {
+  margin-top: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #b42318 !important;
 }
 
 .settings-theme-preview {
