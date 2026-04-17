@@ -8585,7 +8585,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 :root[data-color-scheme="dark"] {
   color-scheme: dark !important;
   --bg: #111318 !important;
-  --surface: rgba(24, 26, 32, 0.96) !important;
+  --surface: rgba(24,26,32,0.96) !important;
   --surface2: #1c1e26 !important;
   --surface3: #23252f !important;
   --border: rgba(255,255,255,0.07) !important;
@@ -8606,148 +8606,116 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --shadow: 0 24px 80px rgba(0,0,0,0.6) !important;
 }
 
-html {
-  background: var(--bg) !important;
+/* Dark mode overrides for hardcoded light-mode colors */
+:root[data-color-scheme="dark"] .message-row {
+  background: var(--surface2) !important;
+  border-bottom: 1px solid var(--border) !important;
 }
 
-body,
-.shell,
-.workspace {
-  background: var(--bg) !important;
+:root[data-color-scheme="dark"] .message-row:hover {
+  background: var(--surface3) !important;
+}
+
+:root[data-color-scheme="dark"] .message-row.selected {
+  background: rgba(var(--accent-rgb), 0.10) !important;
+  border-left-color: var(--accent) !important;
+}
+
+:root[data-color-scheme="dark"] .thread-wrap.thread-selected {
+  background: rgba(var(--accent-rgb), 0.06) !important;
+}
+
+:root[data-color-scheme="dark"] .message-row.unread .row-sender {
   color: var(--text) !important;
 }
 
-.rail,
-.viewer,
-.composePanel,
-.toolbar,
-.viewerHeader,
-.panel,
-.folder,
-.messageList,
-.message-row,
-.filterStrip,
-.senderStatBar {
-  color: var(--text) !important;
+:root[data-color-scheme="dark"] .row-subject,
+:root[data-color-scheme="dark"] .row-date {
+  color: var(--text3) !important;
 }
 
-.rail,
-.viewer,
-.composePanel {
-  background: var(--surface) !important;
-  border-color: var(--border) !important;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.08) !important;
-  backdrop-filter: blur(24px) !important;
+:root[data-color-scheme="dark"] .message-row.unread::before,
+:root[data-color-scheme="dark"] .unread-dot {
+  background: var(--accent) !important;
 }
 
-.inbox {
+:root[data-color-scheme="dark"] .inbox,
+:root[data-color-scheme="dark"] .viewer {
+  background: var(--surface2) !important;
+}
+
+:root[data-color-scheme="dark"] .sort-toolbar,
+:root[data-color-scheme="dark"] .col-header-bar,
+:root[data-color-scheme="dark"] .filter-strip,
+:root[data-color-scheme="dark"] .inbox-header {
   background: var(--surface2) !important;
   border-color: var(--border) !important;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.08) !important;
 }
 
-.panel {
+:root[data-color-scheme="dark"] .viewerHeader {
   background: var(--surface2) !important;
   border-color: var(--border) !important;
 }
 
-.brand h1,
-.toolbar h2,
-.viewerHeader h2,
-.panelHeader h2,
-.detailMeta strong {
-  color: var(--text) !important;
+:root[data-color-scheme="dark"] .email-toolbar {
+  background: var(--surface2) !important;
+  border-color: var(--border) !important;
 }
 
-.supporting,
-.empty,
-.viewerMeta,
-label,
-.detailMeta span {
-  color: var(--text3) !important;
-}
-
-.empty-state {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 6px !important;
-  align-items: flex-start !important;
-}
-
-.empty-state-eyebrow {
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.08em !important;
-  text-transform: uppercase !important;
-  color: var(--text3) !important;
-}
-
-.empty-state-title {
-  font-size: 14px !important;
-  font-weight: 600 !important;
-  color: var(--text1) !important;
-}
-
-.empty-state-sub {
-  font-size: 12px !important;
-  line-height: 1.45 !important;
-  color: var(--text3) !important;
-  max-width: 34ch !important;
-}
-
-.empty-state-hint {
-  font-size: 11px !important;
-  line-height: 1.45 !important;
-  color: var(--text2) !important;
-  max-width: 34ch !important;
-}
-
-.empty-state-actionable {
-  gap: 10px !important;
-}
-
-.empty-state-cta {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-height: 34px !important;
-  padding: 7px 14px !important;
-  border: 1px solid rgba(15, 23, 42, 0.88) !important;
-  border-radius: 10px !important;
-  background: rgba(15, 23, 42, 0.94) !important;
-  color: #fff !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-}
-
-.empty-state-cta:hover {
-  background: rgba(15, 23, 42, 0.98) !important;
-  border-color: rgba(15, 23, 42, 0.98) !important;
-}
-
-.sidebar-mailbox-empty-state {
-  padding: 8px 14px 10px 14px !important;
-}
-
-.toolbar,
-.viewerHeader,
-.filterStrip,
-.senderStatBar,
-.sort-toolbar {
-  background: var(--surface) !important;
-  border-bottom-color: var(--border) !important;
-}
-
-.folder {
-  background: transparent !important;
-  border-color: transparent !important;
+:root[data-color-scheme="dark"] .tb-btn {
   color: var(--text2) !important;
 }
 
-.folder:hover {
-  background: rgba(60,60,67,0.06) !important;
+:root[data-color-scheme="dark"] .tb-btn:hover {
+  background: var(--surface3) !important;
   color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-modal .settings-size-btn.active,
+:root[data-color-scheme="dark"] .settings-modal .settings-theme-mode-btn.active {
+  background: var(--surface3) !important;
+  color: var(--accent) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-theme-btn {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  box-shadow: none !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-theme-btn:hover {
+  background: var(--surface2) !important;
+  transform: none !important;
+}
+
+:root[data-color-scheme="dark"] .modal {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .modal-header {
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-bar {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-result-area {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-window {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .cleanup-overlay {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
 }
 
 .folder.active {
@@ -14052,43 +14020,31 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --theme-atmo-pane-list-seam: #36465a !important;
 }
 
-/* ── Dark mode per-accent pane tokens ─────────────────────────────── */
+/* Dark mode per-accent atmospheric tokens */
 
 :root[data-color-scheme="dark"][data-accent-theme="warm-paper"],
 :root[data-color-scheme="dark"][data-theme="warm-paper"] {
   --accent: #e8855a !important;
-  --accent-rgb: 232, 133, 90 !important;
-  --accent-hover-solid: #d4724a !important;
-  --accent-light: rgba(232,133,90,0.14) !important;
-  --accent-dark: #c46040 !important;
-  --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 14% -10%, rgba(232,133,90,0.22), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(40,30,24,0.82), transparent 64%),
-    linear-gradient(180deg, #1e1812 0%, #181410 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(30, 24, 18, 0.88) !important;
-  --theme-atmo-pane-list-bg: rgba(36, 28, 22, 0.96) !important;
-  --theme-atmo-pane-reader-bg: rgba(42, 34, 27, 0.99) !important;
-  --theme-atmo-pane-menubar-bg: rgba(28, 22, 17, 0.95) !important;
+  --accent-rgb: 232,133,90 !important;
+  --theme-atmo-shell-bg: radial-gradient(1200px 420px at 14% -10%, rgba(232,133,90,0.22), transparent 62%), radial-gradient(980px 380px at 86% -12%, rgba(40,30,24,0.82), transparent 64%), linear-gradient(180deg, #1e1812 0%, #181410 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(30,24,18,0.88) !important;
+  --theme-atmo-pane-list-bg: rgba(36,28,22,0.96) !important;
+  --theme-atmo-pane-reader-bg: rgba(42,34,27,0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(28,22,17,0.95) !important;
   --theme-atmo-pane-rail-bg: #16110d !important;
   --theme-atmo-pane-sidebar-seam: #332820 !important;
-  --theme-atmo-pane-list-seam: #3d302660 !important;
+  --theme-atmo-pane-list-seam: #3d3026 !important;
 }
 
 :root[data-color-scheme="dark"][data-accent-theme="cool-slate"],
 :root[data-color-scheme="dark"][data-theme="cool-slate"] {
   --accent: #7a9dbf !important;
-  --accent-rgb: 122, 157, 191 !important;
-  --accent-hover-solid: #6b8eaf !important;
-  --accent-light: rgba(122,157,191,0.14) !important;
-  --accent-dark: #5c7f9e !important;
-  --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 12% -10%, rgba(122,157,191,0.20), transparent 62%),
-    radial-gradient(980px 380px at 88% -12%, rgba(18,24,34,0.80), transparent 64%),
-    linear-gradient(180deg, #131820 0%, #0f131a 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(18, 24, 34, 0.88) !important;
-  --theme-atmo-pane-list-bg: rgba(22, 28, 40, 0.96) !important;
-  --theme-atmo-pane-reader-bg: rgba(26, 33, 46, 0.99) !important;
-  --theme-atmo-pane-menubar-bg: rgba(16, 22, 32, 0.95) !important;
+  --accent-rgb: 122,157,191 !important;
+  --theme-atmo-shell-bg: radial-gradient(1200px 420px at 12% -10%, rgba(122,157,191,0.20), transparent 62%), radial-gradient(980px 380px at 88% -12%, rgba(18,24,34,0.80), transparent 64%), linear-gradient(180deg, #131820 0%, #0f131a 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(18,24,34,0.88) !important;
+  --theme-atmo-pane-list-bg: rgba(22,28,40,0.96) !important;
+  --theme-atmo-pane-reader-bg: rgba(26,33,46,0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(16,22,32,0.95) !important;
   --theme-atmo-pane-rail-bg: #0d1118 !important;
   --theme-atmo-pane-sidebar-seam: #1e2a3a !important;
   --theme-atmo-pane-list-seam: #243244 !important;
@@ -14097,18 +14053,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 :root[data-color-scheme="dark"][data-accent-theme="forest-mist"],
 :root[data-color-scheme="dark"][data-theme="forest-mist"] {
   --accent: #5aad8a !important;
-  --accent-rgb: 90, 173, 138 !important;
-  --accent-hover-solid: #4c9c7b !important;
-  --accent-light: rgba(90,173,138,0.14) !important;
-  --accent-dark: #3e8a6a !important;
-  --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 14% -10%, rgba(90,173,138,0.20), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(14,24,20,0.80), transparent 64%),
-    linear-gradient(180deg, #111a16 0%, #0d1611 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(16, 26, 22, 0.88) !important;
-  --theme-atmo-pane-list-bg: rgba(20, 30, 26, 0.96) !important;
-  --theme-atmo-pane-reader-bg: rgba(24, 36, 30, 0.99) !important;
-  --theme-atmo-pane-menubar-bg: rgba(14, 24, 20, 0.95) !important;
+  --accent-rgb: 90,173,138 !important;
+  --theme-atmo-shell-bg: radial-gradient(1200px 420px at 14% -10%, rgba(90,173,138,0.20), transparent 62%), radial-gradient(980px 380px at 86% -12%, rgba(14,24,20,0.80), transparent 64%), linear-gradient(180deg, #111a16 0%, #0d1611 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(16,26,22,0.88) !important;
+  --theme-atmo-pane-list-bg: rgba(20,30,26,0.96) !important;
+  --theme-atmo-pane-reader-bg: rgba(24,36,30,0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(14,24,20,0.95) !important;
   --theme-atmo-pane-rail-bg: #0a1410 !important;
   --theme-atmo-pane-sidebar-seam: #1a2e24 !important;
   --theme-atmo-pane-list-seam: #20382c !important;
@@ -14117,24 +14067,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 :root[data-color-scheme="dark"][data-accent-theme="brushed-silver"],
 :root[data-color-scheme="dark"][data-theme="brushed-silver"] {
   --accent: #9aaab8 !important;
-  --accent-rgb: 154, 170, 184 !important;
-  --accent-hover-solid: #8a9aaa !important;
-  --accent-light: rgba(154,170,184,0.14) !important;
-  --accent-dark: #7a8a98 !important;
-  --theme-atmo-shell-bg:
-    radial-gradient(1200px 420px at 14% -10%, rgba(154,170,184,0.16), transparent 62%),
-    radial-gradient(980px 380px at 86% -12%, rgba(20,22,26,0.80), transparent 64%),
-    linear-gradient(180deg, #151719 0%, #111315 100%) !important;
-  --theme-atmo-pane-sidebar-bg: rgba(20, 22, 27, 0.88) !important;
-  --theme-atmo-pane-list-bg: rgba(24, 26, 32, 0.96) !important;
-  --theme-atmo-pane-reader-bg: rgba(28, 30, 37, 0.99) !important;
-  --theme-atmo-pane-menubar-bg: rgba(18, 20, 25, 0.95) !important;
+  --accent-rgb: 154,170,184 !important;
+  --theme-atmo-shell-bg: radial-gradient(1200px 420px at 14% -10%, rgba(154,170,184,0.16), transparent 62%), radial-gradient(980px 380px at 86% -12%, rgba(20,22,26,0.80), transparent 64%), linear-gradient(180deg, #151719 0%, #111315 100%) !important;
+  --theme-atmo-pane-sidebar-bg: rgba(20,22,27,0.88) !important;
+  --theme-atmo-pane-list-bg: rgba(24,26,32,0.96) !important;
+  --theme-atmo-pane-reader-bg: rgba(28,30,37,0.99) !important;
+  --theme-atmo-pane-menubar-bg: rgba(18,20,25,0.95) !important;
   --theme-atmo-pane-rail-bg: #0e1014 !important;
   --theme-atmo-pane-sidebar-seam: #242830 !important;
   --theme-atmo-pane-list-seam: #2a2f38 !important;
 }
 
-/* Dark mode + full theme: use dark atmospheric pane tokens */
+/* Dark + full theme: use dark atmospheric pane tokens */
 :root[data-color-scheme="dark"][data-theme-mode="full"] {
   --pane-sidebar-bg: var(--theme-atmo-pane-sidebar-bg) !important;
   --pane-list-bg: var(--theme-atmo-pane-list-bg) !important;
@@ -14146,7 +14090,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --shell-gradient: var(--theme-atmo-shell-bg) !important;
 }
 
-/* Dark mode + highlight-only: neutral dark surfaces */
+/* Dark + highlight-only: neutral dark surfaces */
 :root[data-color-scheme="dark"][data-theme-mode="highlight-only"],
 :root[data-color-scheme="dark"][data-highlight-only="true"] {
   --pane-sidebar-bg: rgba(22, 24, 30, 0.90) !important;
@@ -14154,6 +14098,9 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   --pane-reader-bg: rgba(30, 32, 39, 0.99) !important;
   --pane-menubar-bg: rgba(20, 22, 28, 0.95) !important;
   --pane-rail-bg: #111318 !important;
+  --pane-sidebar-seam: rgba(255,255,255,0.06) !important;
+  --pane-list-seam: rgba(255,255,255,0.05) !important;
+  --shell-gradient: linear-gradient(180deg, #161820 0%, #12141c 100%) !important;
 }
 
 /* Explicit theme modes */
@@ -16966,4 +16913,85 @@ textarea:focus,
 
 .settings-scheme-btn.active .settings-scheme-label {
   color: var(--text) !important;
+}
+
+/* Dark mode token hardening + header/focus text fixes */
+:root[data-color-scheme="dark"][data-theme-mode="full"],
+:root[data-color-scheme="dark"][data-theme-mode="highlight-only"],
+:root[data-color-scheme="dark"][data-highlight-only="true"] {
+  --text: #e8e8ec !important;
+  --text2: rgba(232,232,236,0.72) !important;
+  --text3: rgba(232,232,236,0.44) !important;
+  --surface: rgba(24,26,32,0.96) !important;
+  --surface2: #1c1e26 !important;
+  --surface3: #23252f !important;
+  --border: rgba(255,255,255,0.09) !important;
+  --border2: rgba(255,255,255,0.14) !important;
+}
+
+:root[data-color-scheme="dark"] .inbox-header,
+:root[data-color-scheme="dark"] .inbox-control-band,
+:root[data-color-scheme="dark"] .col-header-bar,
+:root[data-color-scheme="dark"] .filter-strip,
+:root[data-color-scheme="dark"] .sort-toolbar {
+  background: var(--pane-list-header-bg) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .inbox-folder-line,
+:root[data-color-scheme="dark"] .inbox-header .inbox-title-block,
+:root[data-color-scheme="dark"] .inbox-header .inbox-title-block * {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .inbox-count-line,
+:root[data-color-scheme="dark"] .mobile-mailbox-context-line,
+:root[data-color-scheme="dark"] .inbox-account-name {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .col-chip,
+:root[data-color-scheme="dark"] .col-chip-date,
+:root[data-color-scheme="dark"] .sort-label,
+:root[data-color-scheme="dark"] .inbox-control-band .sort-toolbar .sort-btn-option {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .col-chip:hover,
+:root[data-color-scheme="dark"] .inbox-control-band .sort-toolbar .sort-btn-option:hover {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .date-focus-option {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .date-focus-option:hover,
+:root[data-color-scheme="dark"] .date-focus-option.active {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .sidebar-label,
+:root[data-color-scheme="dark"] .mailbox-view-label,
+:root[data-color-scheme="dark"] .sidebar-mailbox-account-email,
+:root[data-color-scheme="dark"] .sidebar-account-email,
+:root[data-color-scheme="dark"] .sidebar-tier-label-text {
+  color: var(--text2) !important;
+}
+
+/* Dark mode contrast bump + sender color correctness */
+:root[data-color-scheme="dark"] {
+  --text2: rgba(232,232,236,0.82) !important;
+  --text3: rgba(232,232,236,0.56) !important;
+}
+
+:root[data-color-scheme="dark"] .message-row .row-sender,
+:root[data-color-scheme="dark"] .thread-row .row-sender {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .message-row.unread .row-sender,
+:root[data-color-scheme="dark"] .thread-row.unread .row-sender {
+  color: var(--text) !important;
+  font-weight: 700 !important;
 }

@@ -7,6 +7,49 @@ import {
 } from "@/lib/mail-provider";
 import type { MailDetail, MailFolder, MailSummary, ReceivedMessageMedia } from "@/lib/mail-types";
 
+function sanitizeStoredPreview(preview: string, subject: string): string {
+  const trimmed = preview.trim();
+  if (!trimmed) return trimmed;
+
+  const normalized = trimmed.toLowerCase();
+
+  // Reject MIME boundary fragments
+  if (/content-type:\s*(text\/|multipart\/)/.test(normalized)) {
+    return "";
+  }
+
+  // Reject boundary-like tokens (long, no vowel clusters)
+  const noSpaces = normalized.replace(/\s+/g, "");
+  if (
+    noSpaces.length > 30 &&
+    /^[a-z0-9._\-=+/]+$/.test(noSpaces) &&
+    !/[aeiou]{2}/.test(noSpaces.slice(0, 20))
+  ) {
+    return "";
+  }
+
+  // Reject base64 blobs
+  if (
+    noSpaces.length > 40 &&
+    /^[a-z0-9+/]+=*$/.test(noSpaces) &&
+    (trimmed.match(/\s/g) ?? []).length < trimmed.length * 0.05
+  ) {
+    return "";
+  }
+
+  // Reject if no real words
+  if (!/[a-zA-Z]{3}/.test(trimmed)) {
+    return "";
+  }
+
+  // If preview just repeats the subject, return empty
+  if (trimmed.toLowerCase() === subject.trim().toLowerCase()) {
+    return "";
+  }
+
+  return trimmed;
+}
+
 type SyncMailAccountOptions = {
   folderPaths?: string[];
   includeBodies?: boolean;
@@ -149,7 +192,7 @@ function mapStoredSummary(message: {
     cc: message.cc ?? undefined,
     to: parseRecipients(message.toJson),
     subject: message.subject,
-    preview: message.preview,
+    preview: sanitizeStoredPreview(message.preview, message.subject),
     date: message.date.toISOString(),
     seen: message.seen,
     flagged: message.flagged,

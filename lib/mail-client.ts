@@ -77,7 +77,6 @@ function looksLikeHeaderPreview(value: string) {
     return true;
   }
 
-  // Known email header prefixes
   if (
     normalized.startsWith("return-path:") ||
     normalized.startsWith("delivered-to:") ||
@@ -93,9 +92,22 @@ function looksLikeHeaderPreview(value: string) {
     return true;
   }
 
-  // Reject content that is predominantly base64 characters with no spaces
-  // (base64 blocks have very few spaces and consist only of A-Za-z0-9+/=)
+  // MIME boundary fragment followed by content-type header
+  if (/content-type:\s*(text\/|multipart\/)/.test(normalized)) {
+    return true;
+  }
+
+  // Long token with no vowel clusters — looks like a boundary ID or message ID
   const noSpaces = normalized.replace(/\s+/g, "");
+  if (
+    noSpaces.length > 30 &&
+    /^[a-z0-9._\-=+/]+$/.test(noSpaces) &&
+    !/[aeiou]{2}/.test(noSpaces.slice(0, 20))
+  ) {
+    return true;
+  }
+
+  // Base64 blob — long, no spaces, only base64 chars
   if (
     noSpaces.length > 40 &&
     /^[a-z0-9+/]+=*$/.test(noSpaces) &&
@@ -104,15 +116,9 @@ function looksLikeHeaderPreview(value: string) {
     return true;
   }
 
-  // Reject content with very high ratio of non-ASCII or non-printable characters
-  // (encoded-word garbage, corrupted transfer encoding artifacts)
+  // High ratio of non-printable characters
   const nonPrintable = (value.match(/[^\x20-\x7E\s]/g) ?? []).length;
-  if (nonPrintable > 0 && nonPrintable / value.length > 0.3) {
-    return true;
-  }
-
-  // Reject content that looks like a MIME boundary or encoding artifact
-  if (/^[-_=]{4,}/.test(normalized) || /^[a-z0-9]{20,}$/.test(noSpaces)) {
+  if (nonPrintable > 0 && nonPrintable / value.length > 0.25) {
     return true;
   }
 
@@ -149,19 +155,14 @@ function isLikelyMimeNoiseLine(line: string) {
 }
 
 function looksLikeQuotedPrintable(text: string) {
-  // Soft line breaks (=\n) or hex-encoded sequences (=XX) are QP signatures
   return /=\r?\n/.test(text) || /=[A-Fa-f0-9]{2}/.test(text);
 }
 
 function stripMarkdownNoise(text: string) {
   return text
-    // Remove markdown image syntax entirely: ![alt](url)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    // Replace markdown links with just the link text: [text](url) → text
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    // Remove bare URLs
     .replace(/https?:\/\/\S+/g, "")
-    // Remove leftover markdown punctuation runs (|, *, -, #, > at line starts)
     .replace(/^[|*\-#>]+\s*/gm, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -172,20 +173,15 @@ function sanitizeBodySnippetCandidate(raw: string) {
     return "";
   }
 
-  // Decode quoted-printable if present (fixes mojibake and soft line break artifacts)
   const decoded = looksLikeQuotedPrintable(raw)
     ? decodeQuotedPrintable(raw)
     : raw;
 
-  // Strip style and script block contents before removing tags
-  // (tag stripping alone leaves raw CSS/JS text between the tags)
   const noStyleScript = decoded
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ");
 
   const plain = decodeHtmlEntities(noStyleScript).replace(/<[^>]+>/g, " ");
-
-  // Strip markdown noise for plain-text emails that contain markdown syntax
   const stripped = stripMarkdownNoise(plain);
 
   const cleanedLines = stripped
@@ -197,18 +193,13 @@ function sanitizeBodySnippetCandidate(raw: string) {
 }
 
 function decodeQuotedPrintable(value: string) {
-  // First collapse soft line breaks
   const collapsed = value.replace(/=\r?\n/g, "");
-
-  // Decode runs of consecutive =XX bytes together as UTF-8
-  // so multi-byte sequences like =E2=80=94 produce the correct Unicode character
   return collapsed.replace(/((?:=[A-Fa-f0-9]{2})+)/g, (run) => {
     const bytes = run.match(/=[A-Fa-f0-9]{2}/g) ?? [];
     const buf = Buffer.from(bytes.map((b) => parseInt(b.slice(1), 16)));
     try {
       return buf.toString("utf8");
     } catch {
-      // Fall back to individual char codes if UTF-8 decode fails
       return bytes.map((b) => String.fromCharCode(parseInt(b.slice(1), 16))).join("");
     }
   });
@@ -276,8 +267,6 @@ function extractMimeBodySection(
     return null;
   }
 
-  // If no encoding declared, check if the body looks like base64 and treat it as such.
-  // Multipart parts frequently omit the encoding header even when body is base64.
   const looksLikeBase64Body =
     !declaredEncoding &&
     /^[A-Za-z0-9+/\r\n]+=*[\r\n]*$/.test(body.trim()) &&
@@ -339,7 +328,6 @@ function extractBodySnippetFromSourceChunk(
       continue;
     }
 
-    // Must contain at least one word of 3+ real letters to be useful as a preview
     if (!/[a-zA-Z]{3}/.test(candidate)) {
       continue;
     }
