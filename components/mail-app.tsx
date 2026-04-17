@@ -148,10 +148,16 @@ import type {
 } from "@/lib/new-mail-view";
 import {
   AI_POLISH_CATEGORY,
-  AI_POLISH_CULTURE_REGIONS,
+  AI_POLISH_CULTURE_BROAD_REGIONS,
+  AI_POLISH_CULTURE_RELATIONSHIP_LABELS,
+  AI_POLISH_CULTURE_SENIORITY_LABELS,
   AI_POLISH_MODES,
   getAiPolishDefaultModifiersForMode,
   getAiPolishModifierDefinitionsForMode,
+  type AiPolishCultureBroadRegionId,
+  type AiPolishCultureCountryId,
+  type AiPolishCultureRecipientSeniority,
+  type AiPolishCultureRelationshipStage,
   type AiPolishCultureRegionId,
   type AiPolishModeDefinition,
   type AiPolishModeId,
@@ -260,6 +266,30 @@ const NEW_MAIL_SORT_PENDING_MUTATION_TTL_MS = 90_000;
 const NEW_MAIL_EXIT_ANIMATION_MS = 180;
 const LINK_SCAN_SOURCE_CHAR_LIMIT = 250_000;
 const LIGHTBOX_MIN_ACTIVATION_EDGE_PX = 160;
+const SETTINGS_SEARCH_INDEX: Array<{
+  keywords: string[];
+  tab: string;
+  sectionLabel: string;
+  rowTitle: string;
+}> = [
+  // Interface tab
+  { keywords: ["sidebar", "text", "size", "density", "font", "small", "medium", "large"], tab: "ui", sectionLabel: "Sidebar", rowTitle: "Sidebar text size" },
+  { keywords: ["theme", "style", "full", "highlight", "accent", "tinted", "surface"], tab: "ui", sectionLabel: "Sidebar", rowTitle: "Theme style" },
+  { keywords: ["theme", "color", "warm", "paper", "slate", "forest", "silver", "brushed", "accent", "palette"], tab: "ui", sectionLabel: "Sidebar", rowTitle: "Theme color" },
+  { keywords: ["notification", "alert", "email", "new mail", "desktop", "badge", "tab"], tab: "ui", sectionLabel: "Notifications", rowTitle: "New email alerts" },
+  { keywords: ["badge", "tab", "count", "unread"], tab: "ui", sectionLabel: "Notifications", rowTitle: "Tab badge" },
+  // Account tab
+  { keywords: ["account", "email", "imap", "smtp", "add", "remove", "password", "server", "host", "port"], tab: "account", sectionLabel: "Email Accounts", rowTitle: "Email Accounts" },
+  // AI tab
+  { keywords: ["ai", "openai", "api key", "gpt", "rewrite", "elevate", "polish", "quickfact", "tavily"], tab: "ai", sectionLabel: "AI", rowTitle: "AI Settings" },
+  // Sort Folders tab
+  { keywords: ["sort", "folder", "sidebar", "collapsed", "show", "hide", "sort folders"], tab: "sorting", sectionLabel: "Sort Folders", rowTitle: "Show sort folders in sidebar" },
+  { keywords: ["collapsed", "sidebar", "compact", "icon"], tab: "sorting", sectionLabel: "Sort Folders", rowTitle: "When collapsed, sidebar shows" },
+  // Blocked tab
+  { keywords: ["blocked", "sender", "block", "spam", "mute"], tab: "blocked", sectionLabel: "Blocked Senders", rowTitle: "Blocked Senders" },
+  // Rules tab
+  { keywords: ["rules", "keep", "recent", "auto", "delete", "days", "cleanup", "time"], tab: "rules", sectionLabel: "Keep Only Recent", rowTitle: "Keep Only Recent — Active Rules" },
+];
 
 type LightboxImage = {
   src: string;
@@ -293,6 +323,7 @@ type AccentTheme =
   | "brushed-silver"
   | "midnight-focus";
 type ThemeMode = "full" | "highlight-only";
+type ColorScheme = "light" | "dark" | "system";
 
 const LEGACY_ACCENT_THEME_MAP: Record<string, AccentTheme> = {
   orange: "warm-paper",
@@ -360,6 +391,7 @@ interface UserData {
     lightweightOnboardingDismissed: boolean;
     accentTheme: AccentTheme;
     themeMode: ThemeMode;
+    colorScheme: ColorScheme;
     newEmailAlertsEnabled: boolean;
     tabBadgeEnabled: boolean;
   };
@@ -386,6 +418,7 @@ const DEFAULT_USER_DATA: UserData = {
     lightweightOnboardingDismissed: false,
     accentTheme: "warm-paper",
     themeMode: "full",
+    colorScheme: "system",
     newEmailAlertsEnabled: true,
     tabBadgeEnabled: true
   }
@@ -4937,6 +4970,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [composeAiWantTwoOptions, setComposeAiWantTwoOptions] = useState(false);
   const [composeAiCultureRegion, setComposeAiCultureRegion] =
     useState<AiPolishCultureRegionId>("global");
+  const [composeAiCultureCountry, setComposeAiCultureCountry] =
+    useState<AiPolishCultureCountryId | null>(null);
+  const [composeAiCultureSeniority, setComposeAiCultureSeniority] =
+    useState<AiPolishCultureRecipientSeniority>("unknown");
+  const [composeAiCultureRelationship, setComposeAiCultureRelationship] =
+    useState<AiPolishCultureRelationshipStage>("unknown");
   const [composeAiPreviewOptionId, setComposeAiPreviewOptionId] = useState<string | null>(null);
   const [composeAiCategoryTooltip, setComposeAiCategoryTooltip] = useState<{
     text: string;
@@ -5024,11 +5063,34 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [addAccountConfirmationEmail, setAddAccountConfirmationEmail] = useState<string | null>(
     null
   );
+  const [serverFieldsExpanded, setServerFieldsExpanded] = useState(false);
   const [deleteAccountConfirm, setDeleteAccountConfirm] = useState<MailAccountSummary | null>(
     null
   );
   const [storedPasswordHintVisible, setStoredPasswordHintVisible] = useState(false);
   const [blockedSearch, setBlockedSearch] = useState("");
+  const [settingsSearch, setSettingsSearch] = useState("");
+  const settingsSearchQuery = settingsSearch.trim().toLowerCase();
+  const settingsSearchMatches = settingsSearchQuery.length > 0
+    ? SETTINGS_SEARCH_INDEX.filter(entry =>
+        entry.keywords.some(k => k.includes(settingsSearchQuery)) ||
+        entry.rowTitle.toLowerCase().includes(settingsSearchQuery) ||
+        entry.sectionLabel.toLowerCase().includes(settingsSearchQuery)
+      )
+    : null;
+  const settingsSearchMatchTabs = settingsSearchMatches
+    ? new Set(settingsSearchMatches.map(m => m.tab))
+    : null;
+
+  function isSettingsRowMatch(rowTitle: string) {
+    if (!settingsSearchMatches) return false;
+    return settingsSearchMatches.some(m => m.rowTitle === rowTitle);
+  }
+
+  function isSettingsRowDimmed(rowTitle: string) {
+    if (!settingsSearchMatches) return false;
+    return !settingsSearchMatches.some(m => m.rowTitle === rowTitle);
+  }
   const [selectedBlockedSenders, setSelectedBlockedSenders] = useState<Set<string>>(new Set());
   const [blockedSelectionAnchor, setBlockedSelectionAnchor] = useState<string | null>(null);
   const [editableActive, setEditableActive] = useState(false);
@@ -5090,6 +5152,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return "full";
     }
     return loadUserData().prefs.themeMode ?? "full";
+  });
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(() => {
+    if (typeof window === "undefined") {
+      return "system";
+    }
+    return loadUserData().prefs.colorScheme ?? "system";
+  });
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
   const [collapsedSortFolderVisibility, setCollapsedSortFolderVisibility] = useState<
     "essential_only" | "include_active_sort_folders"
@@ -7795,6 +7869,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setSidebarSize(data.prefs.sidebarSize);
     setAccentTheme(normalizeAccentTheme(data.prefs.accentTheme));
     setThemeMode(data.prefs.themeMode ?? "full");
+    setColorScheme((loadUserData().prefs.colorScheme as ColorScheme) ?? "system");
     setNewEmailAlertsEnabled(data.prefs.newEmailAlertsEnabled ?? true);
     setTabBadgeEnabled(data.prefs.tabBadgeEnabled ?? true);
     setDefaultSignature(data.prefs.signature);
@@ -7813,12 +7888,27 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  const resolvedDark =
+    colorScheme === "dark" || (colorScheme === "system" && systemPrefersDark);
+
+  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
     document.documentElement.setAttribute("data-accent-theme", accentTheme);
     document.documentElement.setAttribute("data-theme", accentTheme);
     document.documentElement.setAttribute("data-theme-mode", themeMode);
+    document.documentElement.setAttribute("data-color-scheme", resolvedDark ? "dark" : "light");
 
     // Legacy compatibility: keep old hook in sync while mode migration settles.
     if (themeMode === "highlight-only") {
@@ -7826,7 +7916,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     } else {
       document.documentElement.removeAttribute("data-highlight-only");
     }
-  }, [accentTheme, themeMode]);
+  }, [accentTheme, themeMode, resolvedDark]);
 
   useEffect(() => {
     if (!userDataReady || !activeAccountId) {
@@ -7862,6 +7952,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         lightweightOnboardingDismissed: onboardingStep === null,
         accentTheme,
         themeMode,
+        colorScheme,
         newEmailAlertsEnabled,
         tabBadgeEnabled
       }
@@ -7896,6 +7987,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     onboardingStep,
     accentTheme,
     themeMode,
+    colorScheme,
     newEmailAlertsEnabled,
     tabBadgeEnabled,
     userDataReady
@@ -9864,6 +9956,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setStatus(successMessage);
       showToast(accountFormMode === "add" ? "Account added" : "Account updated");
       setSettingsTab("account");
+      setSettingsSearch("");
       if (accountFormMode === "add") {
         setAddAccountConfirmationEmail(account.email);
       } else {
@@ -11841,6 +11934,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeAiModifiers([]);
     setComposeAiWantTwoOptions(false);
     setComposeAiCultureRegion("global");
+    setComposeAiCultureCountry(null);
+    setComposeAiCultureSeniority("unknown");
+    setComposeAiCultureRelationship("unknown");
     setComposeSelectionToolbarPos(null);
     setComposeAiError(null);
     setComposeAiPreview(null);
@@ -11867,6 +11963,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeAiModifiers([]);
     setComposeAiWantTwoOptions(false);
     setComposeAiCultureRegion("global");
+    setComposeAiCultureCountry(null);
+    setComposeAiCultureSeniority("unknown");
+    setComposeAiCultureRelationship("unknown");
     setComposeAiBusy(false);
     setComposeAiError(null);
     setComposeAiPreview(null);
@@ -12104,6 +12203,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       mode: composeAiMode,
       modifiers: composeAiModifiers,
       region: composeAiType === "polish" ? composeAiCultureRegion : null,
+      countryId:
+        composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+          ? composeAiCultureCountry ?? null
+          : null,
+      seniority:
+        composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+          ? composeAiCultureSeniority
+          : null,
+      relationshipStage:
+        composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+          ? composeAiCultureRelationship
+          : null,
       outputType
     });
 
@@ -12146,6 +12257,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         mode: composeAiMode,
         modifiers: composeAiModifiers,
         region: composeAiType === "polish" ? composeAiCultureRegion : undefined,
+        countryId:
+          composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+            ? composeAiCultureCountry ?? undefined
+            : undefined,
+        seniority:
+          composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+            ? composeAiCultureSeniority
+            : undefined,
+        relationshipStage:
+          composeAiType === "polish" && composeAiSelectedMode?.id === "culture"
+            ? composeAiCultureRelationship
+            : undefined,
         outputType
       });
       if (composeAiRequestSeqRef.current === requestSeq) {
@@ -13491,12 +13614,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setAccountFormSuccess(null);
     setAddAccountConfirmationEmail(null);
     setHasAppliedPreset(false);
+    setServerFieldsExpanded(false);
     setAccountFormTarget(null);
     setAccountFormMode("add");
   }
 
   function openAddAccountRecovery() {
     setSettingsTab("account");
+    setSettingsSearch("");
     setSettingsOpen(true);
     openAddAccount();
   }
@@ -13507,6 +13632,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setAccountFormTarget(null);
     setAddAccountConfirmationEmail(null);
     setHasAppliedPreset(false);
+    setServerFieldsExpanded(false);
   }
 
   async function handleAccountFormSubmit(event: FormEvent<HTMLFormElement>) {
@@ -13529,7 +13655,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     const imapPortId = `settings-account-${mode}-imap-port`;
     const smtpHostId = `settings-account-${mode}-smtp-host`;
     const smtpPortId = `settings-account-${mode}-smtp-port`;
-
     return (
       <>
         <div className="settings-section-label">{title}</div>
@@ -13541,171 +13666,52 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         <form
           className="settings-account-form"
           autoComplete="on"
-          onSubmit={(event) => {
-            void handleAccountFormSubmit(event);
-          }}
+          onSubmit={(event) => { void handleAccountFormSubmit(event); }}
         >
-          <div className="settings-section">
-            <div className="settings-section-label">IMAP / Incoming Mail</div>
-            <div className="settings-field-group">
-              <div className="settings-field">
-                <label htmlFor={emailId}>Email address</label>
-                <input
-                  id={emailId}
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={connection.email}
-                  onChange={(event) => {
-                    const email = event.target.value;
-                    const nextConnection = { ...connection, email };
-                    persistConnection(nextConnection);
-                  }}
-                  onBlur={(event) => {
-                    applyPresetFromEmail(event.target.value, false);
-                  }}
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div className="settings-field">
-                <label htmlFor={passwordId}>Password</label>
-                <input
-                  id={passwordId}
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={connection.password}
-                  onChange={(event) =>
-                    persistConnection({ ...connection, password: event.target.value })
-                  }
-                  placeholder="App password"
-                />
-                {storedPasswordHintVisible ? (
-                  <div className="settings-field-hint">
-                    Password is already stored securely for this account. Leave this blank to keep
-                    using it, or enter a new one to replace it.
-                  </div>
-                ) : null}
-              </div>
-              <div className="settings-field-row">
-                <div className="settings-field">
-                  <label htmlFor={imapHostId}>IMAP host</label>
-                  <input
-                    id={imapHostId}
-                    name="imapHost"
-                    autoComplete="off"
-                    value={connection.imapHost}
-                    onChange={(event) =>
-                      persistConnection({ ...connection, imapHost: event.target.value })
-                    }
-                    placeholder="imap.mailserver.com"
-                  />
+          {/* Primary fields row */}
+          <div className="account-form-primary-row">
+            <div className="settings-field account-form-email-field">
+              <label htmlFor={emailId}>Email address</label>
+              <input
+                id={emailId}
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={connection.email}
+                onChange={(event) => {
+                  const email = event.target.value;
+                  persistConnection({ ...connection, email });
+                }}
+                onBlur={(event) => {
+                  applyPresetFromEmail(event.target.value, false);
+                }}
+                placeholder="you@example.com"
+              />
+            </div>
+            <div className="settings-field account-form-password-field">
+              <label htmlFor={passwordId}>Password</label>
+              <input
+                id={passwordId}
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={connection.password}
+                onChange={(event) =>
+                  persistConnection({ ...connection, password: event.target.value })
+                }
+                placeholder="App password"
+              />
+              {storedPasswordHintVisible ? (
+                <div className="settings-field-hint">
+                  Stored securely. Leave blank to keep, or enter a new one to replace.
                 </div>
-                <div className="settings-field settings-field-short">
-                  <label htmlFor={imapPortId}>Port</label>
-                  <input
-                    id={imapPortId}
-                    name="imapPort"
-                    autoComplete="off"
-                    type="number"
-                    value={connection.imapPort}
-                    onChange={(event) =>
-                      persistConnection({
-                        ...connection,
-                        imapPort: Number(event.target.value)
-                      })
-                    }
-                  />
-                </div>
-              </div>
-              <label className="settings-field-checkbox">
-                <input
-                  type="checkbox"
-                  checked={connection.imapSecure}
-                  onChange={(event) =>
-                    persistConnection({
-                      ...connection,
-                      imapSecure: event.target.checked
-                    })
-                  }
-                />
-                <span>Secure IMAP</span>
-              </label>
+              ) : null}
             </div>
           </div>
 
-          <div className="settings-section">
-            <div className="settings-section-label">SMTP / Outgoing Mail</div>
-            <div className="settings-field-group">
-              <div className="settings-field-row">
-                <div className="settings-field">
-                  <label htmlFor={smtpHostId}>SMTP host</label>
-                  <input
-                    id={smtpHostId}
-                    name="smtpHost"
-                    autoComplete="off"
-                    value={connection.smtpHost}
-                    onChange={(event) =>
-                      persistConnection({ ...connection, smtpHost: event.target.value })
-                    }
-                    placeholder="smtp.mailserver.com"
-                  />
-                </div>
-                <div className="settings-field settings-field-short">
-                  <label htmlFor={smtpPortId}>Port</label>
-                  <input
-                    id={smtpPortId}
-                    name="smtpPort"
-                    autoComplete="off"
-                    type="number"
-                    value={connection.smtpPort}
-                    onChange={(event) =>
-                      persistConnection({
-                        ...connection,
-                        smtpPort: Number(event.target.value)
-                      })
-                    }
-                  />
-                </div>
-              </div>
-              <label className="settings-field-checkbox">
-                <input
-                  type="checkbox"
-                  checked={connection.smtpSecure}
-                  onChange={(event) =>
-                    persistConnection({
-                      ...connection,
-                      smtpSecure: event.target.checked
-                    })
-                  }
-                />
-                <span>Secure SMTP</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <div className="settings-section-label">Presets</div>
-            {hasInMotionPreset ? (
-              <div className="settings-preset-hint">
-                InMotion defaults are available for this address and are applied automatically when
-                needed.
-              </div>
-            ) : null}
-            <button
-              className="ghostButton"
-              type="button"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                applyInMotionPreset();
-              }}
-            >
-              {hasInMotionPreset ? "Reapply InMotion preset" : "Use InMotion preset"}
-            </button>
-          </div>
-
-          <div className="settings-footer-actions">
+          {/* Primary action */}
+          <div className="settings-footer-actions account-form-primary-actions">
             <button className="modal-btn-cancel" type="button" onClick={closeAccountForm}>
               Cancel
             </button>
@@ -13713,6 +13719,123 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               {mode === "add" ? "Add Account" : "Save Changes"}
             </button>
           </div>
+
+          {/* Server settings disclosure toggle */}
+          <button
+            type="button"
+            className="account-form-server-toggle"
+            onClick={() => setServerFieldsExpanded(prev => !prev)}
+            aria-expanded={serverFieldsExpanded}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ transform: serverFieldsExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            {serverFieldsExpanded ? "Hide server settings" : "Server settings"}
+          </button>
+
+          {/* Collapsible server fields */}
+          {serverFieldsExpanded ? (
+            <div className="account-form-server-fields">
+              <div className="settings-section">
+                <div className="settings-section-label">IMAP / Incoming Mail</div>
+                <div className="settings-field-group">
+                  <div className="settings-field-row">
+                    <div className="settings-field">
+                      <label htmlFor={imapHostId}>IMAP host</label>
+                      <input
+                        id={imapHostId}
+                        name="imapHost"
+                        autoComplete="off"
+                        value={connection.imapHost}
+                        onChange={(event) =>
+                          persistConnection({ ...connection, imapHost: event.target.value })
+                        }
+                        placeholder="imap.mailserver.com"
+                      />
+                    </div>
+                    <div className="settings-field settings-field-short">
+                      <label htmlFor={imapPortId}>Port</label>
+                      <input
+                        id={imapPortId}
+                        name="imapPort"
+                        autoComplete="off"
+                        type="number"
+                        value={connection.imapPort}
+                        onChange={(event) =>
+                          persistConnection({ ...connection, imapPort: Number(event.target.value) })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <label className="settings-field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={connection.imapSecure}
+                      onChange={(event) =>
+                        persistConnection({ ...connection, imapSecure: event.target.checked })
+                      }
+                    />
+                    <span>Secure IMAP</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-label">SMTP / Outgoing Mail</div>
+                <div className="settings-field-group">
+                  <div className="settings-field-row">
+                    <div className="settings-field">
+                      <label htmlFor={smtpHostId}>SMTP host</label>
+                      <input
+                        id={smtpHostId}
+                        name="smtpHost"
+                        autoComplete="off"
+                        value={connection.smtpHost}
+                        onChange={(event) =>
+                          persistConnection({ ...connection, smtpHost: event.target.value })
+                        }
+                        placeholder="smtp.mailserver.com"
+                      />
+                    </div>
+                    <div className="settings-field settings-field-short">
+                      <label htmlFor={smtpPortId}>Port</label>
+                      <input
+                        id={smtpPortId}
+                        name="smtpPort"
+                        autoComplete="off"
+                        type="number"
+                        value={connection.smtpPort}
+                        onChange={(event) =>
+                          persistConnection({ ...connection, smtpPort: Number(event.target.value) })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <label className="settings-field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={connection.smtpSecure}
+                      onChange={(event) =>
+                        persistConnection({ ...connection, smtpSecure: event.target.checked })
+                      }
+                    />
+                    <span>Secure SMTP</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </form>
       </>
     );
@@ -19250,11 +19373,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               />
               {isCurrentTrashView && activeAccountId ? (
                 <button
-                  className="compose-icon-btn"
+                  className="compose-icon-btn compose-icon-btn-empty-trash"
                   onClick={() => {
                     void emptyTrashForAccount(activeAccountId, currentFolderPath, currentAccountEmail);
                   }}
-                  title="Empty Trash"
+                  title="Empty Trash — permanently delete all messages in Trash"
+                  aria-label="Empty Trash"
                 >
                   <svg
                     width="17"
@@ -19265,11 +19389,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    aria-hidden="true"
                   >
+                    {/* Trash can body */}
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    <path d="M10 11v6M14 11v6" />
                     <path d="M9 6V4h6v2" />
+                    {/* X inside the can body indicating clear/empty — replaces the vertical lines */}
+                    <line x1="10" y1="11" x2="14" y2="16" />
+                    <line x1="14" y1="11" x2="10" y2="16" />
                   </svg>
                 </button>
               ) : (
@@ -23024,11 +23152,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       ) : null}
 
       {settingsOpen ? (
-        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setSettingsOpen(false);
+            setSettingsSearch("");
+          }}
+        >
           <div className="modal settings-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Settings</div>
-              <button className="modal-close" onClick={() => setSettingsOpen(false)}>
+              <button
+                className="modal-close"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setSettingsSearch("");
+                }}
+              >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m6 6 12 12" />
                   <path d="m18 6-12 12" />
@@ -23036,10 +23176,54 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </button>
             </div>
 
+            <div className="settings-search-wrap">
+              <svg
+                className="settings-search-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+              <input
+                className="settings-search"
+                type="search"
+                value={settingsSearch}
+                onChange={(event) => setSettingsSearch(event.target.value)}
+                placeholder="Search settings…"
+                aria-label="Search settings"
+              />
+              {settingsSearch.length > 0 ? (
+                <button
+                  type="button"
+                  className="settings-search-clear"
+                  onClick={() => setSettingsSearch("")}
+                  aria-label="Clear search"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m6 6 12 12" />
+                    <path d="m18 6-12 12" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+
             <div className="settings-tabs">
               <button
-                className={`settings-tab ${settingsTab === "ui" ? "active" : ""}`}
-                onClick={() => setSettingsTab("ui")}
+                className={`settings-tab ${settingsTab === "ui" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("ui") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("ui");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23057,8 +23241,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 Interface
               </button>
               <button
-                className={`settings-tab ${settingsTab === "account" ? "active" : ""}`}
-                onClick={() => setSettingsTab("account")}
+                className={`settings-tab ${settingsTab === "account" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("account") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("account");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23070,8 +23259,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 Account
               </button>
               <button
-                className={`settings-tab ${settingsTab === "ai" ? "active" : ""}`}
-                onClick={() => setSettingsTab("ai")}
+                className={`settings-tab ${settingsTab === "ai" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("ai") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("ai");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23082,8 +23276,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 AI
               </button>
               <button
-                className={`settings-tab ${settingsTab === "sorting" ? "active" : ""}`}
-                onClick={() => setSettingsTab("sorting")}
+                className={`settings-tab ${settingsTab === "sorting" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("sorting") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("sorting");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23094,8 +23293,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 Sort Folders
               </button>
               <button
-                className={`settings-tab ${settingsTab === "blocked" ? "active" : ""}`}
-                onClick={() => setSettingsTab("blocked")}
+                className={`settings-tab ${settingsTab === "blocked" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("blocked") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("blocked");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23106,8 +23310,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 Blocked
               </button>
               <button
-                className={`settings-tab ${settingsTab === "rules" ? "active" : ""}`}
-                onClick={() => setSettingsTab("rules")}
+                className={`settings-tab ${settingsTab === "rules" ? "active" : ""} ${
+                  settingsSearchMatches && !settingsSearchMatchTabs?.has("rules") ? "settings-tab-dimmed" : ""
+                }`}
+                onClick={() => {
+                  setSettingsTab("rules");
+                  setSettingsSearch("");
+                }}
               >
                 <span className="settings-tab-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -23122,10 +23331,78 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             {settingsTab === "ui" ? (
               <div className="settings-body">
                 <div className="settings-section">
+                  <div className="settings-section-label">Appearance</div>
+
+                  <div className="settings-card-group">
+                    <div
+                      className={`settings-row settings-card-row ${
+                        isSettingsRowMatch("Color scheme") ? "settings-row-match" : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("Color scheme")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
+                      <div className="settings-row-info">
+                        <div className="settings-row-title">Color scheme</div>
+                        <div className="settings-row-sub">
+                          Light always. Dark always. System follows your device.
+                        </div>
+                      </div>
+                      <div className="settings-color-scheme-picker">
+                        {([
+                          { key: "light", label: "Light" },
+                          { key: "system", label: "System" },
+                          { key: "dark", label: "Dark" }
+                        ] as const).map((option) => {
+                          const active = colorScheme === option.key;
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              className={`settings-scheme-btn ${active ? "active" : ""}`}
+                              aria-pressed={active}
+                              onClick={() => setColorScheme(option.key)}
+                            >
+                              <span className="settings-scheme-icon" aria-hidden="true">
+                                {option.key === "light" ? (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="4" />
+                                    <path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77" />
+                                  </svg>
+                                ) : option.key === "dark" ? (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 12.79A9 9 0 1 1 11.21 3c0 .28 0 .56.03.84A7 7 0 0 0 20.16 12c.28.03.56.03.84.03z" />
+                                  </svg>
+                                ) : (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="3" y="4" width="18" height="14" rx="2" />
+                                    <path d="M8 20h8" />
+                                  </svg>
+                                )}
+                              </span>
+                              <span className="settings-scheme-label">{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-section">
                   <div className="settings-section-label">Sidebar</div>
 
                   <div className="settings-card-group">
-                    <div className="settings-row settings-card-row">
+                    <div
+                      className={`settings-row settings-card-row ${
+                        isSettingsRowMatch("Sidebar text size") ? "settings-row-match" : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("Sidebar text size")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
                       <div className="settings-row-info">
                         <div className="settings-row-title">Sidebar text size</div>
                         <div className="settings-row-sub">
@@ -23164,7 +23441,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         ))}
                       </div>
                     </div>
-                    <div className="settings-row settings-card-row settings-theme-mode-row">
+                    <div
+                      className={`settings-row settings-card-row settings-theme-mode-row ${
+                        isSettingsRowMatch("Theme style") ? "settings-row-match" : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("Theme style")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
                       <div className="settings-row-info">
                         <div className="settings-row-title">Theme style</div>
                         <div className="settings-row-sub">
@@ -23191,7 +23476,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         })}
                       </div>
                     </div>
-                    <div className="settings-row settings-card-row settings-theme-color-row">
+                    <div
+                      className={`settings-row settings-card-row settings-theme-color-row ${
+                        isSettingsRowMatch("Theme color") ? "settings-row-match" : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("Theme color")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
                       <div className="settings-row-info">
                         <div className="settings-row-title">Theme color</div>
                         <div className="settings-row-sub">
@@ -23248,7 +23541,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                   <div className="settings-card-group">
                     {notifPlatform.canWebNotify ? (
-                      <div className="settings-row settings-card-row">
+                      <div
+                        className={`settings-row settings-card-row ${
+                          isSettingsRowMatch("New email alerts") ? "settings-row-match" : ""
+                        } ${
+                          settingsSearchQuery && isSettingsRowDimmed("New email alerts")
+                            ? "settings-row-dimmed"
+                            : ""
+                        }`}
+                      >
                         <div className="settings-row-info">
                           <div className="settings-row-title">New email alerts</div>
                           <div className="settings-row-sub">
@@ -23298,7 +23599,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                       </div>
                     ) : notifPlatform.isIosSafariTab ? (
-                      <div className="settings-row settings-card-row">
+                      <div
+                        className={`settings-row settings-card-row ${
+                          isSettingsRowMatch("New email alerts") ? "settings-row-match" : ""
+                        } ${
+                          settingsSearchQuery && isSettingsRowDimmed("New email alerts")
+                            ? "settings-row-dimmed"
+                            : ""
+                        }`}
+                      >
                         <div className="settings-row-info">
                           <div className="settings-row-title">New email alerts</div>
                           <div className="settings-row-sub">
@@ -23321,7 +23630,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       </div>
                     ) : null}
 
-                    <div className="settings-row settings-card-row">
+                    <div
+                      className={`settings-row settings-card-row ${
+                        isSettingsRowMatch("Tab badge") ? "settings-row-match" : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("Tab badge")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
                       <div className="settings-row-info">
                         <div className="settings-row-title">Tab badge</div>
                         <div className="settings-row-sub">
@@ -23831,7 +24148,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <div>You control when they show in your sidebar.</div>
                   </div>
                   <div className="sort-settings-controls-group">
-                    <div className="settings-row sort-settings-visibility-row sort-settings-control-row">
+                    <div
+                      className={`settings-row sort-settings-visibility-row sort-settings-control-row ${
+                        isSettingsRowMatch("Show sort folders in sidebar")
+                          ? "settings-row-match"
+                          : ""
+                      } ${
+                        settingsSearchQuery &&
+                        isSettingsRowDimmed("Show sort folders in sidebar")
+                          ? "settings-row-dimmed"
+                          : ""
+                      }`}
+                    >
                       <div className="settings-row-info">
                         <div className="settings-row-title">Show sort folders in sidebar</div>
                         <div className="settings-row-sub">
@@ -23855,6 +24183,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     <div
                       className={`settings-row sort-settings-visibility-row sort-settings-control-row sort-settings-control-row-child ${
                         sortFoldersHidden ? "sort-settings-control-row-disabled" : ""
+                      } ${
+                        isSettingsRowMatch("When collapsed, sidebar shows")
+                          ? "settings-row-match"
+                          : ""
+                      } ${
+                        settingsSearchQuery && isSettingsRowDimmed("When collapsed, sidebar shows")
+                          ? "settings-row-dimmed"
+                          : ""
                       }`}
                     >
                       <div className="settings-row-info">
@@ -25382,6 +25718,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         className="ghostButton"
                         onClick={() => {
                           setSettingsTab("ai");
+                          setSettingsSearch("");
                           setSettingsOpen(true);
                         }}
                       >
@@ -25412,6 +25749,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           className="ghostButton compose-ai-action-secondary"
                           onClick={() => {
                             setSettingsTab("ai");
+                            setSettingsSearch("");
                             setSettingsOpen(true);
                           }}
                         >
@@ -25496,6 +25834,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     setComposeAiMode(mode.id);
                                     if (composeAiType === "polish") {
                                       setComposeAiCultureRegion("global");
+                                      setComposeAiCultureCountry(null);
+                                      setComposeAiCultureSeniority("unknown");
+                                      setComposeAiCultureRelationship("unknown");
                                       setComposeAiModifiers(
                                         getAiPolishDefaultModifiersForMode(mode.id as AiPolishModeId)
                                       );
@@ -25540,26 +25881,105 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                     : `${composeAiModifiers.length}/3 selected`}
                                 </div>
                               </div>
-                              {composeAiType === "polish" &&
-                              composeAiSelectedMode?.id === "culture" ? (
-                                <label className="compose-ai-region-control">
-                                  <span className="compose-ai-region-label">Region</span>
-                                  <select
-                                    className="compose-ai-region-select"
-                                    value={composeAiCultureRegion}
-                                    onChange={(event) =>
-                                      setComposeAiCultureRegion(
-                                        event.target.value as AiPolishCultureRegionId
-                                      )
-                                    }
-                                  >
-                                    {AI_POLISH_CULTURE_REGIONS.map((region) => (
-                                      <option key={region.id} value={region.id}>
-                                        {region.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
+                              {composeAiSelectedMode?.id === "culture" ? (
+                                <div className="compose-ai-culture-context">
+                                  <div className="compose-ai-culture-field">
+                                    <label className="compose-ai-culture-label">Region</label>
+                                    <select
+                                      className="compose-ai-culture-select"
+                                      value={composeAiCultureRegion}
+                                      onChange={(e) => {
+                                        setComposeAiCultureRegion(
+                                          e.target.value as AiPolishCultureBroadRegionId
+                                        );
+                                        setComposeAiCultureCountry(null);
+                                      }}
+                                    >
+                                      {AI_POLISH_CULTURE_BROAD_REGIONS.map((r) => (
+                                        <option key={r.id} value={r.id}>
+                                          {r.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {(() => {
+                                    const region = AI_POLISH_CULTURE_BROAD_REGIONS.find(
+                                      (r) => r.id === composeAiCultureRegion
+                                    );
+                                    return region && region.countries.length > 0 ? (
+                                      <div className="compose-ai-culture-field">
+                                        <label className="compose-ai-culture-label">
+                                          Country (optional)
+                                        </label>
+                                        <select
+                                          className="compose-ai-culture-select"
+                                          value={composeAiCultureCountry ?? ""}
+                                          onChange={(e) =>
+                                            setComposeAiCultureCountry(
+                                              e.target.value
+                                                ? (e.target.value as AiPolishCultureCountryId)
+                                                : null
+                                            )
+                                          }
+                                        >
+                                          <option value="">Broad region only</option>
+                                          {region.countries.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ) : null;
+                                  })()}
+
+                                  <div className="compose-ai-culture-field">
+                                    <label className="compose-ai-culture-label">Recipient</label>
+                                    <select
+                                      className="compose-ai-culture-select"
+                                      value={composeAiCultureSeniority}
+                                      onChange={(e) =>
+                                        setComposeAiCultureSeniority(
+                                          e.target.value as AiPolishCultureRecipientSeniority
+                                        )
+                                      }
+                                    >
+                                      {(
+                                        Object.entries(
+                                          AI_POLISH_CULTURE_SENIORITY_LABELS
+                                        ) as [AiPolishCultureRecipientSeniority, string][]
+                                      ).map(([id, label]) => (
+                                        <option key={id} value={id}>
+                                          {label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div className="compose-ai-culture-field">
+                                    <label className="compose-ai-culture-label">Relationship</label>
+                                    <select
+                                      className="compose-ai-culture-select"
+                                      value={composeAiCultureRelationship}
+                                      onChange={(e) =>
+                                        setComposeAiCultureRelationship(
+                                          e.target.value as AiPolishCultureRelationshipStage
+                                        )
+                                      }
+                                    >
+                                      {(
+                                        Object.entries(
+                                          AI_POLISH_CULTURE_RELATIONSHIP_LABELS
+                                        ) as [AiPolishCultureRelationshipStage, string][]
+                                      ).map(([id, label]) => (
+                                        <option key={id} value={id}>
+                                          {label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
                               ) : (
                                 <div className="compose-ai-modifier-list">
                                   {composeAiAvailableModifiers.map((modifier) => (

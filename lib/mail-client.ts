@@ -77,6 +77,7 @@ function looksLikeHeaderPreview(value: string) {
     return true;
   }
 
+  // Known email header prefixes
   if (
     normalized.startsWith("return-path:") ||
     normalized.startsWith("delivered-to:") ||
@@ -88,7 +89,34 @@ function looksLikeHeaderPreview(value: string) {
     return true;
   }
 
-  return normalized.includes("return-path:") && normalized.includes("delivered-to:");
+  if (normalized.includes("return-path:") && normalized.includes("delivered-to:")) {
+    return true;
+  }
+
+  // Reject content that is predominantly base64 characters with no spaces
+  // (base64 blocks have very few spaces and consist only of A-Za-z0-9+/=)
+  const noSpaces = normalized.replace(/\s+/g, "");
+  if (
+    noSpaces.length > 40 &&
+    /^[a-z0-9+/]+=*$/.test(noSpaces) &&
+    (normalized.match(/\s/g) ?? []).length < normalized.length * 0.05
+  ) {
+    return true;
+  }
+
+  // Reject content with very high ratio of non-ASCII or non-printable characters
+  // (encoded-word garbage, corrupted transfer encoding artifacts)
+  const nonPrintable = (value.match(/[^\x20-\x7E\s]/g) ?? []).length;
+  if (nonPrintable > 0 && nonPrintable / value.length > 0.3) {
+    return true;
+  }
+
+  // Reject content that looks like a MIME boundary or encoding artifact
+  if (/^[-_=]{4,}/.test(normalized) || /^[a-z0-9]{20,}$/.test(noSpaces)) {
+    return true;
+  }
+
+  return false;
 }
 
 function isLikelyMimeNoiseLine(line: string) {
@@ -120,13 +148,47 @@ function isLikelyMimeNoiseLine(line: string) {
   return false;
 }
 
+function looksLikeQuotedPrintable(text: string) {
+  // Soft line breaks (=\n) or hex-encoded sequences (=XX) are QP signatures
+  return /=\r?\n/.test(text) || /=[A-Fa-f0-9]{2}/.test(text);
+}
+
+function stripMarkdownNoise(text: string) {
+  return text
+    // Remove markdown image syntax entirely: ![alt](url)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    // Replace markdown links with just the link text: [text](url) → text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    // Remove bare URLs
+    .replace(/https?:\/\/\S+/g, "")
+    // Remove leftover markdown punctuation runs (|, *, -, #, > at line starts)
+    .replace(/^[|*\-#>]+\s*/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function sanitizeBodySnippetCandidate(raw: string) {
   if (!raw) {
     return "";
   }
 
-  const plain = decodeHtmlEntities(raw).replace(/<[^>]+>/g, " ");
-  const cleanedLines = plain
+  // Decode quoted-printable if present (fixes mojibake and soft line break artifacts)
+  const decoded = looksLikeQuotedPrintable(raw)
+    ? decodeQuotedPrintable(raw)
+    : raw;
+
+  // Strip style and script block contents before removing tags
+  // (tag stripping alone leaves raw CSS/JS text between the tags)
+  const noStyleScript = decoded
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ");
+
+  const plain = decodeHtmlEntities(noStyleScript).replace(/<[^>]+>/g, " ");
+
+  // Strip markdown noise for plain-text emails that contain markdown syntax
+  const stripped = stripMarkdownNoise(plain);
+
+  const cleanedLines = stripped
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => !isLikelyMimeNoiseLine(line));
@@ -135,11 +197,21 @@ function sanitizeBodySnippetCandidate(raw: string) {
 }
 
 function decodeQuotedPrintable(value: string) {
-  return value
-    .replace(/=\r?\n/g, "")
-    .replace(/=([A-Fa-f0-9]{2})/g, (_match, hex: string) =>
-      String.fromCharCode(parseInt(hex, 16))
-    );
+  // First collapse soft line breaks
+  const collapsed = value.replace(/=\r?\n/g, "");
+
+  // Decode runs of consecutive =XX bytes together as UTF-8
+  // so multi-byte sequences like =E2=80=94 produce the correct Unicode character
+  return collapsed.replace(/((?:=[A-Fa-f0-9]{2})+)/g, (run) => {
+    const bytes = run.match(/=[A-Fa-f0-9]{2}/g) ?? [];
+    const buf = Buffer.from(bytes.map((b) => parseInt(b.slice(1), 16)));
+    try {
+      return buf.toString("utf8");
+    } catch {
+      // Fall back to individual char codes if UTF-8 decode fails
+      return bytes.map((b) => String.fromCharCode(parseInt(b.slice(1), 16))).join("");
+    }
+  });
 }
 
 function decodeTransferEncoding(value: string, encoding: string | null) {
@@ -197,12 +269,21 @@ function extractMimeBodySection(
   }
 
   const section = sectionMatch[0];
-  const encoding =
+  const declaredEncoding =
     section.match(/Content-Transfer-Encoding:\s*([^\r\n;]+)/i)?.[1]?.trim() ?? null;
   const body = section.split(/\r?\n\r?\n/).slice(1).join("\n\n").trim();
   if (!body) {
     return null;
   }
+
+  // If no encoding declared, check if the body looks like base64 and treat it as such.
+  // Multipart parts frequently omit the encoding header even when body is base64.
+  const looksLikeBase64Body =
+    !declaredEncoding &&
+    /^[A-Za-z0-9+/\r\n]+=*[\r\n]*$/.test(body.trim()) &&
+    body.replace(/\s+/g, "").length > 40;
+
+  const encoding = declaredEncoding ?? (looksLikeBase64Body ? "base64" : null);
 
   return { body, encoding };
 }
@@ -258,6 +339,11 @@ function extractBodySnippetFromSourceChunk(
       continue;
     }
 
+    // Must contain at least one word of 3+ real letters to be useful as a preview
+    if (!/[a-zA-Z]{3}/.test(candidate)) {
+      continue;
+    }
+
     return candidate;
   }
 
@@ -287,6 +373,10 @@ function buildMessageListPreview(
     }
 
     if (normalizePreviewForComparison(candidate) === normalizedSubject) {
+      continue;
+    }
+
+    if (!/[a-zA-Z]{3}/.test(candidate)) {
       continue;
     }
 

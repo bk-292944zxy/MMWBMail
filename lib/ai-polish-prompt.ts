@@ -97,16 +97,18 @@ function getModeInstructions(
 ) {
   switch (mode) {
     case "clean":
-      return "Improve clarity and flow. Remove redundancy, tighten phrasing, and improve readability. Keep tone neutral.";
+      return "Tighten clarity, flow, and structure. Remove redundancy, compress phrasing, and improve readability. Keep tone register exactly as-is — do not shift warmer, cooler, more formal, or more casual.";
     case "formal":
-      return "Increase formality and courtesy. Use complete phrasing, structured sentences, and traditional professional tone. Reduce contractions.";
+      return "Increase formality and courtesy. Use complete phrasing, structured sentences, and traditional professional tone. Reduce contractions. Do not make the message warmer or more casual.";
     case "relaxed":
-      return "Make the tone more natural and conversational while staying clear and competent. Reduce stiffness and formality.";
-    case "professional":
-      return "Use a modern business tone. Surface the main point clearly, keep phrasing direct and competent, and ensure the message is easy to act on.";
+      return "Make the tone more natural and conversational while staying clear and competent. Reduce stiffness. Do not make it informal to the point of sounding unprofessional.";
+    case "warm":
+      return "Add genuine interpersonal warmth and human presence. This is not about reducing formality — it is about relational presence. Do not make the message gushing or unprofessional. Keep all substance intact.";
+    case "trim":
+      return "Reduce length only. Remove redundancy, filler, unnecessary preamble, and over-explanation. Do not change tone, register, or substance. Do not rewrite for clarity or style — only cut what is not earning its place.";
     case "academic":
-      return "Improve logical flow and precision. Use structured reasoning, clear transitions, and a formal, objective tone.";
-    case "culture":
+      return "Improve logical structure, precision, and formal reasoning. Sharpen argument flow, tighten logical transitions, and use objective and precise language. Preserve all nuance, hedging, and complexity — do not oversimplify. Do not make the writing warmer or more conversational.";
+    case "culture": {
       return [
         "Adjust the message for effective cross-cultural business communication.",
         "",
@@ -124,7 +126,8 @@ function getModeInstructions(
         countryId ? `Country: ${countryId}` : null,
         seniority && seniority !== "unknown" ? `Recipient seniority: ${seniority}` : null,
         relationshipStage && relationshipStage !== "unknown" ? `Relationship stage: ${relationshipStage}` : null
-      ].join("\n");
+      ].filter(Boolean).join("\n");
+    }
     default:
       return "Improve presentation while preserving meaning.";
   }
