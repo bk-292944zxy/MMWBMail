@@ -2368,6 +2368,42 @@ function normalizeComposeFontFamilyValue(value: string) {
   return "";
 }
 
+function normalizeComposeColorValue(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "inherit" || normalized === "transparent") {
+    return "";
+  }
+
+  const shortHex = normalized.match(/^#([0-9a-f]{3})$/i);
+  if (shortHex) {
+    const [r, g, b] = shortHex[1].split("");
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+
+  const longHex = normalized.match(/^#([0-9a-f]{6})$/i);
+  if (longHex) {
+    return `#${longHex[1].toLowerCase()}`;
+  }
+
+  const rgb = normalized.match(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(0|0?\.\d+|1(?:\.0+)?)\s*)?\)$/i
+  );
+  if (!rgb) {
+    return "";
+  }
+
+  const toHex = (segment: string) =>
+    Math.max(0, Math.min(255, Number.parseInt(segment, 10)))
+      .toString(16)
+      .padStart(2, "0");
+  const alpha = rgb[4] == null ? 1 : Number.parseFloat(rgb[4]);
+  if (!Number.isFinite(alpha) || alpha <= 0) {
+    return "";
+  }
+
+  return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+}
+
 function normalizeComposeFontSizeValue(value: string) {
   const normalized = value.trim();
 
@@ -5021,6 +5057,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [lightboxOffset, setLightboxOffset] = useState({ x: 0, y: 0 });
   const [lightboxDragging, setLightboxDragging] = useState(false);
   const [lightboxChromeVisible, setLightboxChromeVisible] = useState(true);
+  const [lightboxSaveMenuOpen, setLightboxSaveMenuOpen] = useState(false);
   const [moveFolderOpen, setMoveFolderOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<MailSummary | MailDetail | null>(null);
   const [moveConversationTargetId, setMoveConversationTargetId] = useState<string | null>(null);
@@ -5456,6 +5493,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const bulkMoreMenuRef = useRef<HTMLDivElement | null>(null);
   const lightboxAreaRef = useRef<HTMLDivElement | null>(null);
   const lightboxImageRef = useRef<HTMLImageElement | null>(null);
+  const lightboxSaveMenuRef = useRef<HTMLDivElement | null>(null);
   const lightboxChromeHideTimerRef = useRef<number | null>(null);
   const lightboxLastTouchTapRef = useRef<{ at: number; x: number; y: number } | null>(null);
   const lightboxChromeVisibleRef = useRef(true);
@@ -8423,6 +8461,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       if (composePlainText) {
         const textarea = composePlainTextRef.current;
+        const textareaColor = textarea
+          ? normalizeComposeColorValue(window.getComputedStyle(textarea).color)
+          : "";
+        if (textareaColor) {
+          setComposeSelectionColor((current) =>
+            current === textareaColor ? current : textareaColor
+          );
+        }
         if (!textarea || document.activeElement !== textarea) {
           setComposeSelectionToolbarPos(null);
           setComposeFormatSelection({
@@ -8454,6 +8500,14 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const anchorNode = selection?.anchorNode ?? null;
 
       if (!editor || !selection || !anchorNode || !editor.contains(anchorNode)) {
+        const editorColor = editor
+          ? normalizeComposeColorValue(window.getComputedStyle(editor).color)
+          : "";
+        if (editorColor) {
+          setComposeSelectionColor((current) =>
+            current === editorColor ? current : editorColor
+          );
+        }
         setComposeSelectionToolbarPos(null);
         setComposeFormatSelection({
           fontFamily: "",
@@ -8508,6 +8562,19 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const nextFontSize = normalizeComposeFontSizeValue(
         queryEditableCommandValue("fontSize", editor)
       );
+      const commandColor = normalizeComposeColorValue(
+        queryEditableCommandValue("foreColor", editor)
+      );
+      const anchorElement =
+        selection.anchorNode instanceof Element
+          ? selection.anchorNode
+          : selection.anchorNode?.parentElement ?? null;
+      const anchorColor =
+        anchorElement && editor.contains(anchorElement)
+          ? normalizeComposeColorValue(window.getComputedStyle(anchorElement).color)
+          : "";
+      const editorColor = normalizeComposeColorValue(window.getComputedStyle(editor).color);
+      const nextSelectionColor = commandColor || anchorColor || editorColor || "#0a84ff";
 
       setComposeFormatSelection((current) =>
         current.fontFamily === nextFontFamily && current.fontSize === nextFontSize
@@ -8516,6 +8583,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               fontFamily: nextFontFamily,
               fontSize: nextFontSize
             }
+      );
+      setComposeSelectionColor((current) =>
+        current === nextSelectionColor ? current : nextSelectionColor
       );
 
       setComposeSelectionState({
@@ -16610,6 +16680,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const cropNaturalHeight = cropRect ? Math.max(1, Math.round(cropRect.h * cropScaleY)) : 0;
   const isAppleMobile =
     typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isApplePlatform =
+    typeof navigator !== "undefined" &&
+    /Mac|iPad|iPhone|iPod/.test(
+      `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`
+    );
   const canNativeShare =
     typeof navigator !== "undefined" &&
     typeof navigator.share === "function" &&
@@ -16747,6 +16822,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setLightboxIndex(0);
     setLightboxDragging(false);
     setLightboxChromeVisible(true);
+    setLightboxSaveMenuOpen(false);
     lightboxChromeVisibleRef.current = true;
     lightboxPointersRef.current.clear();
     lightboxPanRef.current = null;
@@ -17510,6 +17586,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     markLightboxInteraction,
     rotateLightboxRight
   ]);
+
+  useEffect(() => {
+    if (!lightboxSaveMenuOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const targetNode = event.target as Node | null;
+      if (targetNode && lightboxSaveMenuRef.current?.contains(targetNode)) {
+        return;
+      }
+      setLightboxSaveMenuOpen(false);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [lightboxSaveMenuOpen]);
 
   async function executePrint(options: {
     scope: "message" | "thread";
@@ -23732,14 +23825,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 {account.isDefault ? (
                                   <span className="settings-account-pill">Default send</span>
                                 ) : null}
-                                {isActive ? (
-                                  <span className="settings-account-pill active">Viewing</span>
-                                ) : null}
                               </div>
                               {!account.isDefault ? (
                                 <button
                                   type="button"
-                                  className="settings-account-default-btn"
+                                  className="settings-account-default-btn settings-account-default-btn-hover"
                                   onClick={async (event) => {
                                     event.stopPropagation();
                                     setIsBusy(true);
@@ -23765,33 +23855,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                 </button>
                               ) : (
                                 <span className="settings-account-action-label">Default send</span>
-                              )}
-                              {!isActive ? (
-                                <button
-                                  type="button"
-                                  className="settings-account-default-btn"
-                                  onClick={async (event) => {
-                                    event.stopPropagation();
-                                    setIsBusy(true);
-                                    try {
-                                      await activateAccount(account, {
-                                        sync: true
-                                      });
-                                    } catch (error) {
-                                      setStatus(
-                                        error instanceof Error
-                                          ? error.message
-                                          : "Unable to switch accounts."
-                                      );
-                                    } finally {
-                                      setIsBusy(false);
-                                    }
-                                  }}
-                                >
-                                  Switch to inbox
-                                </button>
-                              ) : (
-                                <span className="settings-account-action-label">Viewing</span>
                               )}
                             </div>
 
@@ -25127,9 +25190,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     title="Text color"
                     aria-label="Text color"
                   >
-                    <span className="fmt-color-glyph">A</span>
                     <span
-                      className="fmt-color-swatch"
+                      className="fmt-color-indicator"
                       style={{ backgroundColor: composeSelectionColor }}
                       aria-hidden="true"
                     />
@@ -27096,24 +27158,63 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     >
                       +
                     </button>
-                    <button
-                      type="button"
-                      className="lightbox-btn lightbox-btn-labeled"
-                      title="Save / Download"
-                      onClick={() =>
-                        void handleLightboxSaveToFiles(
-                          currentLightboxImage.saveSrc,
-                          currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
-                        )
-                      }
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M12 3v12" />
-                        <path d="m7 10 5 5 5-5" />
-                        <path d="M5 21h14" />
-                      </svg>
-                      <span className="lightbox-btn-text">Save</span>
-                    </button>
+                    <div className="lightbox-save-menu" ref={lightboxSaveMenuRef}>
+                      <button
+                        type="button"
+                        className="lightbox-btn lightbox-btn-labeled lightbox-save-toggle"
+                        title="Save options"
+                        aria-expanded={lightboxSaveMenuOpen}
+                        aria-haspopup="menu"
+                        onClick={() => {
+                          markLightboxInteraction();
+                          setLightboxSaveMenuOpen((current) => !current);
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12 3v12" />
+                          <path d="m7 10 5 5 5-5" />
+                          <path d="M5 21h14" />
+                        </svg>
+                        <span className="lightbox-btn-text">Save</span>
+                        <svg className="lightbox-save-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </button>
+                      {lightboxSaveMenuOpen ? (
+                        <div className="lightbox-save-dropdown" role="menu" onClick={(event) => event.stopPropagation()}>
+                          {isApplePlatform ? (
+                            <button
+                              type="button"
+                              className="lightbox-save-option"
+                              role="menuitem"
+                              onClick={() => {
+                                setLightboxSaveMenuOpen(false);
+                                void handleLightboxSaveToPhotos(
+                                  currentLightboxImage.saveSrc,
+                                  currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
+                                );
+                              }}
+                            >
+                              Save to Photos Library
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="lightbox-save-option"
+                            role="menuitem"
+                            onClick={() => {
+                              setLightboxSaveMenuOpen(false);
+                              void handleLightboxSaveToFiles(
+                                currentLightboxImage.saveSrc,
+                                currentLightboxImage.alt || getLightboxImageLabel(currentLightboxImage)
+                              );
+                            }}
+                          >
+                            Save file
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <span className="lightbox-caption">
                       {lightboxIndex + 1} of {lightboxImages.length}
                     </span>

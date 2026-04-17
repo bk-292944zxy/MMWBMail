@@ -2142,6 +2142,61 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   white-space: nowrap;
 }
 
+.lightbox-save-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.lightbox-save-toggle {
+  gap: 6px;
+}
+
+.lightbox-save-caret {
+  width: 14px !important;
+  height: 14px !important;
+  opacity: 0.72;
+}
+
+.lightbox-save-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(18,18,22,0.95);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 10003;
+}
+
+.lightbox-save-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.84);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.lightbox-save-option:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
 .lightbox-zoom-label {
   font-size: 11px;
   font-family: 'Berkeley Mono', monospace;
@@ -4665,15 +4720,15 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .fmt-btn-color {
   position: relative !important;
-  width: 28px !important;
+  width: 30px !important;
   border: 1px solid var(--border) !important;
   border-radius: 6px !important;
-  background: rgba(255,255,255,0.88) !important;
+  background: var(--surface2) !important;
 }
 
 .fmt-btn-color:hover {
   border-color: var(--border2) !important;
-  background: rgba(255,255,255,0.98) !important;
+  background: var(--surface3) !important;
 }
 
 .compose-color-input-overlay {
@@ -4705,6 +4760,30 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   transform: translateX(-50%) !important;
   border-radius: 999px !important;
   pointer-events: none !important;
+}
+
+.fmt-color-indicator {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 3px !important;
+  border: 1px solid rgba(0,0,0,0.22) !important;
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.24) !important;
+  pointer-events: none !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-btn-color {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-btn-color:hover {
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+  border-color: var(--accent-border) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-color-indicator {
+  border-color: rgba(255,255,255,0.36) !important;
+  box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.26) !important;
 }
 
 .fmt-btn-text {
@@ -5012,23 +5091,23 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: rgba(255,255,255,0.985) !important;
   backdrop-filter: blur(24px) saturate(1.4) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
-  border: 0.5px solid rgba(0,0,0,0.06) !important;
-  border-radius: 14px !important;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 42%, rgba(0,0,0,0.08)) !important;
+  border-radius: 16px !important;
   box-shadow:
-    0 0 0 0.5px rgba(0,0,0,0.03),
+    0 0 0 0.5px color-mix(in srgb, var(--accent) 16%, rgba(0,0,0,0.03)),
     0 1px 2px rgba(0,0,0,0.02),
     0 4px 12px rgba(0,0,0,0.04),
     0 12px 32px rgba(0,0,0,0.07),
     0 24px 48px rgba(0,0,0,0.05) !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   animation: qfShellIn 160ms ease-out both !important;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease !important;
 }
 
 .qf-bar:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 26%, rgba(0,0,0,0.06)) !important;
+  border-color: color-mix(in srgb, var(--accent) 58%, rgba(0,0,0,0.08)) !important;
   box-shadow:
-    0 0 0 0.5px color-mix(in srgb, var(--accent) 22%, rgba(0,0,0,0.03)),
+    0 0 0 1px color-mix(in srgb, var(--accent) 34%, rgba(0,0,0,0.03)),
     0 1px 2px rgba(0,0,0,0.02),
     0 4px 12px rgba(0,0,0,0.04),
     0 12px 32px rgba(0,0,0,0.07),
@@ -5046,7 +5125,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 10px !important;
   font-weight: 560 !important;
   color: var(--text2) !important;
-  padding: 10px 16px 2px !important;
+  padding: 11px 16px 6px !important;
+  line-height: 1.25 !important;
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
   opacity: 0.72 !important;
@@ -5055,8 +5135,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .qf-close {
   position: absolute !important;
-  top: 8px !important;
-  right: 8px !important;
+  top: 9px !important;
+  right: 9px !important;
   background: none !important;
   border: none !important;
   color: var(--text3) !important;
@@ -5078,9 +5158,12 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .qf-input-row {
   display: flex !important;
-  align-items: flex-start !important;
+  align-items: center !important;
   gap: 0 !important;
-  padding: 0 5px 8px 0 !important;
+  padding: 0 6px 10px 0 !important;
+  border-bottom-left-radius: 16px !important;
+  border-bottom-right-radius: 16px !important;
+  overflow: hidden !important;
 }
 
 .qf-icon {
@@ -7138,7 +7221,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: flex !important;
   flex-direction: column !important;
   padding: 14px 18px 14px !important;
-  background: rgba(244, 246, 248, 0.96) !important;
+  background: var(--surface2) !important;
   pointer-events: all !important;
   overflow: auto !important;
   opacity: 1 !important;
@@ -7167,7 +7250,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-ai-preview-step {
   gap: 10px !important;
   padding-top: 0 !important;
-  background: rgba(244, 246, 248, 0.92) !important;
+  background: var(--surface2) !important;
   border: none !important;
   box-shadow: none !important;
   min-height: 100% !important;
@@ -7181,7 +7264,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .compose-ai-preview {
   gap: 10px !important;
   padding-top: 2px !important;
-  background: rgba(244, 246, 248, 0.92) !important;
+  background: var(--surface2) !important;
   border: none !important;
   box-shadow: none !important;
   flex: 1 1 auto !important;
@@ -7399,7 +7482,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 10px !important;
-  background: rgba(244, 246, 248, 0.92) !important;
+  background: var(--surface2) !important;
 }
 
 .compose-ai-panel .compose-ai-step-back {
@@ -7479,8 +7562,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   gap: 12px !important;
   padding: 14px !important;
   border-radius: 14px !important;
-  border: 1px solid rgba(17,24,39,0.08) !important;
-  background: #fff !important;
+  border: 1px solid var(--border2) !important;
+  background: var(--surface3) !important;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035) !important;
   width: 100% !important;
   min-width: 0 !important;
@@ -7513,7 +7596,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-family: inherit !important;
   font-size: 12.75px !important;
   line-height: 1.68 !important;
-  color: var(--text1) !important;
+  color: var(--text) !important;
   flex: 1 1 auto !important;
   min-height: 0 !important;
   max-height: none !important;
@@ -7526,14 +7609,14 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   justify-content: flex-end !important;
   flex-wrap: wrap !important;
   align-items: center !important;
-  padding: 10px 0 0 0 !important;
-  border-top: 1px solid rgba(17, 24, 39, 0.08) !important;
-  background: transparent !important;
+  padding: 10px 0 12px 0 !important;
+  border-top: 1px solid var(--border) !important;
+  background: var(--surface3) !important;
 }
 
 .compose-ai-preview-actions .compose-ai-action-secondary {
-  background: #fff !important;
-  border: 1px solid rgba(17, 24, 39, 0.14) !important;
+  background: var(--surface3) !important;
+  border: 1px solid var(--border2) !important;
   color: var(--text2) !important;
   box-shadow: none !important;
 }
@@ -7665,17 +7748,17 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-panel .compose-ai-preview-options {
   gap: 12px !important;
-  background: linear-gradient(180deg, rgba(241,245,249,0.55), rgba(248,250,252,0.35)) !important;
-  border: 1px solid rgba(17, 24, 39, 0.08) !important;
+  background: var(--surface2) !important;
+  border: 1px solid var(--border2) !important;
   border-radius: 16px !important;
   padding: 12px !important;
   transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .compose-ai-panel .compose-ai-preview-option {
-  border: 1px solid rgba(17,24,39,0.10) !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(255,255,255,0.95)) !important;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055) !important;
+  border: 1px solid var(--border2) !important;
+  background: var(--surface3) !important;
+  box-shadow: none !important;
   transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
@@ -7686,7 +7769,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .compose-ai-panel .compose-ai-preview-actions {
   justify-content: space-between !important;
-  padding: 10px 2px 0 2px !important;
+  padding: 10px 2px 12px 2px !important;
   align-items: center !important;
   gap: 8px 10px !important;
 }
@@ -7824,34 +7907,34 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .compose-ai-panel-polish .compose-ai-preview-options {
-  background: linear-gradient(180deg, rgba(248,250,252,0.74), rgba(251,252,253,0.56)) !important;
-  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
   transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .compose-ai-panel-polish .compose-ai-preview-option {
-  background: linear-gradient(180deg, rgba(255,255,255,0.995), rgba(252,253,255,0.97)) !important;
-  border-color: rgba(148, 163, 184, 0.26) !important;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045) !important;
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  box-shadow: none !important;
   transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .compose-ai-panel-polish .compose-ai-preview-text {
   font-size: 12.9px !important;
   line-height: 1.74 !important;
-  color: rgba(15, 23, 42, 0.92) !important;
+  color: var(--text) !important;
 }
 
 .compose-ai-panel-polish .compose-ai-preview-actions {
-  border-top-color: rgba(148, 163, 184, 0.26) !important;
+  border-top-color: var(--border) !important;
   padding-top: 11px !important;
   gap: 8px 10px !important;
 }
 
 .compose-ai-panel-polish .compose-ai-action-secondary {
-  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.95)) !important;
-  border-color: rgba(148, 163, 184, 0.34) !important;
-  color: rgba(30, 41, 59, 0.92) !important;
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text2) !important;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease,
     box-shadow 140ms ease, transform 140ms ease !important;
 }
@@ -7946,6 +8029,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   cursor: pointer !important;
   padding: 4px !important;
   text-decoration: underline !important;
+}
+
+:root[data-color-scheme="dark"] .draft-restore-bar {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.42) !important;
+}
+
+:root[data-color-scheme="dark"] .draft-restore-text {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .draft-discard-btn {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .draft-discard-btn:hover {
+  color: var(--text) !important;
 }
 
 .link-dialog-overlay {
@@ -8698,9 +8799,48 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-color: var(--border) !important;
 }
 
+:root[data-color-scheme="dark"] .discard-modal {
+  background: color-mix(in srgb, var(--surface2) 94%, var(--surface3) 6%) !important;
+  border-color: var(--border2) !important;
+  box-shadow: 0 20px 48px rgba(0,0,0,0.48) !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-title {
+  color: #f8fafc !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-header,
+:root[data-color-scheme="dark"] .discard-modal .modal-footer {
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-body p {
+  color: rgba(230, 236, 245, 0.92) !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-btn-cancel {
+  background: var(--surface3) !important;
+  border: 1px solid var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-btn-cancel:hover {
+  background: color-mix(in srgb, var(--surface3) 84%, var(--accent-soft) 16%) !important;
+  border-color: var(--accent-border) !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-btn-delete {
+  background: color-mix(in srgb, var(--red) 78%, #ff4d4d 22%) !important;
+  color: #fff !important;
+}
+
+:root[data-color-scheme="dark"] .discard-modal .modal-btn-delete:hover {
+  background: color-mix(in srgb, var(--red) 66%, #ff4d4d 34%) !important;
+}
+
 :root[data-color-scheme="dark"] .qf-bar {
   background: var(--surface2) !important;
-  border-color: var(--border2) !important;
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border2)) !important;
 }
 
 :root[data-color-scheme="dark"] .qf-result-area {
@@ -11014,7 +11154,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 
 .menubar-appname {
   font-size: 13px !important;
-  font-weight: 700 !important;
+  font-weight: 900 !important;
   color: var(--text) !important;
   padding: 0 10px !important;
   letter-spacing: -0.01em !important;
@@ -12609,6 +12749,18 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-color: rgba(255, 107, 0, 0.3) !important;
   color: #ff6b00 !important;
   background: rgba(255, 107, 0, 0.05) !important;
+}
+
+.settings-account-default-btn-hover {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.12s ease !important;
+}
+
+.settings-account-row:hover .settings-account-default-btn-hover,
+.settings-account-row.editing .settings-account-default-btn-hover {
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 
 .settings-account-action-label {
@@ -16994,4 +17146,842 @@ textarea:focus,
 :root[data-color-scheme="dark"] .thread-row.unread .row-sender {
   color: var(--text) !important;
   font-weight: 700 !important;
+}
+
+/* Dark mode viewer header + toolbar text correction */
+:root[data-color-scheme="dark"] .messageDetail,
+:root[data-color-scheme="dark"] .messageDetail.thread-conversation,
+:root[data-color-scheme="dark"] .viewer > .messageDetail,
+:root[data-color-scheme="dark"] .viewer > .messageDetail.thread-conversation {
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .email-sender-block {
+  background: var(--surface2) !important;
+  border-bottom: 0.5px solid var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .email-sender-name {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .email-sender-date-inline,
+:root[data-color-scheme="dark"] .email-sender-address,
+:root[data-color-scheme="dark"] .email-to-row,
+:root[data-color-scheme="dark"] .email-meta-key {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .email-meta-val {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .email-toolbar,
+:root[data-color-scheme="dark"] .viewerHeader {
+  background: var(--surface2) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .tb-btn {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .tb-btn:hover,
+:root[data-color-scheme="dark"] .tb-btn-active {
+  color: var(--text) !important;
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+/* Dark mode compose toolbar + recipient toggles */
+:root[data-color-scheme="dark"] .compose-fmt-bar {
+  background: var(--surface2) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-fmt-row-secondary,
+:root[data-color-scheme="dark"] .compose-fmt-row-ai {
+  border-top-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-btn {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-btn:hover,
+:root[data-color-scheme="dark"] .fmt-btn-active {
+  color: var(--text) !important;
+  background: var(--surface3) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-select {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-select:hover,
+:root[data-color-scheme="dark"] .fmt-select:focus {
+  color: var(--text) !important;
+  border-color: var(--accent-border) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-font,
+:root[data-color-scheme="dark"] .fmt-size,
+:root[data-color-scheme="dark"] .compose-toolbar-overflow-select select {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .fmt-font option,
+:root[data-color-scheme="dark"] .fmt-size option,
+:root[data-color-scheme="dark"] .compose-toolbar-overflow-select select option {
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-window.compose-minimized .compose-header {
+  background: color-mix(in srgb, var(--surface3) 78%, #3a4663 22%) !important;
+  border-bottom-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-window.compose-minimized .compose-title {
+  color: #ffffff !important;
+}
+
+:root[data-color-scheme="dark"] .compose-window.compose-minimized .compose-header-btn {
+  color: var(--accent) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-window.compose-minimized .compose-header-btn:hover {
+  color: color-mix(in srgb, var(--accent) 82%, #ffffff 18%) !important;
+  background: rgba(var(--accent-rgb), 0.14) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover {
+  border-color: var(--border2) !important;
+  background: color-mix(in srgb, var(--surface2) 92%, var(--surface3) 8%) !important;
+  box-shadow: 0 22px 48px rgba(0,0,0,0.42) !important;
+  color-scheme: dark !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-title,
+:root[data-color-scheme="dark"] .compose-event-label {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-copy,
+:root[data-color-scheme="dark"] .compose-event-notes,
+:root[data-color-scheme="dark"] .compose-event-reasoning,
+:root[data-color-scheme="dark"] .compose-event-footer-meta {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-input,
+:root[data-color-scheme="dark"] .compose-event-title-input,
+:root[data-color-scheme="dark"] .compose-event-timezone-input,
+:root[data-color-scheme="dark"] .compose-event-reminder-input,
+:root[data-color-scheme="dark"] .compose-event-textarea {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-row,
+:root[data-color-scheme="dark"] .compose-event-details-row,
+:root[data-color-scheme="dark"] .compose-event-field,
+:root[data-color-scheme="dark"] .compose-event-input-shell {
+  background: transparent !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-details-row .compose-event-input,
+:root[data-color-scheme="dark"] .compose-event-details-row .compose-event-timezone-input,
+:root[data-color-scheme="dark"] .compose-event-details-row .compose-event-reminder-input {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-input::placeholder,
+:root[data-color-scheme="dark"] .compose-event-title-input::placeholder,
+:root[data-color-scheme="dark"] .compose-event-textarea::placeholder {
+  color: var(--text3) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-date-glyph {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-icon-button {
+  border-color: var(--border2) !important;
+  background: var(--surface3) !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-icon-button:hover {
+  background: color-mix(in srgb, var(--surface3) 84%, var(--accent-soft) 16%) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-time-cluster {
+  border-color: var(--border2) !important;
+  background: color-mix(in srgb, var(--surface3) 86%, var(--surface2) 14%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-toggle {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-toggle-track {
+  background: rgba(255,255,255,0.22) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-toggle-thumb {
+  background: #fff !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-toggle.is-on .compose-event-toggle-track {
+  background: rgba(var(--accent-rgb), 0.85) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-calendar-card {
+  border-color: var(--border2) !important;
+  background: var(--surface2) !important;
+  box-shadow: 0 16px 34px rgba(0,0,0,0.46) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-calendar-selection,
+:root[data-color-scheme="dark"] .compose-event-calendar-month,
+:root[data-color-scheme="dark"] .compose-event-calendar-nav-button,
+:root[data-color-scheme="dark"] .compose-event-calendar-day {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-calendar-weekdays,
+:root[data-color-scheme="dark"] .compose-event-calendar-day.is-outside {
+  color: var(--text3) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-calendar-day:hover {
+  background: color-mix(in srgb, var(--surface3) 76%, var(--accent-soft) 24%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-calendar-day.is-selected {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-close {
+  border-color: var(--border2) !important;
+  background: var(--surface3) !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-close:hover {
+  background: color-mix(in srgb, var(--surface3) 84%, var(--accent-soft) 16%) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-modal-footer {
+  border-top-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-action-secondary {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-action-secondary:hover {
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+  border-color: var(--accent-border) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-action-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-event-popover button.compose-event-action-primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #ffffff 12%) !important;
+  border-color: color-mix(in srgb, var(--accent) 88%, #ffffff 12%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-expanders .recipient-toggle-btn {
+  color: var(--text2) !important;
+  border-color: var(--border2) !important;
+  background: transparent !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-expanders .recipient-toggle-btn:hover,
+:root[data-color-scheme="dark"] .compose-row-expanders .recipient-toggle-btn.active {
+  color: var(--text) !important;
+  border-color: var(--accent-border) !important;
+  background: color-mix(in srgb, var(--surface3) 84%, var(--accent-soft) 16%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-header {
+  background: color-mix(in srgb, var(--surface2) 90%, var(--surface3) 10%) !important;
+  border-bottom-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-title {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+
+:root[data-color-scheme="dark"] .compose-header-btn {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-header-btn:hover {
+  color: var(--text) !important;
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-fields,
+:root[data-color-scheme="dark"] .compose-row,
+:root[data-color-scheme="dark"] .recipient-field {
+  background: var(--surface2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-label,
+:root[data-color-scheme="dark"] .recipient-label {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-input,
+:root[data-color-scheme="dark"] .compose-to-input,
+:root[data-color-scheme="dark"] .compose-subject-input {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-input::placeholder,
+:root[data-color-scheme="dark"] .compose-to-input::placeholder,
+:root[data-color-scheme="dark"] .compose-subject-input::placeholder {
+  color: var(--text3) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-row-expanders {
+  opacity: 1 !important;
+}
+
+/* Dark mode: Elevate / Polish / QuickFact compose surfaces */
+:root[data-color-scheme="dark"] .compose-ai-region {
+  background: var(--surface2) !important;
+  border-top-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel,
+:root[data-color-scheme="dark"] .compose-ai-preview-options,
+:root[data-color-scheme="dark"] .compose-ai-refine-stage,
+:root[data-color-scheme="dark"] .compose-ai-preview-header {
+  background: color-mix(in srgb, var(--surface2) 90%, var(--surface3) 10%) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-flow-title,
+:root[data-color-scheme="dark"] .compose-ai-panel-title,
+:root[data-color-scheme="dark"] .compose-ai-section-title,
+:root[data-color-scheme="dark"] .compose-ai-category-card-label,
+:root[data-color-scheme="dark"] .compose-ai-mode-chip-label,
+:root[data-color-scheme="dark"] .compose-ai-preview-title,
+:root[data-color-scheme="dark"] .compose-ai-preview-text {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-flow-subtitle,
+:root[data-color-scheme="dark"] .compose-ai-panel-subtitle,
+:root[data-color-scheme="dark"] .compose-ai-category-card-copy,
+:root[data-color-scheme="dark"] .compose-ai-mode-chip-desc,
+:root[data-color-scheme="dark"] .compose-ai-modifier-hint,
+:root[data-color-scheme="dark"] .compose-ai-description,
+:root[data-color-scheme="dark"] .compose-ai-direction-summary,
+:root[data-color-scheme="dark"] .compose-ai-target,
+:root[data-color-scheme="dark"] .compose-ai-status-note {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-category-card,
+:root[data-color-scheme="dark"] .compose-ai-mode-chip,
+:root[data-color-scheme="dark"] .compose-ai-modifier-chip,
+:root[data-color-scheme="dark"] .compose-ai-preview-option {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-category-card:hover,
+:root[data-color-scheme="dark"] .compose-ai-mode-chip:hover,
+:root[data-color-scheme="dark"] .compose-ai-modifier-chip:hover:not(:disabled),
+:root[data-color-scheme="dark"] .compose-ai-category-card:focus-visible,
+:root[data-color-scheme="dark"] .compose-ai-mode-chip:focus-visible,
+:root[data-color-scheme="dark"] .compose-ai-modifier-chip:focus-visible {
+  border-color: var(--accent-border) !important;
+  background: color-mix(in srgb, var(--surface3) 86%, var(--accent-soft) 14%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-preview-actions {
+  border-top-color: var(--border) !important;
+}
+
+/* Final dark-mode selected-chip visibility lock (Elevate + Polish + QuickFact) */
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-mode-chip.active,
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-mode-chip.active:hover,
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-modifier-chip.active,
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-modifier-chip.active:hover,
+:root[data-color-scheme="dark"] .compose-ai-panel button.compose-ai-mode-chip.active,
+:root[data-color-scheme="dark"] .compose-ai-panel button.compose-ai-mode-chip.active:hover,
+:root[data-color-scheme="dark"] .compose-ai-panel button.compose-ai-modifier-chip.active,
+:root[data-color-scheme="dark"] .compose-ai-panel button.compose-ai-modifier-chip.active:hover,
+:root[data-color-scheme="dark"] .compose-ai-preview-switch.active {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb), 0.36),
+    rgba(var(--accent-rgb), 0.26)
+  ) !important;
+  border-color: rgba(var(--accent-rgb), 0.68) !important;
+  color: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 3px 10px rgba(var(--accent-rgb), 0.24) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-mode-chip.active *,
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-modifier-chip.active *,
+:root[data-color-scheme="dark"] .compose-ai-preview-switch.active * {
+  color: #ffffff !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-label.fmt-btn-active,
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-ai.fmt-btn-active,
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-label.fmt-btn-active:hover,
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-ai.fmt-btn-active:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb), 0.34),
+    rgba(var(--accent-rgb), 0.24)
+  ) !important;
+  border: 1px solid rgba(var(--accent-rgb), 0.66) !important;
+  color: #ffffff !important;
+}
+
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-label.fmt-btn-active *,
+:root[data-color-scheme="dark"] .compose-fmt-row-ai .fmt-btn-ai.fmt-btn-active * {
+  color: #ffffff !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-action-secondary {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-action-secondary:hover {
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+  border-color: var(--accent-border) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-options-toggle {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-options-toggle input {
+  border-color: var(--border2) !important;
+  background: rgba(255,255,255,0.16) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-options-toggle input:checked {
+  border-color: rgba(var(--accent-rgb), 0.62) !important;
+  background: rgba(var(--accent-rgb), 0.9) !important;
+}
+
+/* Dark-mode lock for Elevate/Polish preview overlay surfaces */
+:root[data-color-scheme="dark"] .compose-ai-preview-overlay,
+:root[data-color-scheme="dark"] .compose-ai-preview-step,
+:root[data-color-scheme="dark"] .compose-ai-preview,
+:root[data-color-scheme="dark"] .compose-ai-preview-header,
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-preview-options,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-preview-options {
+  background: color-mix(in srgb, var(--surface2) 92%, var(--surface3) 8%) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-preview-step .compose-ai-flow-topbar,
+:root[data-color-scheme="dark"] .compose-ai-preview-step .compose-ai-flow-topbar-main,
+:root[data-color-scheme="dark"] .compose-ai-preview-step .compose-ai-flow-title,
+:root[data-color-scheme="dark"] .compose-ai-preview-step .compose-ai-step-header {
+  background: color-mix(in srgb, var(--surface2) 92%, var(--surface3) 8%) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-preview-option,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-preview-option {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  box-shadow: none !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-preview-text,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-preview-text {
+  color: var(--text) !important;
+  background: var(--surface3) !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-flow-subtitle,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-flow-subtitle,
+:root[data-color-scheme="dark"] .compose-ai-preview-subtitle,
+:root[data-color-scheme="dark"] .compose-ai-availability-check {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-preview-actions,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-preview-actions {
+  border-top-color: var(--border) !important;
+  background: var(--surface3) !important;
+  border-bottom-left-radius: 10px !important;
+  border-bottom-right-radius: 10px !important;
+  padding-bottom: 12px !important;
+}
+
+:root[data-color-scheme="dark"] .compose-ai-panel .compose-ai-preview-actions .compose-ai-action-secondary,
+:root[data-color-scheme="dark"] .compose-ai-panel-polish .compose-ai-preview-actions .compose-ai-action-secondary {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-overlay,
+:root[data-color-scheme="dark"] .qf-bar,
+:root[data-color-scheme="dark"] .qf-result-area,
+:root[data-color-scheme="dark"] .qf-result-card {
+  background: var(--surface2) !important;
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border2)) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-input-row {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-result-area > .qf-result-card + .qf-result-card {
+  border-top-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-result-text,
+:root[data-color-scheme="dark"] .qf-source-link,
+:root[data-color-scheme="dark"] .qf-source-name {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-copy-btn,
+:root[data-color-scheme="dark"] .qf-insert-btn,
+:root[data-color-scheme="dark"] .qf-insert-btn-secondary {
+  border-color: var(--border2) !important;
+  background: var(--surface3) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip {
+  border: 1px solid var(--border2) !important;
+  background: var(--surface3) !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip:hover {
+  border-color: var(--accent-border) !important;
+  background: color-mix(in srgb, var(--surface3) 84%, var(--accent-soft) 16%) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip-label {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip-chevron {
+  color: var(--text3) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip-detail {
+  border: 1px solid var(--border2) !important;
+  background: var(--surface2) !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.28) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip-detail-folder {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .message-source-chip-detail-account {
+  color: var(--text2) !important;
+}
+
+/* Dark mode settings panel contrast normalization */
+:root[data-color-scheme="dark"] .settings-modal {
+  background: var(--surface2) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-modal-header-title {
+  color: var(--text) !important;
+  font-weight: 800 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-search {
+  background: var(--surface3) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-search::placeholder,
+:root[data-color-scheme="dark"] .settings-search-icon {
+  color: var(--text2) !important;
+  opacity: 0.72 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tabs {
+  border-bottom-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab:hover,
+:root[data-color-scheme="dark"] .settings-tab.active {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab-icon {
+  opacity: 0.9 !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab.active .settings-tab-icon {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-section-label {
+  color: var(--text2) !important;
+  opacity: 0.86 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-card-row,
+:root[data-color-scheme="dark"] .settings-row {
+  background: color-mix(in srgb, var(--surface2) 70%, var(--surface3) 30%) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-row-title {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-row-sub,
+:root[data-color-scheme="dark"] .settings-account-email,
+:root[data-color-scheme="dark"] .settings-account-header-subtle {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-size-btn,
+:root[data-color-scheme="dark"] .settings-theme-mode-btn,
+:root[data-color-scheme="dark"] .settings-theme-btn {
+  color: var(--text2) !important;
+  border-color: var(--border2) !important;
+  background: var(--surface3) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-theme-mode-btn:not(.active),
+:root[data-color-scheme="dark"] .settings-scheme-btn:not(.active) {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+:root[data-color-scheme="dark"] .settings-size-btn:hover,
+:root[data-color-scheme="dark"] .settings-theme-mode-btn:hover,
+:root[data-color-scheme="dark"] .settings-theme-btn:hover {
+  color: var(--text) !important;
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+}
+
+/* Dark mode settings title + search icon/text spacing fix */
+:root[data-color-scheme="dark"] .settings-modal .modal-title,
+:root[data-color-scheme="dark"] .settings-modal-header-title {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-search-wrap {
+  position: relative !important;
+}
+
+:root[data-color-scheme="dark"] .settings-search-icon {
+  left: 12px !important;
+  width: 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+:root[data-color-scheme="dark"] .settings-search {
+  padding-left: 40px !important;
+}
+
+/* Dark mode settings control outlines: single, consistent active border */
+:root[data-color-scheme="dark"] .settings-scheme-btn.active,
+:root[data-color-scheme="dark"] .settings-theme-mode-btn.active,
+:root[data-color-scheme="dark"] .settings-theme-btn.active,
+:root[data-color-scheme="dark"] .settings-size-btn.active {
+  border: 1.5px solid var(--border2) !important;
+  border-right: 1.5px solid var(--border2) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-color-scheme-picker,
+:root[data-color-scheme="dark"] .settings-theme-mode-picker,
+:root[data-color-scheme="dark"] .settings-size-picker {
+  border: 1.5px solid var(--border2) !important;
+  box-shadow: none !important;
+}
+
+/* Dark mode settings tabs: full contrast normalization */
+:root[data-color-scheme="dark"] .settings-body,
+:root[data-color-scheme="dark"] .settings-section,
+:root[data-color-scheme="dark"] .settings-card-group,
+:root[data-color-scheme="dark"] .settings-ai-surface,
+:root[data-color-scheme="dark"] .sort-settings-account-card,
+:root[data-color-scheme="dark"] .settings-blocked-panel,
+:root[data-color-scheme="dark"] .settings-rules-list {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-modal {
+  background: color-mix(in srgb, var(--surface2) 92%, var(--surface3) 8%) !important;
+  border: 1px solid var(--border2) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab.active {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab:not(.active):hover {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab-icon,
+:root[data-color-scheme="dark"] .settings-tab-icon svg {
+  color: var(--text2) !important;
+  opacity: 0.92 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-tab.active .settings-tab-icon,
+:root[data-color-scheme="dark"] .settings-tab.active .settings-tab-icon svg {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-row-title,
+:root[data-color-scheme="dark"] .settings-ai-header,
+:root[data-color-scheme="dark"] .settings-account-label,
+:root[data-color-scheme="dark"] .sort-settings-account-label,
+:root[data-color-scheme="dark"] .settings-blocked-title,
+:root[data-color-scheme="dark"] .settings-rule-name {
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-row-sub,
+:root[data-color-scheme="dark"] .settings-section-subtle,
+:root[data-color-scheme="dark"] .settings-account-email,
+:root[data-color-scheme="dark"] .settings-ai-description,
+:root[data-color-scheme="dark"] .settings-ai-safety-copy,
+:root[data-color-scheme="dark"] .settings-ai-connection-key,
+:root[data-color-scheme="dark"] .settings-ai-action-status,
+:root[data-color-scheme="dark"] .settings-rule-email,
+:root[data-color-scheme="dark"] .settings-rule-meta,
+:root[data-color-scheme="dark"] .sort-settings-preset-sub,
+:root[data-color-scheme="dark"] .settings-blocked-subtitle,
+:root[data-color-scheme="dark"] .settings-blocked-row-meta {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-section-label,
+:root[data-color-scheme="dark"] .settings-field label,
+:root[data-color-scheme="dark"] .settings-account-pill,
+:root[data-color-scheme="dark"] .settings-ai-status-pill,
+:root[data-color-scheme="dark"] .sort-settings-preset-status,
+:root[data-color-scheme="dark"] .settings-blocked-count {
+  color: var(--text2) !important;
+  opacity: 0.9 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-card-row,
+:root[data-color-scheme="dark"] .settings-row,
+:root[data-color-scheme="dark"] .settings-account-row,
+:root[data-color-scheme="dark"] .settings-ai-summary-row,
+:root[data-color-scheme="dark"] .sort-settings-account-header,
+:root[data-color-scheme="dark"] .sort-settings-preset-row,
+:root[data-color-scheme="dark"] .settings-blocked-row,
+:root[data-color-scheme="dark"] .settings-rule-row {
+  background: color-mix(in srgb, var(--surface2) 68%, var(--surface3) 32%) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-field input,
+:root[data-color-scheme="dark"] .settings-search,
+:root[data-color-scheme="dark"] .settings-blocked-search,
+:root[data-color-scheme="dark"] .settings-rule-select,
+:root[data-color-scheme="dark"] .settings-ai-key-input {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-field input::placeholder,
+:root[data-color-scheme="dark"] .settings-search::placeholder,
+:root[data-color-scheme="dark"] .settings-blocked-search::placeholder {
+  color: var(--text2) !important;
+  opacity: 0.75 !important;
+}
+
+:root[data-color-scheme="dark"] .settings-ai-outline-btn,
+:root[data-color-scheme="dark"] .settings-ai-test-btn,
+:root[data-color-scheme="dark"] .settings-add-account-btn,
+:root[data-color-scheme="dark"] .settings-account-default-btn,
+:root[data-color-scheme="dark"] .settings-account-action-label,
+:root[data-color-scheme="dark"] .sort-settings-account-toggle,
+:root[data-color-scheme="dark"] .settings-blocked-unblock,
+:root[data-color-scheme="dark"] .settings-rules-clear-all {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .settings-ai-outline-btn:hover,
+:root[data-color-scheme="dark"] .settings-ai-test-btn:hover,
+:root[data-color-scheme="dark"] .settings-add-account-btn:hover,
+:root[data-color-scheme="dark"] .settings-account-default-btn:hover,
+:root[data-color-scheme="dark"] .settings-account-action-label:hover,
+:root[data-color-scheme="dark"] .sort-settings-account-toggle:hover,
+:root[data-color-scheme="dark"] .settings-blocked-unblock:hover,
+:root[data-color-scheme="dark"] .settings-rules-clear-all:hover {
+  color: var(--text) !important;
+  background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
+  border-color: var(--accent-border) !important;
 }
