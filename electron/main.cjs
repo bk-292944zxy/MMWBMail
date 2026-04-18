@@ -8,6 +8,7 @@ require("tsx/cjs");
 require("dotenv/config");
 
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const Module = require("node:module");
 
 process.on("uncaughtException", (error) => {
   console.error("MAIN uncaughtException:", error);
@@ -39,34 +40,67 @@ const {
   ELECTRON_MAIL_CHANNELS
 } = require("../lib/electron/ipc-contract.ts");
 const {
-  createAccountService,
-  listAccountsService,
-  verifyAccountService
-} = require("../lib/services/account-management-service.ts");
-const {
-  getAccountMessageDetailService,
-  listAccountMessagesService,
-  loadAccountFoldersService,
-  sendAccountMessageService
-} = require("../lib/services/account-mail-service.ts");
-const {
-  saveComposeDraftService,
-  loadComposeDraftService,
-  listComposeDraftsService,
-  deleteComposeDraftService
-} = require("../lib/services/compose-draft-service.ts");
-const {
   getServiceErrorMessage,
   getServiceErrorStatus
 } = require("../lib/services/service-error.ts");
 
 const isDevelopment = !app.isPackaged;
-const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
+const startUrl = app.isPackaged
+  ? "http://127.0.0.1:3000"
+  : (process.env.ELECTRON_START_URL || "http://localhost:3000");
+const PACKAGED_DB_FILENAME = "maximail.db";
+const PACKAGED_DB_SEED_RELATIVE_PATH = path.join("seed", "blank-seed.db");
 app.setName("MaxiMail");
 
 let packagedServerProcess = null;
+const fallbackLogPath = path.join(process.env.TMPDIR || "/tmp", "maximail-packaged-startup.log");
+let aliasResolutionConfigured = false;
 
-console.error("MAIN startup:", {
+function resolveStartupLogPath() {
+  try {
+    if (app?.isReady?.()) {
+      const userDataPath = app.getPath("userData");
+      fs.mkdirSync(userDataPath, { recursive: true });
+      return path.join(userDataPath, "startup.log");
+    }
+  } catch (_error) {
+    // ignore and fall back
+  }
+  return fallbackLogPath;
+}
+
+function logLine(message, meta) {
+  const payload = meta ? `${message} ${JSON.stringify(meta)}` : message;
+  const line = `[${new Date().toISOString()}] ${payload}`;
+  console.error(line);
+  try {
+    fs.appendFileSync(resolveStartupLogPath(), `${line}\n`, "utf8");
+  } catch (_error) {
+    // best effort logging only
+  }
+}
+
+function configurePackagedAliasResolution() {
+  if (!app.isPackaged || aliasResolutionConfigured) {
+    return;
+  }
+
+  const originalResolveFilename = Module._resolveFilename;
+  const appRoot = app.getAppPath();
+
+  Module._resolveFilename = function patchedResolveFilename(request, parent, isMain, options) {
+    if (typeof request === "string" && request.startsWith("@/")) {
+      const aliasedRequest = path.join(appRoot, request.slice(2));
+      return originalResolveFilename.call(this, aliasedRequest, parent, isMain, options);
+    }
+    return originalResolveFilename.call(this, request, parent, isMain, options);
+  };
+
+  aliasResolutionConfigured = true;
+  logLine("packaged-runtime: alias-resolution-configured", { appRoot });
+}
+
+logLine("MAIN startup", {
   isDevelopment,
   isPackaged: app.isPackaged,
   startUrl,
@@ -84,7 +118,7 @@ function toIpcError(error, fallbackMessage) {
 }
 
 function createMainWindow() {
-  console.error("createMainWindow: begin");
+  logLine("createMainWindow: begin");
 
   const window = new BrowserWindow({
     width: 1440,
@@ -102,45 +136,45 @@ function createMainWindow() {
     }
   });
 
-  console.error("createMainWindow: BrowserWindow created");
+  logLine("createMainWindow: BrowserWindow created");
 
   window.once("ready-to-show", () => {
-    console.error("window ready-to-show");
+    logLine("window ready-to-show");
     window.show();
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "true") {
-      console.error("window opening devtools");
+      logLine("window opening devtools");
       window.webContents.openDevTools({ mode: "detach" });
     }
   });
 
   window.on("show", () => {
-    console.error("window show");
+    logLine("window show");
   });
 
   window.on("closed", () => {
-    console.error("window closed");
+    logLine("window closed");
   });
 
   window.on("unresponsive", () => {
-    console.error("window unresponsive");
+    logLine("window unresponsive");
   });
 
   window.webContents.on("did-start-loading", () => {
-    console.error("webContents did-start-loading");
+    logLine("webContents did-start-loading");
   });
 
   window.webContents.on("did-stop-loading", () => {
-    console.error("webContents did-stop-loading");
+    logLine("webContents did-stop-loading");
   });
 
   window.webContents.on("did-finish-load", () => {
-    console.error("webContents did-finish-load", {
+    logLine("webContents did-finish-load", {
       url: window.webContents.getURL()
     });
   });
 
   window.webContents.on("did-fail-load", (_event, code, description, validatedURL) => {
-    console.error("webContents did-fail-load", {
+    logLine("webContents did-fail-load", {
       code,
       description,
       validatedURL
@@ -148,13 +182,13 @@ function createMainWindow() {
   });
 
   window.webContents.on("dom-ready", () => {
-    console.error("webContents dom-ready", {
+    logLine("webContents dom-ready", {
       url: window.webContents.getURL()
     });
   });
 
   window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.error("renderer console-message:", {
+    logLine("renderer console-message", {
       level,
       message,
       line,
@@ -162,16 +196,168 @@ function createMainWindow() {
     });
   });
 
-  console.error("createMainWindow: loadURL", { startUrl });
+  logLine("createMainWindow: loadURL", { startUrl });
   window.loadURL(startUrl);
 
   if (isDevelopment) {
     window.webContents.on("did-fail-load", (_event, code, description) => {
-      console.error("electron: failed to load renderer", { code, description, startUrl });
+      logLine("electron: failed to load renderer", { code, description, startUrl });
     });
   }
 
   return window;
+}
+
+function getPackagedDatabaseUrl(databasePath) {
+  return `file:${databasePath}`;
+}
+
+function ensurePackagedDatabase() {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  const userDataPath = app.getPath("userData");
+  const databasePath = path.join(userDataPath, PACKAGED_DB_FILENAME);
+  const bundledSeedPath = path.join(process.resourcesPath, PACKAGED_DB_SEED_RELATIVE_PATH);
+
+  fs.mkdirSync(userDataPath, { recursive: true });
+
+  if (!fs.existsSync(databasePath)) {
+    if (!fs.existsSync(bundledSeedPath)) {
+      throw new Error(`Packaged seed database not found at ${bundledSeedPath}`);
+    }
+
+    fs.copyFileSync(bundledSeedPath, databasePath);
+    logLine("packaged-db: seeded", { bundledSeedPath, databasePath });
+  } else {
+    logLine("packaged-db: existing", { databasePath });
+  }
+
+  const databaseUrl = getPackagedDatabaseUrl(databasePath);
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DIRECT_URL = databaseUrl;
+
+  logLine("packaged-db: configured", {
+    userDataPath,
+    databasePath,
+    databaseUrl
+  });
+
+  return { databasePath, databaseUrl };
+}
+
+function safeReadJson(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function findLegacySecretStoreCandidates() {
+  const candidates = [];
+  const seen = new Set();
+  const startPath = app.getAppPath();
+  let current = startPath;
+
+  // Walk up from the packaged app path and look for previously-used local secret stores.
+  for (let depth = 0; depth < 10; depth += 1) {
+    const candidate = path.join(
+      current,
+      ".maximail-secrets",
+      "mail-account-secrets.json"
+    );
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      candidates.push(candidate);
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  return candidates;
+}
+
+function mergeLegacySecretsIntoTarget(targetSecretsPath) {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  const target = safeReadJson(targetSecretsPath) ?? {
+    version: 1,
+    mailAccountPasswords: {}
+  };
+  const targetPasswords =
+    target && typeof target === "object" && target.mailAccountPasswords
+      ? target.mailAccountPasswords
+      : {};
+
+  let mergedCount = 0;
+  for (const candidatePath of findLegacySecretStoreCandidates()) {
+    if (candidatePath === targetSecretsPath || !fs.existsSync(candidatePath)) {
+      continue;
+    }
+
+    const candidate = safeReadJson(candidatePath);
+    const candidatePasswords =
+      candidate &&
+      typeof candidate === "object" &&
+      candidate.mailAccountPasswords &&
+      typeof candidate.mailAccountPasswords === "object"
+        ? candidate.mailAccountPasswords
+        : null;
+
+    if (!candidatePasswords) {
+      continue;
+    }
+
+    for (const [accountId, encryptedSecret] of Object.entries(candidatePasswords)) {
+      if (
+        typeof encryptedSecret === "string" &&
+        encryptedSecret.length > 0 &&
+        typeof targetPasswords[accountId] !== "string"
+      ) {
+        targetPasswords[accountId] = encryptedSecret;
+        mergedCount += 1;
+      }
+    }
+  }
+
+  if (mergedCount <= 0) {
+    logLine("packaged-secrets: migration-skip");
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(targetSecretsPath), { recursive: true });
+  fs.writeFileSync(
+    targetSecretsPath,
+    `${JSON.stringify({ version: 1, mailAccountPasswords: targetPasswords }, null, 2)}\n`,
+    { mode: 0o600 }
+  );
+  logLine("packaged-secrets: migration-applied", {
+    mergedCount
+  });
+}
+
+function configurePackagedSecretStorePath() {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  const userDataPath = app.getPath("userData");
+  const secretsPath = path.join(
+    userDataPath,
+    ".maximail-secrets",
+    "mail-account-secrets.json"
+  );
+  process.env.LOCAL_SECRET_STORE_PATH = secretsPath;
+  mergeLegacySecretsIntoTarget(secretsPath);
+  logLine("packaged-secrets: configured", { secretsPath });
+  return secretsPath;
 }
 
 function checkHttpReady(url) {
@@ -191,6 +377,9 @@ function checkHttpReady(url) {
 async function waitForLocalServer(url, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
+    if (packagedServerProcess && packagedServerProcess.exitCode !== null) {
+      return false;
+    }
     // eslint-disable-next-line no-await-in-loop
     const ready = await checkHttpReady(url);
     if (ready) {
@@ -208,25 +397,36 @@ function startPackagedLocalServer() {
   }
 
   const appEntry = path.join(app.getAppPath(), "app.js");
-  console.error("packaged-server: start", { appEntry, startUrl });
+  const cwd = app.getAppPath();
+  logLine("packaged-server: start", { appEntry, startUrl, cwd });
 
   packagedServerProcess = spawn(process.execPath, [appEntry], {
+    cwd,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
+      HOST: "127.0.0.1",
       PORT: "3000"
     },
-    stdio: "ignore"
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  packagedServerProcess.stdout?.on("data", (chunk) => {
+    logLine("packaged-server: stdout", { line: String(chunk).trim() });
+  });
+
+  packagedServerProcess.stderr?.on("data", (chunk) => {
+    logLine("packaged-server: stderr", { line: String(chunk).trim() });
   });
 
   packagedServerProcess.on("exit", (code, signal) => {
-    console.error("packaged-server: exit", { code, signal });
+    logLine("packaged-server: exit", { code, signal });
     packagedServerProcess = null;
   });
 
   packagedServerProcess.on("error", (error) => {
-    console.error("packaged-server: spawn-error", {
+    logLine("packaged-server: spawn-error", {
       message: error?.message ?? String(error)
     });
   });
@@ -238,12 +438,32 @@ function stopPackagedLocalServer() {
   if (!packagedServerProcess || packagedServerProcess.killed) {
     return;
   }
-  console.error("packaged-server: stop");
+  logLine("packaged-server: stop");
   packagedServerProcess.kill();
 }
 
 function registerIpcHandlers() {
-  console.error("registerIpcHandlers: begin");
+  logLine("registerIpcHandlers: begin");
+  logLine("registerIpcHandlers: require account-management-service");
+  const {
+    createAccountService,
+    listAccountsService,
+    verifyAccountService
+  } = require("../lib/services/account-management-service.ts");
+  logLine("registerIpcHandlers: require account-mail-service");
+  const {
+    getAccountMessageDetailService,
+    listAccountMessagesService,
+    loadAccountFoldersService,
+    sendAccountMessageService
+  } = require("../lib/services/account-mail-service.ts");
+  logLine("registerIpcHandlers: require compose-draft-service");
+  const {
+    saveComposeDraftService,
+    loadComposeDraftService,
+    listComposeDraftsService,
+    deleteComposeDraftService
+  } = require("../lib/services/compose-draft-service.ts");
 
   ipcMain.handle(ELECTRON_MAIL_CHANNELS.listAccounts, async () => {
     try {
@@ -434,28 +654,70 @@ function registerIpcHandlers() {
     }
   });
 
-  console.error("registerIpcHandlers: complete");
+  logLine("registerIpcHandlers: complete");
 }
 
 app.whenReady().then(async () => {
-  console.error("app.whenReady: begin");
-  registerIpcHandlers();
+  logLine("app.whenReady: begin");
+
+  if (app.isPackaged) {
+    const packagedAppPath = app.getAppPath();
+    process.chdir(packagedAppPath);
+    logLine("packaged-runtime: cwd-aligned", {
+      cwd: process.cwd(),
+      appPath: packagedAppPath
+    });
+    configurePackagedAliasResolution();
+  }
+  try {
+    ensurePackagedDatabase();
+    configurePackagedSecretStorePath();
+  } catch (error) {
+    logLine("packaged-db: init-failure", {
+      message: error?.message ?? String(error)
+    });
+    dialog.showErrorBox(
+      "MaxiMail startup failed",
+      `Database initialization failed.\n\n${error?.message ?? String(error)}\n\nLog: ${resolveStartupLogPath()}`
+    );
+    app.quit();
+    return;
+  }
+
+  try {
+    registerIpcHandlers();
+  } catch (error) {
+    logLine("registerIpcHandlers: failure", {
+      message: error?.message ?? String(error),
+      stack: error?.stack ?? null
+    });
+    dialog.showErrorBox(
+      "MaxiMail startup failed",
+      `IPC/service initialization failed.\n\n${error?.message ?? String(error)}\n\nLog: ${resolveStartupLogPath()}`
+    );
+    app.quit();
+    return;
+  }
 
   if (app.isPackaged) {
     startPackagedLocalServer();
     const ready = await waitForLocalServer(startUrl);
     if (!ready) {
-      console.error("packaged-server: timeout/failure", { startUrl });
+      logLine("packaged-server: timeout/failure", { startUrl });
+      dialog.showErrorBox(
+        "MaxiMail startup failed",
+        `Local server did not become ready at ${startUrl}.\n\nLog: ${resolveStartupLogPath()}`
+      );
       app.quit();
       return;
     }
-    console.error("packaged-server: ready", { startUrl });
+    logLine("packaged-server: ready", { startUrl });
   }
 
   createMainWindow();
 
   app.on("activate", () => {
-    console.error("app activate");
+    logLine("app activate");
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
     }
@@ -467,7 +729,7 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {
-  console.error("window-all-closed");
+  logLine("window-all-closed");
   if (process.platform !== "darwin") {
     app.quit();
   }

@@ -572,6 +572,29 @@ function normalizeDate(value: Date | string | undefined) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function withOperationTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number | undefined,
+  timeoutMessage: string
+) {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return operation;
+  }
+
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+
+  return Promise.race([operation, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
 function hasAttachments(
   bodyStructure:
     | {
@@ -589,16 +612,37 @@ function hasAttachments(
 async function withMailbox<T>(
   connection: MailConnectionPayload,
   folder: string,
-  callback: (client: ImapFlow) => Promise<T>
+  callback: (client: ImapFlow) => Promise<T>,
+  options?: {
+    connectTimeoutMs?: number;
+    mailboxOpenTimeoutMs?: number;
+    callbackTimeoutMs?: number;
+  }
 ) {
   const client = createImapClient(connection);
 
   try {
-    await client.connect();
-    await client.mailboxOpen(folder);
-    return await callback(client);
+    await withOperationTimeout(
+      client.connect(),
+      options?.connectTimeoutMs,
+      "IMAP connection timed out."
+    );
+    await withOperationTimeout(
+      client.mailboxOpen(folder),
+      options?.mailboxOpenTimeoutMs,
+      `IMAP mailbox open timed out for folder ${folder}.`
+    );
+    return await withOperationTimeout(
+      callback(client),
+      options?.callbackTimeoutMs,
+      `IMAP mailbox operation timed out for folder ${folder}.`
+    );
   } finally {
-    await client.logout().catch(() => undefined);
+    await withOperationTimeout(
+      client.logout().catch(() => undefined),
+      3_000,
+      "IMAP logout timed out."
+    ).catch(() => undefined);
   }
 }
 
@@ -750,65 +794,92 @@ export async function getMessageDetail(
 ): Promise<MailDetail | null> {
   const folder = connection.folder || "INBOX";
 
-  return withMailbox(connection, folder, async (client) => {
-    const message = await client.fetchOne(
-      uid,
-      {
-        uid: true,
-        envelope: true,
-        flags: true,
-        source: true,
-        bodyStructure: true,
-        internalDate: true
+  try {
+    return await withMailbox(
+      connection,
+      folder,
+      async (client) => {
+        const message = await withOperationTimeout(
+          client.fetchOne(
+            uid,
+            {
+              uid: true,
+              envelope: true,
+              flags: true,
+              source: true,
+              bodyStructure: true,
+              internalDate: true
+            },
+            {
+              uid: true
+            }
+          ),
+          12_000,
+          `IMAP message fetch timed out for uid ${uid}.`
+        );
+
+        if (!message) {
+          return null;
+        }
+
+        const parsed = await withOperationTimeout(
+          parseMessageSource(message.source),
+          12_000,
+          `Message parse timed out for uid ${uid}.`
+        );
+        const { seen, flagged, answered } = mapFlags(message.flags);
+        const fromEntry = message.envelope?.from?.[0];
+
+        return {
+          uid: message.uid,
+          messageId: message.envelope?.messageId || `${message.uid}`,
+          inReplyTo: parsed.inReplyTo || undefined,
+          references: parsed.references || undefined,
+          threadId:
+            parsed.inReplyTo ||
+            parsed.references?.split(/\s+/)[0] ||
+            message.envelope?.messageId ||
+            `${message.uid}`,
+          authResultsDmarc: parsed.authResultsDmarc,
+          authResultsSpf: parsed.authResultsSpf,
+          authResultsDkim: parsed.authResultsDkim,
+          listUnsubscribeUrl: parsed.listUnsubscribeUrl,
+          listUnsubscribeEmail: parsed.listUnsubscribeEmail,
+          from: fallbackAddress(fromEntry?.name, fromEntry?.address ?? "Unknown sender"),
+          fromAddress: fallbackAddress(fromEntry?.address, "unknown@example.com"),
+          cc:
+            serializeEnvelopeAddresses(message.envelope?.cc).join(", ") ||
+            parsed.cc ||
+            undefined,
+          to: serializeEnvelopeAddresses(message.envelope?.to),
+          subject: message.envelope?.subject || "(No subject)",
+          preview: extractTextPreview(parsed.text || message.envelope?.subject || ""),
+          date: normalizeDate(message.internalDate ?? message.envelope?.date),
+          seen,
+          flagged,
+          answered,
+          hasAttachments: hasAttachments(message.bodyStructure),
+          text: parsed.text,
+          html: parsed.html,
+          emailBody: buildEmailBody(parsed.html, parsed.text),
+          media: parsed.media
+        };
       },
       {
-        uid: true
+        connectTimeoutMs: 10_000,
+        mailboxOpenTimeoutMs: 10_000,
+        callbackTimeoutMs: 20_000
       }
     );
-
-    if (!message) {
-      return null;
-    }
-
-    const parsed = await parseMessageSource(message.source);
-    const { seen, flagged, answered } = mapFlags(message.flags);
-    const fromEntry = message.envelope?.from?.[0];
-
-    return {
-      uid: message.uid,
-      messageId: message.envelope?.messageId || `${message.uid}`,
-      inReplyTo: parsed.inReplyTo || undefined,
-      references: parsed.references || undefined,
-      threadId:
-        parsed.inReplyTo ||
-        parsed.references?.split(/\s+/)[0] ||
-        message.envelope?.messageId ||
-        `${message.uid}`,
-      authResultsDmarc: parsed.authResultsDmarc,
-      authResultsSpf: parsed.authResultsSpf,
-      authResultsDkim: parsed.authResultsDkim,
-      listUnsubscribeUrl: parsed.listUnsubscribeUrl,
-      listUnsubscribeEmail: parsed.listUnsubscribeEmail,
-      from: fallbackAddress(fromEntry?.name, fromEntry?.address ?? "Unknown sender"),
-      fromAddress: fallbackAddress(fromEntry?.address, "unknown@example.com"),
-      cc:
-        serializeEnvelopeAddresses(message.envelope?.cc).join(", ") ||
-        parsed.cc ||
-        undefined,
-      to: serializeEnvelopeAddresses(message.envelope?.to),
-      subject: message.envelope?.subject || "(No subject)",
-      preview: extractTextPreview(parsed.text || message.envelope?.subject || ""),
-      date: normalizeDate(message.internalDate ?? message.envelope?.date),
-      seen,
-      flagged,
-      answered,
-      hasAttachments: hasAttachments(message.bodyStructure),
-      text: parsed.text,
-      html: parsed.html,
-      emailBody: buildEmailBody(parsed.html, parsed.text),
-      media: parsed.media
-    };
-  });
+  } catch (error) {
+    console.error("mmwbmail: message detail load failed", {
+      email: connection.email,
+      folder,
+      uid,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 }
 
 export async function updateMessage(

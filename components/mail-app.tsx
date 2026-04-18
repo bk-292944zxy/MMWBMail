@@ -2540,6 +2540,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   }
 }
 
+const MESSAGE_DETAIL_LOAD_TIMEOUT_MS = 12_000;
+const MESSAGE_DETAIL_RETRY_TIMEOUT_MS = 8_000;
+
 function formatQuickFactSourceDate(value?: string) {
   if (!value) {
     return "";
@@ -10087,11 +10090,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setStatus("Loading message...");
 
     try {
-      const response = await loadMessageDetailClient({
-        accountId: resolvedAccountId,
-        uid: message.uid,
-        folderPath: resolvedFolderPath
-      });
+      const response = await withTimeout(
+        loadMessageDetailClient({
+          accountId: resolvedAccountId,
+          uid: message.uid,
+          folderPath: resolvedFolderPath
+        }),
+        MESSAGE_DETAIL_LOAD_TIMEOUT_MS,
+        "Timed out while loading this message body."
+      );
       if (openMessageSeqRef.current !== requestSeq) {
         return;
       }
@@ -10104,11 +10111,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       if (messageDetailLooksUnresolved(nextSelectedMessage)) {
         try {
-          const retryResponse = await loadMessageDetailClient({
-            accountId: resolvedAccountId,
-            uid: message.uid,
-            folderPath: resolvedFolderPath
-          });
+          const retryResponse = await withTimeout(
+            loadMessageDetailClient({
+              accountId: resolvedAccountId,
+              uid: message.uid,
+              folderPath: resolvedFolderPath
+            }),
+            MESSAGE_DETAIL_RETRY_TIMEOUT_MS,
+            "Timed out while retrying this message body."
+          );
 
           if (openMessageSeqRef.current !== requestSeq) {
             return;
@@ -10130,8 +10141,41 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         }
       }
 
+      if (messageDetailLooksUnresolved(finalSelectedMessage)) {
+        const fallbackText = "Unable to load message body for this email.";
+        const fallbackHtml = `<p>${escapeViewerHtml(fallbackText)}</p>`;
+        finalSelectedMessage = {
+          ...finalSelectedMessage,
+          text: fallbackText,
+          html: fallbackHtml,
+          emailBody: `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+        color: #111827;
+        background: #ffffff;
+      }
+      p {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>${fallbackHtml}</body>
+</html>`
+        };
+        setStatus(fallbackText);
+      } else {
+        setStatus(`Viewing "${resolvedMessage.subject}".`);
+      }
+
       setSelectedMessage(finalSelectedMessage);
-      setStatus(`Viewing "${resolvedMessage.subject}".`);
 
       if (shouldMarkSeen) {
         setMessages((current) =>

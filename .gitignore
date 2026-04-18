@@ -19,3 +19,8 @@ prisma/dev.db-wal
 
 /lib/generated/prisma
 tsconfig.tsbuildinfo
+
+# Packaged app build output
+dist-electron/
+*.app
+*.dmg

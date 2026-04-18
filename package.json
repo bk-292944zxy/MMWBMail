@@ -14,7 +14,7 @@
     "electron:profile": "/bin/zsh -lc 'set -e; npm run build; npm run native:rebuild:node; npm run electron:rebuild; NODE_ENV=production PORT=3000 npm run start > /tmp/mmwbmail-profile-server.log 2>&1 & SERVER_PID=$!; trap \"kill $SERVER_PID 2>/dev/null || true\" EXIT; for _ in {1..80}; do curl -sf http://localhost:3000 >/dev/null && break; sleep 0.25; done; env -u ELECTRON_RUN_AS_NODE ELECTRON_START_URL=http://localhost:3000 electron ./electron/main.cjs'",
     "electron:rebuild": "node ./scripts/rebuild-electron-native.cjs",
     "electron:check-native": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron ./scripts/check-electron-sqlite-abi.cjs",
-    "electron:pack": "npm run build && npm run electron:rebuild && electron-builder --dir",
+    "electron:pack": "npm run build && npm run electron:rebuild && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --config.mac.identity=null --config.mac.hardenedRuntime=false --config.mac.gatekeeperAssess=false",
     "electron:dist": "npm run build && npm run electron:rebuild && electron-builder --mac dir",
     "build": "node ./node_modules/next/dist/bin/next build --webpack",
     "start": "node app.js",
@@ -75,18 +75,35 @@
       ".next/**",
       "app.js",
       "package.json",
+      "tsconfig.json",
       "node_modules/esbuild/**",
       "node_modules/@esbuild/**",
       "node_modules/better-sqlite3/**",
       "node_modules/@prisma/**",
       "node_modules/prisma/**",
-      "node_modules/.prisma/**",
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma",
+        "filter": [
+          "**/*"
+        ]
+      },
       "node_modules/tsx/**",
       "node_modules/dotenv/**"
     ],
     "extraMetadata": {
       "main": "electron/main.cjs"
     },
+    "extraResources": [
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma"
+      },
+      {
+        "from": "prisma/packaged-seed/blank-seed.db",
+        "to": "seed/blank-seed.db"
+      }
+    ],
     "mac": {
       "target": [
         "dir"
