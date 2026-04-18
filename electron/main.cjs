@@ -1,11 +1,40 @@
 const path = require("node:path");
 const process = require("node:process");
 const fs = require("node:fs");
+const http = require("node:http");
+const { spawn } = require("node:child_process");
 
 require("tsx/cjs");
 require("dotenv/config");
 
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+
+process.on("uncaughtException", (error) => {
+  console.error("MAIN uncaughtException:", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("MAIN unhandledRejection:", reason);
+});
+
+app.on("render-process-gone", (_event, _webContents, details) => {
+  console.error("render-process-gone:", details);
+});
+
+app.on("child-process-gone", (_event, details) => {
+  console.error("child-process-gone:", details);
+});
+
+app.on("gpu-process-crashed", (_event, killed) => {
+  console.error("gpu-process-crashed:", { killed });
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("render-process-gone", (_evt, details) => {
+    console.error("contents render-process-gone:", details);
+  });
+});
+
 const {
   ELECTRON_MAIL_CHANNELS
 } = require("../lib/electron/ipc-contract.ts");
@@ -35,6 +64,16 @@ const isDevelopment = !app.isPackaged;
 const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
 app.setName("MaxiMail");
 
+let packagedServerProcess = null;
+
+console.error("MAIN startup:", {
+  isDevelopment,
+  isPackaged: app.isPackaged,
+  startUrl,
+  cwd: process.cwd(),
+  resourcesPath: process.resourcesPath
+});
+
 function toIpcError(error, fallbackMessage) {
   const message = getServiceErrorMessage(error, fallbackMessage);
   const status = getServiceErrorStatus(error, 500);
@@ -45,6 +84,8 @@ function toIpcError(error, fallbackMessage) {
 }
 
 function createMainWindow() {
+  console.error("createMainWindow: begin");
+
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -61,13 +102,67 @@ function createMainWindow() {
     }
   });
 
+  console.error("createMainWindow: BrowserWindow created");
+
   window.once("ready-to-show", () => {
+    console.error("window ready-to-show");
     window.show();
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "true") {
+      console.error("window opening devtools");
       window.webContents.openDevTools({ mode: "detach" });
     }
   });
 
+  window.on("show", () => {
+    console.error("window show");
+  });
+
+  window.on("closed", () => {
+    console.error("window closed");
+  });
+
+  window.on("unresponsive", () => {
+    console.error("window unresponsive");
+  });
+
+  window.webContents.on("did-start-loading", () => {
+    console.error("webContents did-start-loading");
+  });
+
+  window.webContents.on("did-stop-loading", () => {
+    console.error("webContents did-stop-loading");
+  });
+
+  window.webContents.on("did-finish-load", () => {
+    console.error("webContents did-finish-load", {
+      url: window.webContents.getURL()
+    });
+  });
+
+  window.webContents.on("did-fail-load", (_event, code, description, validatedURL) => {
+    console.error("webContents did-fail-load", {
+      code,
+      description,
+      validatedURL
+    });
+  });
+
+  window.webContents.on("dom-ready", () => {
+    console.error("webContents dom-ready", {
+      url: window.webContents.getURL()
+    });
+  });
+
+  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.error("renderer console-message:", {
+      level,
+      message,
+      line,
+      sourceId
+    });
+  });
+
+  console.error("createMainWindow: loadURL", { startUrl });
   window.loadURL(startUrl);
 
   if (isDevelopment) {
@@ -79,7 +174,77 @@ function createMainWindow() {
   return window;
 }
 
+function checkHttpReady(url) {
+  return new Promise((resolve) => {
+    const request = http.get(url, (response) => {
+      response.resume();
+      resolve(response.statusCode && response.statusCode >= 200 && response.statusCode < 500);
+    });
+    request.setTimeout(1200, () => {
+      request.destroy();
+      resolve(false);
+    });
+    request.on("error", () => resolve(false));
+  });
+}
+
+async function waitForLocalServer(url, timeoutMs = 30000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    // eslint-disable-next-line no-await-in-loop
+    const ready = await checkHttpReady(url);
+    if (ready) {
+      return true;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+function startPackagedLocalServer() {
+  if (packagedServerProcess) {
+    return packagedServerProcess;
+  }
+
+  const appEntry = path.join(app.getAppPath(), "app.js");
+  console.error("packaged-server: start", { appEntry, startUrl });
+
+  packagedServerProcess = spawn(process.execPath, [appEntry], {
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      NODE_ENV: "production",
+      PORT: "3000"
+    },
+    stdio: "ignore"
+  });
+
+  packagedServerProcess.on("exit", (code, signal) => {
+    console.error("packaged-server: exit", { code, signal });
+    packagedServerProcess = null;
+  });
+
+  packagedServerProcess.on("error", (error) => {
+    console.error("packaged-server: spawn-error", {
+      message: error?.message ?? String(error)
+    });
+  });
+
+  return packagedServerProcess;
+}
+
+function stopPackagedLocalServer() {
+  if (!packagedServerProcess || packagedServerProcess.killed) {
+    return;
+  }
+  console.error("packaged-server: stop");
+  packagedServerProcess.kill();
+}
+
 function registerIpcHandlers() {
+  console.error("registerIpcHandlers: begin");
+
   ipcMain.handle(ELECTRON_MAIL_CHANNELS.listAccounts, async () => {
     try {
       const accounts = await listAccountsService();
@@ -268,20 +433,41 @@ function registerIpcHandlers() {
       pdfWindow.destroy();
     }
   });
+
+  console.error("registerIpcHandlers: complete");
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  console.error("app.whenReady: begin");
   registerIpcHandlers();
+
+  if (app.isPackaged) {
+    startPackagedLocalServer();
+    const ready = await waitForLocalServer(startUrl);
+    if (!ready) {
+      console.error("packaged-server: timeout/failure", { startUrl });
+      app.quit();
+      return;
+    }
+    console.error("packaged-server: ready", { startUrl });
+  }
+
   createMainWindow();
 
   app.on("activate", () => {
+    console.error("app activate");
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
     }
   });
 });
 
+app.on("before-quit", () => {
+  stopPackagedLocalServer();
+});
+
 app.on("window-all-closed", () => {
+  console.error("window-all-closed");
   if (process.platform !== "darwin") {
     app.quit();
   }
