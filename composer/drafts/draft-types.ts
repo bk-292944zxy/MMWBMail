@@ -39,6 +39,13 @@ export type PendingAiTransformSession = {
   createdAt: string;
 };
 
+export type StoredComposePresentation = {
+  position: { x: number; y: number } | null;
+  width: number;
+  height: number;
+  isMinimized: boolean;
+};
+
 export type StoredComposerDraft = {
   version: 2;
   draftId: string;
@@ -51,6 +58,7 @@ export type StoredComposerDraft = {
   sourceMessageMeta?: ComposeSourceMessageMeta | null;
   composeEvent?: ComposeEventFormState | null;
   composeEventAttachment?: ComposeEventAttachmentState | null;
+  draftPresentation?: StoredComposePresentation | null;
   subject: string;
   to: string[];
   cc: string[];
@@ -89,6 +97,7 @@ export type DraftSnapshotInput = {
   sourceMessageMeta?: ComposeSourceMessageMeta | null;
   composeEvent?: ComposeEventFormState | null;
   composeEventAttachment?: ComposeEventAttachmentState | null;
+  draftPresentation?: StoredComposePresentation | null;
   subject: string;
   to: string[];
   cc: string[];

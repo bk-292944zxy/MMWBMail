@@ -4009,6 +4009,28 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   max-height: calc(100vh - 80px) !important;
 }
 
+.shell.compose-only-mode {
+  background: transparent !important;
+}
+
+.shell.compose-only-mode > .workspace,
+.shell.compose-only-mode > .menubar,
+.shell.compose-only-mode > .draft-restore-bar {
+  display: none !important;
+}
+
+.compose-window.compose-window-compose-only {
+  left: 0 !important;
+  top: 0 !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
 .compose-window.compose-minimized {
   width: 260px !important;
   height: auto !important;
@@ -4424,7 +4446,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .recipient-input-wrap {
   position: relative !important;
   flex: 1 !important;
-  min-width: 80px !important;
+  min-width: 180px !important;
 }
 
 .recipient-trailing {
@@ -4468,8 +4490,21 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   font-size: 13px !important;
   color: var(--text) !important;
   padding: 2px 4px !important;
-  min-width: 80px !important;
+  min-width: 180px !important;
   width: auto !important;
+}
+
+.compose-subject-row {
+  align-items: center !important;
+}
+
+.compose-subject-input {
+  flex: 0 1 auto !important;
+  width: min(
+    100%,
+    max(280px, calc(var(--subject-sizing-chars, 22) * 0.62ch + 36px))
+  ) !important;
+  max-width: 100% !important;
 }
 
 .recipient-input::placeholder {
@@ -17984,4 +18019,10 @@ textarea:focus,
   color: var(--text) !important;
   background: color-mix(in srgb, var(--surface3) 82%, var(--accent-soft) 18%) !important;
   border-color: var(--accent-border) !important;
+}
+
+/* Retire legacy in-panel compose window controls (use native titlebar controls only). */
+.compose-header-actions,
+.compose-header-btn {
+  display: none !important;
 }

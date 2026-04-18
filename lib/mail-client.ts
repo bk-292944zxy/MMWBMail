@@ -338,6 +338,59 @@ function extractBodySnippetFromSourceChunk(
   return "";
 }
 
+function extractBodyFallbackFromSource(
+  source: Buffer | undefined,
+  subject: string
+): { text: string; html: string } {
+  if (!source || source.length === 0) {
+    return { text: "", html: "" };
+  }
+
+  const raw = source.toString("utf8");
+  const bodySeparator = raw.match(/\r?\n\r?\n/);
+  if (!bodySeparator || bodySeparator.index === undefined) {
+    return { text: "", html: "" };
+  }
+
+  const rootEncoding =
+    raw.match(/Content-Transfer-Encoding:\s*([^\r\n;]+)/i)?.[1]?.trim() ?? null;
+  const bodyChunk = raw
+    .slice(bodySeparator.index + bodySeparator[0].length)
+    .trim();
+
+  if (!bodyChunk) {
+    return { text: "", html: "" };
+  }
+
+  const plainSection = extractMimeBodySection(bodyChunk, "text/plain");
+  const htmlSection = extractMimeBodySection(bodyChunk, "text/html");
+
+  const decodedPlain = decodeTransferEncoding(
+    plainSection?.body ?? "",
+    plainSection?.encoding ?? rootEncoding
+  ).trim();
+  const decodedHtml = decodeTransferEncoding(
+    htmlSection?.body ?? "",
+    htmlSection?.encoding ?? rootEncoding
+  ).trim();
+
+  const textFromHtml = decodeHtmlEntities(
+    decodedHtml
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const preferredText = decodedPlain || textFromHtml;
+  const fallbackSnippet = extractBodySnippetFromSourceChunk(source, subject);
+  const text = preferredText || fallbackSnippet;
+  const html = decodedHtml;
+
+  return { text, html };
+}
+
 function buildMessageListPreview(
   input: {
     subject: string;
@@ -807,6 +860,12 @@ export async function getMessageDetail(
               envelope: true,
               flags: true,
               source: true,
+              bodyParts: [
+                {
+                  key: "TEXT",
+                  maxLength: 200000
+                }
+              ],
               bodyStructure: true,
               internalDate: true
             },
@@ -822,11 +881,48 @@ export async function getMessageDetail(
           return null;
         }
 
-        const parsed = await withOperationTimeout(
-          parseMessageSource(message.source),
-          12_000,
-          `Message parse timed out for uid ${uid}.`
-        );
+        const subject = message.envelope?.subject || "(No subject)";
+        let parsed: Awaited<ReturnType<typeof parseMessageSource>>;
+        try {
+          parsed = await withOperationTimeout(
+            parseMessageSource(message.source),
+            12_000,
+            `Message parse timed out for uid ${uid}.`
+          );
+        } catch (parseError) {
+          console.error("mmwbmail: message parse failed, using fallback body extraction", {
+            email: connection.email,
+            folder,
+            uid,
+            error: parseError instanceof Error ? parseError.message : String(parseError)
+          });
+          parsed = {
+            text: "",
+            html: "",
+            media: [],
+            cc: "",
+            inReplyTo: "",
+            references: "",
+            authResultsDmarc: undefined,
+            authResultsSpf: undefined,
+            authResultsDkim: undefined,
+            listUnsubscribeUrl: undefined,
+            listUnsubscribeEmail: undefined
+          };
+        }
+
+        if (!parsed.text.trim() && !parsed.html.trim()) {
+          const sourceFallback = extractBodyFallbackFromSource(message.source, subject);
+          const bodyPartFallback = extractSnippetFromBodyParts(message.bodyParts, subject);
+          const fallbackText = sourceFallback.text || bodyPartFallback;
+
+          parsed = {
+            ...parsed,
+            text: fallbackText,
+            html: sourceFallback.html || parsed.html
+          };
+        }
+
         const { seen, flagged, answered } = mapFlags(message.flags);
         const fromEntry = message.envelope?.from?.[0];
 
@@ -852,8 +948,8 @@ export async function getMessageDetail(
             parsed.cc ||
             undefined,
           to: serializeEnvelopeAddresses(message.envelope?.to),
-          subject: message.envelope?.subject || "(No subject)",
-          preview: extractTextPreview(parsed.text || message.envelope?.subject || ""),
+          subject,
+          preview: extractTextPreview(parsed.text || subject),
           date: normalizeDate(message.internalDate ?? message.envelope?.date),
           seen,
           flagged,

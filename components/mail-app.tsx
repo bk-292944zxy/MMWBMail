@@ -828,8 +828,33 @@ function messageDetailLooksUnresolved(message: Pick<MailDetail, "text" | "previe
   const normalizedText = message.text.trim();
   const normalizedPreview = message.preview.trim();
   const normalizedSubject = message.subject.trim();
+  const normalizedHtml = message.html.trim();
 
-  if (!normalizedText || normalizedText === "Loading message body...") {
+  if (!normalizedText) {
+    if (!normalizedHtml) {
+      return true;
+    }
+
+    const normalizedHtmlLower = normalizedHtml.toLowerCase();
+    const strippedHtmlText = normalizedHtml
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const hasRenderableHtmlContent =
+      strippedHtmlText.length > 0 ||
+      /<img\b/i.test(normalizedHtmlLower) ||
+      /<table\b/i.test(normalizedHtmlLower) ||
+      /<svg\b/i.test(normalizedHtmlLower);
+
+    if (!hasRenderableHtmlContent) {
+      return true;
+    }
+  }
+
+  if (normalizedText === "Loading message body...") {
     return true;
   }
 
@@ -846,7 +871,7 @@ function messageDetailLooksUnresolved(message: Pick<MailDetail, "text" | "previe
     return true;
   }
 
-  return message.html.trim() === `<p>${escapeViewerHtml(normalizedText)}</p>` &&
+  return normalizedHtml === `<p>${escapeViewerHtml(normalizedText)}</p>` &&
     normalizedText.localeCompare("Loading message body...", undefined, {
       sensitivity: "accent"
     }) === 0;
@@ -1171,6 +1196,34 @@ function isQuietSystemMailboxTarget(target: SidebarMailboxTarget) {
   return normalized.includes("sent messages");
 }
 
+function shouldIncludeSidebarMailboxTarget(
+  target: SidebarMailboxTarget,
+  activeProviderPath: string | null,
+  forceShowDrafts: boolean
+) {
+  if (target.mailboxNode.systemKey !== "drafts") {
+    return true;
+  }
+
+  if (forceShowDrafts) {
+    return true;
+  }
+
+  if (activeProviderPath === target.mailboxNode.identity.providerPath) {
+    return true;
+  }
+
+  // Hide Drafts only when we can confidently tell it's empty.
+  const draftCount = target.count;
+  const draftUnread = target.unread;
+  const hasKnownCounts = draftCount !== null || draftUnread !== null;
+  if (!hasKnownCounts) {
+    return true;
+  }
+
+  return Math.max(draftCount ?? 0, draftUnread ?? 0) > 0;
+}
+
 function isActiveBuiltInSortMailboxTarget(target: SidebarMailboxTarget) {
   if (target.isVirtual) {
     return false;
@@ -1193,10 +1246,18 @@ function getAccountMailboxDisclosureTargets(
     includeActiveSortFoldersInCollapsed: boolean;
     sortFoldersHidden: boolean;
     hiddenSortFolderPaths: string[];
+    forceShowDrafts: boolean;
   }
 ) {
+  const filteredTargets = mailboxTargets.filter((target) =>
+    shouldIncludeSidebarMailboxTarget(
+      target,
+      input.activeProviderPath,
+      input.forceShowDrafts
+    )
+  );
   const essentialTargets = (() => {
-    const filtered = mailboxTargets.filter(
+    const filtered = filteredTargets.filter(
       (target) =>
         isEssentialMailboxTarget(target, input.mailboxViewMode) ||
         isAlwaysVisibleMailboxTarget(target)
@@ -1225,15 +1286,15 @@ function getAccountMailboxDisclosureTargets(
     const trashTargets = filtered.filter((target) => isAlwaysVisibleMailboxTarget(target));
     return [...nonTrashTargets, ...trashTargets];
   })();
-  const quietSystemTargets = mailboxTargets.filter((target) =>
+  const quietSystemTargets = filteredTargets.filter((target) =>
     isQuietSystemMailboxTarget(target)
   );
-  const activeSortTargets = mailboxTargets.filter(
+  const activeSortTargets = filteredTargets.filter(
     (target) =>
       isActiveBuiltInSortMailboxTarget(target) &&
       !input.hiddenSortFolderPaths.includes(target.mailboxNode.identity.providerPath)
   );
-  const userCreatedTargets = mailboxTargets.filter((target) => {
+  const userCreatedTargets = filteredTargets.filter((target) => {
     if (target.isVirtual) {
       return false;
     }
@@ -3466,19 +3527,19 @@ function getInitialComposeHeight() {
 }
 
 function getComposeMinWidth() {
-  return 624;
+  return 630;
 }
 
 function getComposeMaxWidth() {
   if (typeof window === "undefined") {
-    return 624;
+    return 630;
   }
 
   return Math.max(getComposeMinWidth(), Math.floor(window.innerWidth * 0.7));
 }
 
 function getInitialComposeWidth() {
-  return typeof window !== "undefined" ? Math.min(624, getComposeMaxWidth()) : 624;
+  return typeof window !== "undefined" ? Math.min(630, getComposeMaxWidth()) : 630;
 }
 
 function getDefaultComposePos(height: number, width = getInitialComposeWidth()) {
@@ -3486,9 +3547,14 @@ function getDefaultComposePos(height: number, width = getInitialComposeWidth()) 
     return { x: 0, y: 0 };
   }
 
+  const maxY = window.innerHeight - height;
+  const lowerThreeQuarterCenterY = window.innerHeight * 0.625;
+  const preferredY = Math.round(lowerThreeQuarterCenterY - height / 2);
+  const minY = Math.min(80, Math.max(0, maxY));
+
   return {
     x: Math.round((window.innerWidth - width) / 2),
-    y: Math.round(window.innerHeight - height)
+    y: Math.max(minY, Math.min(preferredY, maxY))
   };
 }
 
@@ -4817,6 +4883,40 @@ function resolveInitialActiveAccountId(accounts: MailAccountSummary[]) {
 
 export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccountSummary[] }) {
   const initialActiveAccountId = resolveInitialActiveAccountId(initialAccounts);
+  const composeOnlyWindowDetected =
+    typeof window !== "undefined" &&
+    (() => {
+      const desktopBridge = (
+        window as typeof window & {
+          maximailDesktop?: {
+            isComposeWindow?: boolean;
+          };
+        }
+      ).maximailDesktop;
+
+      const hasComposeRoute =
+        new URLSearchParams(window.location.search).get("compose") === "1";
+
+      return desktopBridge?.isComposeWindow === true || hasComposeRoute;
+    })();
+  const composeRouteDraftId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("draftId")
+      : null;
+  const [composeOnlyWindow, setComposeOnlyWindow] = useState(false);
+  const isElectronDesktop =
+    typeof window !== "undefined" &&
+    (
+      window as typeof window & {
+        maximailDesktop?: {
+          isElectron?: boolean;
+        };
+      }
+    ).maximailDesktop?.isElectron === true;
+  const isElectronRuntime =
+    isElectronDesktop ||
+    (typeof navigator !== "undefined" &&
+      navigator.userAgent.toLowerCase().includes("electron"));
   const [accounts, setAccounts] = useState<MailAccountSummary[]>(initialAccounts);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(initialActiveAccountId);
   const [connection, setConnection] = useState<MailConnectionPayload>(defaultConnection);
@@ -4902,6 +5002,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     startW: number;
     startH: number;
   } | null>(null);
+  const composeOnlyOpenedRef = useRef(false);
+  const composeOnlyBootstrapStartedRef = useRef(false);
   const [composeCcList, setComposeCcList] = useState<string[]>([]);
   const [composeBccList, setComposeBccList] = useState<string[]>([]);
   const [composeReplyTo, setComposeReplyTo] = useState("");
@@ -4995,6 +5097,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const sidebarShellRef = useRef<HTMLDivElement | null>(null);
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [composeCloseConfirmOpen, setComposeCloseConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
   const [composeAiType, setComposeAiType] = useState<AiTransformType>("rewrite");
   const [composeAiCategory, setComposeAiCategory] = useState<string | null>(null);
@@ -5480,6 +5583,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     sidebar: 360,
     list: 420
   });
+  useEffect(() => {
+    if (composeOnlyWindowDetected) {
+      setComposeOnlyWindow(true);
+    }
+  }, [composeOnlyWindowDetected]);
   const [workspaceActiveDivider, setWorkspaceActiveDivider] = useState<"sidebar" | "list" | null>(
     null
   );
@@ -5758,6 +5866,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeAllRecipients = useMemo(
     () => [...composeRecipients.to, ...composeRecipients.cc, ...composeRecipients.bcc],
     [composeRecipients]
+  );
+  const composeSubjectSizingText = composeSubject.trim().length > 0 ? composeSubject : "Subject";
+  const composeSubjectSizingChars = Math.min(
+    320,
+    Math.max(22, composeSubjectSizingText.length + 2)
   );
   const composeTo = composeRecipients.to.join(", ");
   const composeCc = composeRecipients.cc.join(", ");
@@ -7182,6 +7295,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         sourceMessageMeta: composeSourceMessageMeta,
         composeEvent,
         composeEventAttachment: resolvedComposeEventAttachment,
+        draftPresentation: {
+          position: composePos,
+          width: composeWidth,
+          height: composeHeight,
+          isMinimized: composeMinimized
+        },
         subject: composeSubject,
         to: composeRecipients.to,
         cc: composeRecipients.cc,
@@ -7206,7 +7325,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeIdentity,
       composeIntent,
       composeOpen,
+      composePos,
       composePlainText,
+      composeHeight,
+      composeMinimized,
       composeRecipients.bcc,
       composeRecipients.cc,
       composeRecipients.to,
@@ -7214,6 +7336,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       composeSessionContext,
       composeSourceMessageMeta,
       composeSubject,
+      composeWidth,
       logDraftTrace,
       createDraftIdentitySnapshot,
       getComposeAttachmentState,
@@ -8106,20 +8229,28 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     };
   }, [onboardingStep, shouldShowOnboarding]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+  const recoverPersistedDraft = useCallback(
+    async (stage: string) => {
+      if (typeof window === "undefined") {
+        return;
+      }
 
-    void draftServiceRef.current
-      .recoverDraft({ storageKey: DRAFT_STORAGE_KEY })
-      .then(({ draft }) => {
+      try {
+        const { draft } = await draftServiceRef.current.recoverDraft({
+          storageKey: DRAFT_STORAGE_KEY
+        });
+
         if (!draft) {
+          if (!composeOpen) {
+            setComposeDraft(null);
+            setComposeDraftId(null);
+            setComposeDraftSavedAt(null);
+          }
           return;
         }
 
         logDraftTrace("[DRAFT_LOAD]", {
-          stage: "recover-draft-on-mount",
+          stage,
           draftId: draft.draftId,
           restoredTextBody: draft.textBody ?? null,
           restoredHtmlBody: draft.htmlBody ?? null
@@ -8131,11 +8262,35 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         setComposeDraftSavedAt(draft.savedAt ?? draft.updatedAt);
         composeLocalRevisionRef.current = draft.localRevision;
         composeLastSavedRevisionRef.current = draft.lastSavedRevision;
-      })
-      .catch(() => {
+      } catch {
         // Ignore malformed saved draft state.
-      });
-  }, []);
+      }
+    },
+    [composeOpen, logDraftTrace]
+  );
+
+  useEffect(() => {
+    void recoverPersistedDraft("recover-draft-on-mount");
+  }, [recoverPersistedDraft]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const refreshDraftOnForeground = () => {
+      if (document.visibilityState === "visible") {
+        void recoverPersistedDraft("recover-draft-on-foreground");
+      }
+    };
+
+    window.addEventListener("focus", refreshDraftOnForeground);
+    document.addEventListener("visibilitychange", refreshDraftOnForeground);
+    return () => {
+      window.removeEventListener("focus", refreshDraftOnForeground);
+      document.removeEventListener("visibilitychange", refreshDraftOnForeground);
+    };
+  }, [recoverPersistedDraft]);
 
   useEffect(() => {
     if (
@@ -10838,6 +10993,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setShowBcc(false);
       setShowReplyTo(false);
       setDiscardConfirmOpen(false);
+      setComposeCloseConfirmOpen(false);
       savedRangeRef.current = null;
       void clearPersistedComposeDraft();
       if (composeEditorRef.current) {
@@ -10928,6 +11084,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     setDiscardConfirmOpen(false);
+    setComposeCloseConfirmOpen(false);
     lastEditableRef.current = null;
       setComposeOpen(false);
       setComposeSessionContext(null);
@@ -10967,6 +11124,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setShowBcc(false);
     setShowReplyTo(false);
     savedRangeRef.current = null;
+    setComposeCloseConfirmOpen(false);
     void clearPersistedComposeDraft();
 
     if (composeEditorRef.current) {
@@ -11083,42 +11241,61 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   async function persistComposeDraftNow(showFeedback = false) {
     const snapshot = await buildComposeDraftSnapshot();
     if (!snapshot) {
-      return;
+      return false;
     }
 
     try {
-      if (autosaveServiceRef.current) {
-        await autosaveServiceRef.current.flush({
-          storageKey: DRAFT_STORAGE_KEY,
-          draft: snapshot
-        });
-      } else {
-        const result = await draftServiceRef.current.saveDraft({
-          storageKey: DRAFT_STORAGE_KEY,
-          draft: snapshot,
-          requestId: Date.now()
-        });
+      const result = await draftServiceRef.current.saveDraft({
+        storageKey: DRAFT_STORAGE_KEY,
+        draft: snapshot,
+        requestId: Date.now()
+      });
 
-        if (result.savedRevision < composeLocalRevisionRef.current) {
-          return;
-        }
-
-        composeLastSavedRevisionRef.current = result.savedRevision;
-        setComposeDraft(result.draft);
-        setComposeDraftStatus("saved");
-        setComposeDraftSavedAt(result.savedAt);
-        setComposeDraftError(null);
+      if (result.savedRevision < composeLocalRevisionRef.current) {
+        return false;
       }
+
+      composeLastSavedRevisionRef.current = result.savedRevision;
+      setComposeDraft(result.draft);
+      setComposeDraftStatus("saved");
+      setComposeDraftSavedAt(result.savedAt);
+      setComposeDraftError(null);
 
       if (showFeedback) {
         showToast("Draft saved");
       }
+      return true;
     } catch (error) {
       setComposeDraftStatus("failed");
       setComposeDraftError(
         error instanceof Error ? error.message : "Draft save failed"
       );
+      return false;
     }
+  }
+
+  async function saveDraftAndCloseComposeWindow() {
+    const saved = await persistComposeDraftNow(true);
+    if (!saved) {
+      return;
+    }
+    if (composeOnlyWindow) {
+      const bridge =
+        typeof window !== "undefined"
+          ? (
+              window as typeof window & {
+                maximailDesktop?: ElectronMailBridge;
+              }
+            ).maximailDesktop
+          : undefined;
+      if (bridge?.respondComposeCloseRequest) {
+        await bridge.respondComposeCloseRequest({ decision: "save" });
+        return;
+      }
+      window.close();
+      return;
+    }
+    setComposeOpen(false);
   }
 
   function openComposeLinkDialog() {
@@ -12572,6 +12749,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   ) {
     const restoredDraft = options?.restoredDraft ?? null;
+    const restoredPresentation = restoredDraft?.draftPresentation ?? null;
     const canonicalRestoredBody = restoredDraft?.textBody ?? session.textBody ?? "";
     const canonicalRestoredHtml =
       restoredDraft?.htmlBody ??
@@ -12622,7 +12800,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       bcc: session.bcc
     });
 
-    setComposePos(null);
+    setComposePos(restoredPresentation?.position ?? null);
     setComposeDraftId(session.draftId);
     setComposeIntent(session.intent);
     setComposeSourceMessageMeta(session.sourceMessageMeta);
@@ -12670,8 +12848,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       });
     }
     setSignature(session.signature);
-    setComposeHeight(getInitialComposeHeight());
-    setComposeMinimized(false);
+    setComposeWidth(
+      restoredPresentation?.width && Number.isFinite(restoredPresentation.width)
+        ? Math.max(getComposeMinWidth(), Math.min(restoredPresentation.width, getComposeMaxWidth()))
+        : getInitialComposeWidth()
+    );
+    setComposeHeight(
+      restoredPresentation?.height && Number.isFinite(restoredPresentation.height)
+        ? Math.max(260, restoredPresentation.height)
+        : getInitialComposeHeight()
+    );
+    setComposeMinimized(restoredPresentation?.isMinimized ?? false);
     setComposePlainText(session.ui.plainText);
     setComposeToolbarMenuOpen(false);
     setComposeToolbarMenuPosition(null);
@@ -12843,7 +13030,65 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
   }
 
+  async function openNativeComposeWindow(draftId?: string | null) {
+    const bridge =
+      typeof window !== "undefined"
+        ? (
+            window as typeof window & {
+              maximailDesktop?: {
+                openComposeWindow?: (input?: { draftId?: string | null }) => Promise<{ opened: boolean }>;
+              };
+            }
+          ).maximailDesktop
+        : null;
+
+    if (!bridge?.openComposeWindow) {
+      if (typeof window !== "undefined") {
+        const composeUrl = new URL(window.location.href);
+        composeUrl.searchParams.set("compose", "1");
+        if (draftId && draftId.trim().length > 0) {
+          composeUrl.searchParams.set("draftId", draftId.trim());
+        }
+        const popup = window.open(
+          composeUrl.toString(),
+          "_blank",
+          "popup=yes,width=960,height=760,noopener,noreferrer"
+        );
+        return Boolean(popup);
+      }
+      return false;
+    }
+
+    try {
+      await bridge.openComposeWindow(
+        draftId && draftId.trim().length > 0 ? { draftId: draftId.trim() } : undefined
+      );
+      return true;
+    } catch (error) {
+      console.error("mmwbmail: unable to open native compose window", error);
+      if (typeof window !== "undefined") {
+        const composeUrl = new URL(window.location.href);
+        composeUrl.searchParams.set("compose", "1");
+        if (draftId && draftId.trim().length > 0) {
+          composeUrl.searchParams.set("draftId", draftId.trim());
+        }
+        const popup = window.open(
+          composeUrl.toString(),
+          "_blank",
+          "popup=yes,width=960,height=760,noopener,noreferrer"
+        );
+        return Boolean(popup);
+      }
+      return false;
+    }
+  }
+
   function openCompose() {
+    if (isElectronRuntime && !composeOnlyWindow) {
+      void openNativeComposeWindow();
+      return;
+    }
+
     const draftId = createComposeDraftId();
     const ownerAccountId = resolveNewComposeOwner(accounts, mailboxContext);
     const context = createComposeSessionContext({
@@ -12872,6 +13117,76 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       })
     );
   }
+
+  useEffect(() => {
+    if (!composeOnlyWindow || !hasHydrated) {
+      return;
+    }
+
+    if (composeOpen) {
+      composeOnlyOpenedRef.current = true;
+      return;
+    }
+
+    if (composeOnlyBootstrapStartedRef.current) {
+      return;
+    }
+    composeOnlyBootstrapStartedRef.current = true;
+
+    const requestedDraftId = composeRouteDraftId?.trim() ?? "";
+    if (requestedDraftId.length > 0) {
+      void draftServiceRef.current
+        .loadDraft({
+          storageKey: DRAFT_STORAGE_KEY,
+          draftId: requestedDraftId
+        })
+        .then(({ draft }) => {
+          if (draft) {
+            resumeStoredComposeDraft(draft);
+            return;
+          }
+          openCompose();
+        })
+        .catch(() => {
+          openCompose();
+        });
+      return;
+    }
+
+    openCompose();
+  }, [composeOnlyWindow, composeOpen, hasHydrated, composeRouteDraftId]);
+
+  useEffect(() => {
+    if (!composeOnlyWindow || !hasHydrated || typeof window === "undefined") {
+      return;
+    }
+
+    const bridge = (window.maximailDesktop as ElectronMailBridge | undefined);
+    if (!bridge?.onComposeCloseRequested) {
+      return;
+    }
+
+    return bridge.onComposeCloseRequested(() => {
+      setComposeCloseConfirmOpen(true);
+    });
+  }, [composeOnlyWindow, hasHydrated]);
+
+  useEffect(() => {
+    if (!composeOnlyWindow || !hasHydrated) {
+      return;
+    }
+
+    if (composeOpen) {
+      composeOnlyOpenedRef.current = true;
+      return;
+    }
+
+    if (!composeOnlyOpenedRef.current) {
+      return;
+    }
+
+    window.close();
+  }, [composeOnlyWindow, composeOpen, hasHydrated]);
 
   function startMessageCompose(intentKind: MessageComposeIntentKind, message: MailDetail) {
     const draftId = createComposeDraftId();
@@ -16044,13 +16359,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               }
             : undefined;
 
+        const mailboxTargets = buildSidebarMailboxTargets(mailboxNodes, {
+          mailboxViewMode,
+          inboxCountsByPath
+        });
+
         return {
           account,
           isActive,
-          mailboxTargets: buildSidebarMailboxTargets(mailboxNodes, {
-            mailboxViewMode,
-            inboxCountsByPath
-          })
+          mailboxTargets
         };
       }),
     [
@@ -18073,8 +18390,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ]);
 
   return (
-    <main className="shell">
-      {hasHydrated ? (
+    <main className={`shell ${composeOnlyWindow ? "compose-only-mode" : ""}`}>
+      {hasHydrated && !isElectronRuntime ? (
         <div className="menubar" onMouseDown={(event) => event.stopPropagation()}>
         <div className="menubar-item-wrap">
           <div
@@ -18522,10 +18839,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             sidebarHeroExpandWheelProgressRef.current = 0;
           }}
         >
-          <div className={`brand sidebar-brand ${sidebarHeroCollapsed ? "collapsed" : ""}`}>
-            <p className="eyebrow sidebar-brand-label">MaxiMail</p>
-          </div>
-
           <div ref={sidebarShellRef} className="panel sidebar-shell">
             <div className="sidebar-section">
               <div className="sidebar-label">Prioritized</div>
@@ -18879,7 +19192,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       mailboxTargets,
                       {
                         disclosureState,
-                        ...sidebarDisclosureTargetInput
+                        ...sidebarDisclosureTargetInput,
+                        forceShowDrafts: composeDraft?.accountId === account.id
                       }
                     );
                     const persistedDisclosureTargets =
@@ -18887,7 +19201,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       persistedDisclosureState !== 3
                         ? getAccountMailboxDisclosureTargets(mailboxTargets, {
                             disclosureState: persistedDisclosureState,
-                            ...sidebarDisclosureTargetInput
+                            ...sidebarDisclosureTargetInput,
+                            forceShowDrafts: composeDraft?.accountId === account.id
                           })
                         : null;
                     const disclosureAnimation =
@@ -18931,7 +19246,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       const nextDisclosureState = nextAccountMailboxDisclosureState(disclosureState);
                       const nextTargets = getAccountMailboxDisclosureTargets(mailboxTargets, {
                         disclosureState: nextDisclosureState,
-                        ...sidebarDisclosureTargetInput
+                        ...sidebarDisclosureTargetInput,
+                        forceShowDrafts: composeDraft?.accountId === account.id
                       });
 
                       queueAccountMailboxDisclosureAnimation(account.id, {
@@ -24693,6 +25009,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 <button
                   className="draft-restore-btn"
                   onClick={() => {
+                    if (isElectronRuntime && !composeOnlyWindow) {
+                      void openNativeComposeWindow(draft.draftId);
+                      return;
+                    }
                     resumeStoredComposeDraft(draft);
                   }}
                 >
@@ -24731,16 +25051,23 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             composeAiOpen &&
             !activeComposeSession.presentation.isMinimized &&
             !isMobile &&
+            !composeOnlyWindow &&
             typeof window !== "undefined";
           const composeRenderWidth = aiAssistedComposeLayout
             ? Math.min(Math.max(composeWindowWidth, 760), Math.max(560, window.innerWidth - 32))
-            : composeWindowWidth;
+            : composeOnlyWindow && typeof window !== "undefined"
+              ? window.innerWidth
+              : composeWindowWidth;
           const composeRenderHeight = aiAssistedComposeLayout
             ? Math.min(Math.max(composeWindowHeight, 760), Math.max(360, window.innerHeight - 32))
-            : composeWindowHeight;
+            : composeOnlyWindow && typeof window !== "undefined"
+              ? window.innerHeight
+              : composeWindowHeight;
           const pos =
-            activeComposeSession.presentation.position ??
-            getDefaultComposePos(composeWindowHeight, composeWindowWidth);
+            composeOnlyWindow
+              ? { x: 0, y: 0 }
+              : activeComposeSession.presentation.position ??
+                getDefaultComposePos(composeWindowHeight, composeWindowWidth);
           const anchoredPos = aiAssistedComposeLayout
             ? {
                 x: pos.x - Math.round((composeRenderWidth - composeWindowWidth) / 2),
@@ -24750,7 +25077,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           const clampedX =
             typeof window === "undefined"
               ? anchoredPos.x
-              : isMobile
+              : composeOnlyWindow || isMobile
                 ? 0
                 : Math.max(
                     0,
@@ -24759,7 +25086,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           const clampedY =
             typeof window === "undefined"
               ? anchoredPos.y
-              : isMobile
+              : composeOnlyWindow
+                ? 0
+                : isMobile
                 ? Math.max(80, window.innerHeight - composeRenderHeight)
                 : Math.max(
                     80,
@@ -24768,6 +25097,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
           const composeCanResize =
             !activeComposeSession.presentation.isMinimized &&
             !isMobile &&
+            !composeOnlyWindow &&
             typeof window !== "undefined";
           const startComposeResize = (
             event: React.MouseEvent<HTMLDivElement>,
@@ -24871,7 +25201,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             activeComposeSession.presentation.mode === "floating" ? "compose-undocked-shell" : ""
           } ${aiAssistedComposeLayout ? "compose-ai-layout" : ""} ${
             composeCanResize ? "compose-can-resize" : ""
-          }`}
+          } ${composeOnlyWindow ? "compose-window-compose-only" : ""}
+          `}
           style={{
             "--compose-window-width": `${composeRenderWidth}px`,
             position: "fixed",
@@ -24956,94 +25287,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <span className="compose-title">
                 {activeComposeSession.subject || "New Message"}
               </span>
-              <div className="compose-header-actions">
-                {activeComposeSession.presentation.position ? (
-                  <button
-                    type="button"
-                    className="compose-header-btn"
-                    title="Re-center"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setComposePos(null);
-                    }}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="12" cy="12" r="3" />
-                      <line x1="12" y1="2" x2="12" y2="6" />
-                      <line x1="12" y1="18" x2="12" y2="22" />
-                      <line x1="2" y1="12" x2="6" y2="12" />
-                      <line x1="18" y1="12" x2="22" y2="12" />
-                    </svg>
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="compose-header-btn"
-                  title={composeMinimized ? "Expand composer" : "Minimize to title bar"}
-                  onClick={() => {
-                    setComposeToolbarMenuOpen(false);
-                    setComposeToolbarMenuPosition(null);
-                    setComposeMinimized((current) => {
-                      const next = !current;
-                      if (next) {
-                        if (!composePlainText) {
-                          const editor = resolveVisibleComposeEditorNode("minimize-snapshot");
-                          if (editor) {
-                            pendingComposeEditorHydrationHtmlRef.current = editor.innerHTML;
-                            flushComposeEditorTextSync(editor.innerText);
-                          }
-                        }
-                        void persistComposeDraftNow(false);
-                      }
-                      return next;
-                    });
-                  }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  >
-                    {composeMinimized ? (
-                      <polyline points="18 15 12 9 6 15" />
-                    ) : (
-                      <polyline points="6 9 12 15 18 9" />
-                    )}
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="compose-header-btn"
-                  title="Close"
-                  onClick={() => closeComposeDraft()}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
             </div>
 
             {!composeMinimized ? (
@@ -25187,15 +25430,21 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                 </div>
               ) : null}
 
-              <div className="compose-row">
+              <div className="compose-row compose-subject-row">
                 <span className="compose-row-label">Subject:</span>
                 <input
                   ref={composeSubjectInputRef}
-                  className="compose-row-input"
+                  className="compose-row-input compose-subject-input"
                   type="text"
                   value={composeSubject}
                   onChange={(event) => setComposeSubject(event.target.value)}
                   placeholder="Subject"
+                  size={composeSubjectSizingChars}
+                  style={
+                    {
+                      "--subject-sizing-chars": composeSubjectSizingChars
+                    } as CSSProperties
+                  }
                 />
               </div>
 
@@ -26497,9 +26746,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="compose-footer-actions">
                 <button
                   className="modal-btn-cancel"
-                  onClick={() => closeComposeDraft()}
+                  onClick={() => void saveDraftAndCloseComposeWindow()}
                 >
-                  Discard
+                  Save Draft
                 </button>
                 <button
                   className="modal-btn-confirm"
@@ -26759,6 +27008,58 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </button>
               <button className="modal-btn-confirm" onClick={() => void handlePrintAction()}>
                 {printFormat === "pdf" ? "Save as PDF" : "Print"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {composeCloseConfirmOpen ? (
+        <div className="modal-overlay" onClick={() => setComposeCloseConfirmOpen(false)}>
+          <div className="modal discard-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Save Draft?</div>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: "13px", color: "var(--text2)", margin: 0, lineHeight: 1.6 }}>
+                Save this draft before closing the compose window?
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="modal-btn-cancel"
+                onClick={async () => {
+                  setComposeCloseConfirmOpen(false);
+                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
+                  await bridge?.respondComposeCloseRequest?.({ decision: "cancel" });
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn-delete"
+                onClick={async () => {
+                  setComposeCloseConfirmOpen(false);
+                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
+                  await bridge?.respondComposeCloseRequest?.({ decision: "discard" });
+                }}
+              >
+                Don&apos;t Save
+              </button>
+              <button
+                className="modal-btn-confirm"
+                onClick={async () => {
+                  const saved = await persistComposeDraftNow(true);
+                  if (!saved) {
+                    setStatus("Unable to save draft.");
+                    return;
+                  }
+                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
+                  await bridge?.respondComposeCloseRequest?.({ decision: "save" });
+                  setComposeCloseConfirmOpen(false);
+                }}
+              >
+                Save Draft
               </button>
             </div>
           </div>

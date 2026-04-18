@@ -21,7 +21,10 @@ export const ELECTRON_MAIL_CHANNELS = {
   loadDraft: "mail:load-draft",
   listDrafts: "mail:list-drafts",
   deleteDraft: "mail:delete-draft",
-  printToPdf: "mail:print-to-pdf"
+  printToPdf: "mail:print-to-pdf",
+  openComposeWindow: "mail:open-compose-window",
+  composeCloseRequested: "mail:compose-close-requested",
+  respondComposeCloseRequest: "mail:respond-compose-close-request"
 } as const;
 
 export type ElectronLoadFoldersInput = {
@@ -87,9 +90,18 @@ export type ElectronPrintToPdfResult = {
   filePath: string | null;
 };
 
+export type ElectronOpenComposeWindowInput = {
+  draftId?: string | null;
+};
+
+export type ElectronRespondComposeCloseRequestInput = {
+  decision: "save" | "discard" | "cancel";
+};
+
 export type ElectronMailBridge = {
   version: 2;
   isElectron: true;
+  isComposeWindow?: boolean;
   listAccounts(): Promise<{ accounts: MailAccountSummary[] }>;
   verifyAccount(payload: CreateMailAccountPayload): Promise<{
     folders: MailFolder[];
@@ -108,6 +120,11 @@ export type ElectronMailBridge = {
   listDrafts(input: ElectronListDraftsInput): Promise<{ drafts: StoredComposerDraft[] }>;
   deleteDraft(input: ElectronDeleteDraftInput): Promise<{ deleted: boolean }>;
   printToPdf(input: ElectronPrintToPdfInput): Promise<ElectronPrintToPdfResult>;
+  openComposeWindow(input?: ElectronOpenComposeWindowInput): Promise<{ opened: boolean }>;
+  onComposeCloseRequested?(listener: () => void): () => void;
+  respondComposeCloseRequest?(
+    input: ElectronRespondComposeCloseRequestInput
+  ): Promise<{ closed: boolean }>;
 };
 
 export type AccountCreateRequestBody = CreateMailAccountPayload;

@@ -7,7 +7,7 @@ const { spawn } = require("node:child_process");
 require("tsx/cjs");
 require("dotenv/config");
 
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const Module = require("node:module");
 
 process.on("uncaughtException", (error) => {
@@ -45,6 +45,8 @@ const {
 } = require("../lib/services/service-error.ts");
 
 const isDevelopment = !app.isPackaged;
+const allowDevTools =
+  isDevelopment || process.env.ELECTRON_ALLOW_DEVTOOLS === "true";
 const startUrl = app.isPackaged
   ? "http://127.0.0.1:3000"
   : (process.env.ELECTRON_START_URL || "http://localhost:3000");
@@ -53,6 +55,10 @@ const PACKAGED_DB_SEED_RELATIVE_PATH = path.join("seed", "blank-seed.db");
 app.setName("MaxiMail");
 
 let packagedServerProcess = null;
+let mainWindow = null;
+let composeWindow = null;
+const composeCloseBypassIds = new Set();
+const composeClosePromptPendingIds = new Set();
 const fallbackLogPath = path.join(process.env.TMPDIR || "/tmp", "maximail-packaged-startup.log");
 let aliasResolutionConfigured = false;
 
@@ -128,11 +134,13 @@ function createMainWindow() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#f5f2ee",
+    movable: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      devTools: allowDevTools
     }
   });
 
@@ -206,6 +214,219 @@ function createMainWindow() {
   }
 
   return window;
+}
+
+function getActiveWindow() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) {
+    return focused;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+  return null;
+}
+
+function openRendererSettings(window = getActiveWindow()) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+    return;
+  }
+
+  window.webContents.sendInputEvent({
+    type: "keyDown",
+    keyCode: ",",
+    modifiers: ["meta"]
+  });
+  window.webContents.sendInputEvent({
+    type: "keyUp",
+    keyCode: ",",
+    modifiers: ["meta"]
+  });
+}
+
+function buildComposeWindowUrl(options = {}) {
+  const composeUrl = new URL(startUrl);
+  composeUrl.searchParams.set("compose", "1");
+  if (typeof options.draftId === "string" && options.draftId.trim().length > 0) {
+    composeUrl.searchParams.set("draftId", options.draftId.trim());
+  }
+  return composeUrl.toString();
+}
+
+function createComposeWindow(options = {}) {
+  if (composeWindow && !composeWindow.isDestroyed()) {
+    if (typeof options.draftId === "string" && options.draftId.trim().length > 0) {
+      const nextUrl = buildComposeWindowUrl({ draftId: options.draftId });
+      if (composeWindow.webContents.getURL() !== nextUrl) {
+        logLine("createComposeWindow: reload-existing-with-draft", {
+          draftId: options.draftId
+        });
+        composeWindow.loadURL(nextUrl);
+      }
+    }
+    if (composeWindow.isMinimized()) {
+      composeWindow.restore();
+    }
+    composeWindow.focus();
+    return composeWindow;
+  }
+
+  const window = new BrowserWindow({
+    width: 960,
+    height: 760,
+    minWidth: 760,
+    minHeight: 620,
+    show: false,
+    autoHideMenuBar: true,
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hidden",
+          title: ""
+        }
+      : {}),
+    modal: false,
+    backgroundColor: "#f5f2ee",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      devTools: allowDevTools,
+      additionalArguments: ["--maximail-compose-window=1"]
+    }
+  });
+
+  const composeUrl = buildComposeWindowUrl(options);
+  if (typeof window.setParentWindow === "function") {
+    window.setParentWindow(null);
+  }
+  logLine("createComposeWindow: created", {
+    id: window.id,
+    parentId: window.getParentWindow()?.id ?? null,
+    isModal: typeof window.isModal === "function" ? window.isModal() : false
+  });
+  logLine("createComposeWindow: loadURL", { composeUrl });
+  window.loadURL(composeUrl);
+
+  window.once("ready-to-show", () => {
+    logLine("composeWindow ready-to-show");
+    window.show();
+    window.focus();
+  });
+
+  window.on("close", async (event) => {
+    if (composeCloseBypassIds.has(window.id)) {
+      composeCloseBypassIds.delete(window.id);
+      return;
+    }
+
+    event.preventDefault();
+
+    if (composeClosePromptPendingIds.has(window.id)) {
+      return;
+    }
+
+    const result = await dialog.showMessageBox(window, {
+      type: "question",
+      buttons: ["Save Draft", "Don't Save", "Cancel"],
+      defaultId: 0,
+      cancelId: 2,
+      message: "Save draft before closing?",
+      detail: "You can keep this draft and come back later."
+    });
+
+    if (window.isDestroyed()) {
+      return;
+    }
+
+    if (result.response === 2) {
+      return;
+    }
+
+    if (result.response === 1) {
+      composeCloseBypassIds.add(window.id);
+      window.close();
+      return;
+    }
+
+    composeClosePromptPendingIds.add(window.id);
+    logLine("composeWindow close requested", { id: window.id });
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send(ELECTRON_MAIL_CHANNELS.composeCloseRequested);
+      return;
+    }
+
+    composeClosePromptPendingIds.delete(window.id);
+  });
+
+  window.on("closed", () => {
+    logLine("composeWindow closed");
+    composeCloseBypassIds.delete(window.id);
+    composeClosePromptPendingIds.delete(window.id);
+    composeWindow = null;
+  });
+
+  composeWindow = window;
+  return window;
+}
+
+function configureApplicationMenu() {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const viewMenu = allowDevTools
+    ? { role: "viewMenu" }
+    : {
+        label: "View",
+        submenu: [
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { type: "separator" },
+          { role: "togglefullscreen" }
+        ]
+      };
+
+  const template = [
+    {
+      label: "MaxiMail",
+      submenu: [
+        {
+          label: "Settings…",
+          accelerator: "CmdOrCtrl+,",
+          click: () => openRendererSettings()
+        },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" }
+      ]
+    },
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Message",
+          accelerator: "CmdOrCtrl+N",
+          click: () => {
+            createComposeWindow();
+          }
+        },
+        { type: "separator" },
+        { role: "close" }
+      ]
+    },
+    { role: "editMenu" },
+    viewMenu,
+    { role: "windowMenu" }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function getPackagedDatabaseUrl(databasePath) {
@@ -654,6 +875,37 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.openComposeWindow, async (_event, input) => {
+    try {
+      createComposeWindow({
+        draftId:
+          input && typeof input === "object" && typeof input.draftId === "string"
+            ? input.draftId
+            : null
+      });
+      return { opened: true };
+    } catch (error) {
+      throw toIpcError(error, "Unable to open compose window.");
+    }
+  });
+
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.respondComposeCloseRequest, async (event, input) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { closed: false };
+    }
+
+    const decision = input?.decision;
+    composeClosePromptPendingIds.delete(senderWindow.id);
+    if (decision === "save" || decision === "discard") {
+      composeCloseBypassIds.add(senderWindow.id);
+      senderWindow.close();
+      return { closed: true };
+    }
+
+    return { closed: false };
+  });
+
   logLine("registerIpcHandlers: complete");
 }
 
@@ -714,12 +966,20 @@ app.whenReady().then(async () => {
     logLine("packaged-server: ready", { startUrl });
   }
 
-  createMainWindow();
+  mainWindow = createMainWindow();
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  configureApplicationMenu();
 
   app.on("activate", () => {
     logLine("app activate");
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      mainWindow = createMainWindow();
+      mainWindow.on("closed", () => {
+        mainWindow = null;
+      });
+      configureApplicationMenu();
     }
   });
 });
