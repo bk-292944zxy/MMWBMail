@@ -3527,19 +3527,19 @@ function getInitialComposeHeight() {
 }
 
 function getComposeMinWidth() {
-  return 630;
+  return 500;
 }
 
 function getComposeMaxWidth() {
   if (typeof window === "undefined") {
-    return 630;
+    return 570;
   }
 
   return Math.max(getComposeMinWidth(), Math.floor(window.innerWidth * 0.7));
 }
 
 function getInitialComposeWidth() {
-  return typeof window !== "undefined" ? Math.min(630, getComposeMaxWidth()) : 630;
+  return typeof window !== "undefined" ? Math.min(570, getComposeMaxWidth()) : 570;
 }
 
 function getDefaultComposePos(height: number, width = getInitialComposeWidth()) {
@@ -4714,7 +4714,16 @@ function buildAiRewriteDirectionSummary(
   return `${baseSummary.replace(/\.$/, "")} — ${capitalizeFirst(chipSummary)}.`;
 }
 
-const AI_POLISH_DESCRIPTION = "Same message. Better presentation.";
+const AI_POLISH_DESCRIPTION = "Same message, better presentation.";
+const AI_POLISH_MODE_CHOOSER_ORDER: AiPolishModeId[] = [
+  "clean",
+  "trim",
+  "warm",
+  "formal",
+  "relaxed",
+  "culture",
+  "academic"
+];
 
 function RecipientField({
   label,
@@ -13043,6 +13052,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         : null;
 
     if (!bridge?.openComposeWindow) {
+      if (isElectronRuntime) {
+        console.error("mmwbmail: compose bridge unavailable in Electron runtime");
+        return false;
+      }
+
       if (typeof window !== "undefined") {
         const composeUrl = new URL(window.location.href);
         composeUrl.searchParams.set("compose", "1");
@@ -13052,7 +13066,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         const popup = window.open(
           composeUrl.toString(),
           "_blank",
-          "popup=yes,width=960,height=760,noopener,noreferrer"
+          "popup=yes,width=570,height=760,noopener,noreferrer"
         );
         return Boolean(popup);
       }
@@ -13066,6 +13080,9 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return true;
     } catch (error) {
       console.error("mmwbmail: unable to open native compose window", error);
+      if (isElectronRuntime) {
+        return false;
+      }
       if (typeof window !== "undefined") {
         const composeUrl = new URL(window.location.href);
         composeUrl.searchParams.set("compose", "1");
@@ -13075,7 +13092,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         const popup = window.open(
           composeUrl.toString(),
           "_blank",
-          "popup=yes,width=960,height=760,noopener,noreferrer"
+          "popup=yes,width=570,height=760,noopener,noreferrer"
         );
         return Boolean(popup);
       }
@@ -14902,18 +14919,39 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     );
   }, [composeAiModifiers, composeAiSelectedMode, composeAiType]);
   const composeAiSelectedCategoryModes = useMemo(
-    () => composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [],
-    [composeAiCategory, composeAiModeGroups]
+    () => {
+      const modes = composeAiModeGroups.find((group) => group.category === composeAiCategory)?.modes ?? [];
+      if (composeAiType !== "polish") {
+        return modes;
+      }
+
+      const sortOrder = new Map(
+        AI_POLISH_MODE_CHOOSER_ORDER.map((modeId, index) => [modeId, index])
+      );
+      return [...modes].sort((left, right) => {
+        const leftIndex = sortOrder.get(left.id as AiPolishModeId) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = sortOrder.get(right.id as AiPolishModeId) ?? Number.MAX_SAFE_INTEGER;
+        return leftIndex - rightIndex;
+      });
+    },
+    [composeAiCategory, composeAiModeGroups, composeAiType]
   );
   const showComposeAiCategoryTooltip = (
     target: EventTarget & HTMLButtonElement,
     text: string
   ) => {
     const rect = target.getBoundingClientRect();
+    const tooltipWidth = Math.min(280, Math.floor(window.innerWidth * 0.76));
+    const horizontalPadding = 12;
+    const centeredLeft = rect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(centeredLeft, horizontalPadding + tooltipWidth / 2),
+      window.innerWidth - horizontalPadding - tooltipWidth / 2
+    );
     setComposeAiCategoryTooltip({
       text,
       top: rect.top - 10,
-      left: rect.left + rect.width / 2
+      left
     });
   };
   const hideComposeAiCategoryTooltip = () => {
@@ -14924,10 +14962,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     text: string
   ) => {
     const rect = target.getBoundingClientRect();
+    const tooltipWidth = Math.min(280, Math.floor(window.innerWidth * 0.76));
+    const horizontalPadding = 12;
+    const centeredLeft = rect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(centeredLeft, horizontalPadding + tooltipWidth / 2),
+      window.innerWidth - horizontalPadding - tooltipWidth / 2
+    );
     setComposeQuickFactTooltip({
       text,
       top: rect.top - 10,
-      left: rect.left + rect.width / 2
+      left
     });
   };
   const hideComposeQuickFactTooltip = () => {
@@ -14944,10 +14989,17 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       clearComposeToolbarTooltipTimer();
       composeToolbarTooltipTimerRef.current = setTimeout(() => {
         const rect = target.getBoundingClientRect();
+        const tooltipWidth = Math.min(280, Math.floor(window.innerWidth * 0.76));
+        const horizontalPadding = 12;
+        const centeredLeft = rect.left + rect.width / 2;
+        const left = Math.min(
+          Math.max(centeredLeft, horizontalPadding + tooltipWidth / 2),
+          window.innerWidth - horizontalPadding - tooltipWidth / 2
+        );
         setComposeToolbarTooltip({
           text,
           top: rect.top - 10,
-          left: rect.left + rect.width / 2
+          left
         });
       }, COMPOSE_TOOLBAR_TOOLTIP_DELAY_MS);
     },
@@ -14996,7 +15048,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const composeAiSelectionLabel = composeSelectionState.hasSelection
     ? "Using selected text"
     : "Using full draft";
+  const composeAiSelectionChipLabel = composeSelectionState.hasSelection
+    ? "Selection"
+    : "Full draft";
   const composeAiPreviewActive = Boolean(composeAiPreview);
+  const isPolishModeChooserStage =
+    composeAiType === "polish" &&
+    composeAiCategory === AI_POLISH_CATEGORY &&
+    !composeAiPreviewActive &&
+    !composeAiSelectedMode;
   const composeAiActivePreviewOption =
     composeAiPreview?.options.find((option) => option.id === composeAiPreviewOptionId) ??
     composeAiPreview?.options[0] ??
@@ -25236,59 +25296,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div
-              className="compose-header"
-              onClick={() => {
-                if (activeComposeSession.presentation.isMinimized) {
-                  setComposeMinimized(false);
-                }
-              }}
-              onMouseDown={(event) => {
-                if ((event.target as HTMLElement).closest("button")) {
-                  return;
-                }
-
-                composeDragRef.current = true;
-                composeDragStartX.current = event.clientX;
-                composeDragStartY.current = event.clientY;
-                composeDragOriginX.current = clampedX;
-                composeDragOriginY.current = clampedY;
-
-                const onMove = (moveEvent: MouseEvent) => {
-                  if (!composeDragRef.current) {
-                    return;
-                  }
-
-                  const dx = moveEvent.clientX - composeDragStartX.current;
-                  const dy = moveEvent.clientY - composeDragStartY.current;
-                  const width = composeWindowWidth;
-                  const height = composeWindowHeight;
-                  const newX = Math.max(
-                    0,
-                    Math.min(composeDragOriginX.current + dx, window.innerWidth - width)
-                  );
-                  const newY = Math.max(
-                    80,
-                    Math.min(composeDragOriginY.current + dy, window.innerHeight - height)
-                  );
-                  setComposePos({ x: newX, y: newY });
-                };
-
-                const onUp = () => {
-                  composeDragRef.current = false;
-                  document.removeEventListener("mousemove", onMove);
-                  document.removeEventListener("mouseup", onUp);
-                };
-
-                document.addEventListener("mousemove", onMove);
-                document.addEventListener("mouseup", onUp);
-              }}
-            >
-              <span className="compose-title">
-                {activeComposeSession.subject || "New Message"}
-              </span>
-            </div>
-
             {!composeMinimized ? (
               <>
             <div className="compose-fields">
@@ -25997,7 +26004,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     composeAiType === "polish"
                       ? "compose-ai-panel-polish"
                       : "compose-ai-panel-elevate"
-                  }`}
+                  } ${isPolishModeChooserStage ? "compose-ai-panel-polish-chooser" : ""}`}
                 >
                   <div className="compose-ai-flow-topbar">
                     <div className="compose-ai-flow-topbar-main">
@@ -26024,29 +26031,43 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </button>
                       ) : null}
                       <div className="compose-ai-flow-title">
-                        {composeAiSelectedMode?.label ??
-                          composeAiCategory ??
-                          (composeAiType === "polish" ? "Polish with AI" : "Elevate with AI")}
+                        {isPolishModeChooserStage
+                          ? "Polish"
+                          : composeAiSelectedMode?.label ??
+                            composeAiCategory ??
+                            (composeAiType === "polish" ? "Polish with AI" : "Elevate with AI")}
                       </div>
                     </div>
                     <div className="compose-ai-panel-header-meta">
-                      <div className="compose-ai-target">{composeAiSelectionLabel}</div>
-                      <button
-                        type="button"
-                        className="compose-ai-close"
-                        aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
-                        onClick={closeComposeAiPanel}
+                      <div
+                        className={`compose-ai-target ${
+                          isPolishModeChooserStage ? "compose-ai-target-chooser" : ""
+                        }`}
                       >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m6 6 12 12" />
-                          <path d="m18 6-12 12" />
-                        </svg>
-                      </button>
+                        {isPolishModeChooserStage
+                          ? composeAiSelectionChipLabel
+                          : composeAiSelectionLabel}
+                      </div>
+                      {!isPolishModeChooserStage ? (
+                        <button
+                          type="button"
+                          className="compose-ai-close"
+                          aria-label={composeAiType === "polish" ? "Close Polish" : "Close Elevate"}
+                          onClick={closeComposeAiPanel}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="m6 6 12 12" />
+                            <path d="m18 6-12 12" />
+                          </svg>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   <div className="compose-ai-flow-intro">
                     <div className="compose-ai-flow-subtitle">
-                      {composeAiSelectedMode?.description ??
+                      {isPolishModeChooserStage
+                        ? AI_POLISH_DESCRIPTION
+                        : composeAiSelectedMode?.description ??
                         (composeAiCategory
                           ? composeAiType === "polish"
                             ? "Choose how to refine the message before generating your polished version."
@@ -26165,24 +26186,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         </div>
                       ) : !composeAiPreviewActive && composeAiCategory ? (
                         <div className="compose-ai-section">
-                          {composeAiType === "polish" ? (
-                            <p className="compose-ai-description">{AI_POLISH_DESCRIPTION}</p>
-                          ) : null}
                           {!composeAiSelectedMode ? (
-                            <div className="compose-ai-mode-stage">
-                              <div className="compose-ai-section-header">
-                                <div className="compose-ai-section-title">
-                                  {composeAiType === "polish"
-                                    ? "Choose a polish mode"
-                                    : "Choose a path"}
+                            <div
+                              className={`compose-ai-mode-stage ${
+                                isPolishModeChooserStage
+                                  ? "compose-ai-mode-stage-polish-chooser"
+                                  : ""
+                              }`}
+                            >
+                              {composeAiType !== "polish" ? (
+                                <div className="compose-ai-section-header">
+                                  <div className="compose-ai-section-title">Choose a path</div>
                                 </div>
-                              </div>
+                              ) : null}
                               {composeAiSelectedCategoryModes.map((mode) => (
                                 <button
                                   key={mode.id}
                                   type="button"
                                   className={`compose-ai-mode-chip ${
                                     composeAiMode === mode.id ? "active" : ""
+                                  } ${
+                                    isPolishModeChooserStage
+                                      ? "compose-ai-mode-chip-chooser"
+                                      : ""
                                   }`}
                                   aria-label={mode.label}
                                   onClick={() => {

@@ -3,6 +3,7 @@ const process = require("node:process");
 const fs = require("node:fs");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 
 require("tsx/cjs");
 require("dotenv/config");
@@ -52,6 +53,7 @@ const startUrl = app.isPackaged
   : (process.env.ELECTRON_START_URL || "http://localhost:3000");
 const PACKAGED_DB_FILENAME = "maximail.db";
 const PACKAGED_DB_SEED_RELATIVE_PATH = path.join("seed", "blank-seed.db");
+const BLANK_WINDOW_TITLE = " ";
 app.setName("MaxiMail");
 
 let packagedServerProcess = null;
@@ -134,7 +136,13 @@ function createMainWindow() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#f5f2ee",
+    title: BLANK_WINDOW_TITLE,
     movable: true,
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset"
+        }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -206,6 +214,13 @@ function createMainWindow() {
 
   logLine("createMainWindow: loadURL", { startUrl });
   window.loadURL(startUrl);
+  window.setTitle(BLANK_WINDOW_TITLE);
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (!window.isDestroyed()) {
+      window.setTitle(BLANK_WINDOW_TITLE);
+    }
+  });
 
   if (isDevelopment) {
     window.webContents.on("did-fail-load", (_event, code, description) => {
@@ -272,16 +287,16 @@ function createComposeWindow(options = {}) {
   }
 
   const window = new BrowserWindow({
-    width: 960,
+    width: 570,
     height: 760,
-    minWidth: 760,
+    minWidth: 500,
     minHeight: 620,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden",
-          title: ""
+          title: BLANK_WINDOW_TITLE
         }
       : {}),
     modal: false,
@@ -307,6 +322,13 @@ function createComposeWindow(options = {}) {
   });
   logLine("createComposeWindow: loadURL", { composeUrl });
   window.loadURL(composeUrl);
+  window.setTitle(BLANK_WINDOW_TITLE);
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (!window.isDestroyed()) {
+      window.setTitle(BLANK_WINDOW_TITLE);
+    }
+  });
 
   window.once("ready-to-show", () => {
     logLine("composeWindow ready-to-show");
@@ -579,6 +601,39 @@ function configurePackagedSecretStorePath() {
   mergeLegacySecretsIntoTarget(secretsPath);
   logLine("packaged-secrets: configured", { secretsPath });
   return secretsPath;
+}
+
+function configurePackagedMailAccountSecret() {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  if (process.env.MAIL_ACCOUNT_SECRET?.trim()) {
+    logLine("packaged-mail-secret: using-env");
+    return process.env.MAIL_ACCOUNT_SECRET;
+  }
+
+  const userDataPath = app.getPath("userData");
+  const secretDir = path.join(userDataPath, ".maximail-secrets");
+  const secretPath = path.join(secretDir, "mail-account-secret.txt");
+
+  fs.mkdirSync(secretDir, { recursive: true });
+
+  let secret = "";
+  if (fs.existsSync(secretPath)) {
+    secret = fs.readFileSync(secretPath, "utf8").trim();
+  }
+
+  if (!secret) {
+    secret = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(secretPath, `${secret}\n`, { mode: 0o600 });
+    logLine("packaged-mail-secret: generated", { secretPath });
+  } else {
+    logLine("packaged-mail-secret: loaded", { secretPath });
+  }
+
+  process.env.MAIL_ACCOUNT_SECRET = secret;
+  return secret;
 }
 
 function checkHttpReady(url) {
@@ -924,6 +979,7 @@ app.whenReady().then(async () => {
   try {
     ensurePackagedDatabase();
     configurePackagedSecretStorePath();
+    configurePackagedMailAccountSecret();
   } catch (error) {
     logLine("packaged-db: init-failure", {
       message: error?.message ?? String(error)
