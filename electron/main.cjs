@@ -61,6 +61,8 @@ let packagedServerProcess = null;
 let packagedServerPort = null;
 let mainWindow = null;
 let composeWindow = null;
+let appIsQuitting = false;
+let appQuitPendingFromCompose = false;
 const composeCloseBypassIds = new Set();
 const composeClosePromptPendingIds = new Set();
 const fallbackLogPath = path.join(process.env.TMPDIR || "/tmp", "maximail-packaged-startup.log");
@@ -359,6 +361,10 @@ function createComposeWindow(options = {}) {
     }
 
     if (result.response === 2) {
+      if (appQuitPendingFromCompose) {
+        appQuitPendingFromCompose = false;
+        appIsQuitting = false;
+      }
       return;
     }
 
@@ -383,6 +389,10 @@ function createComposeWindow(options = {}) {
     composeCloseBypassIds.delete(window.id);
     composeClosePromptPendingIds.delete(window.id);
     composeWindow = null;
+    if (appQuitPendingFromCompose) {
+      appQuitPendingFromCompose = false;
+      app.quit();
+    }
   });
 
   composeWindow = window;
@@ -1114,7 +1124,22 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (
+    composeWindow &&
+    !composeWindow.isDestroyed() &&
+    !composeCloseBypassIds.has(composeWindow.id)
+  ) {
+    event.preventDefault();
+    appQuitPendingFromCompose = true;
+    if (!composeClosePromptPendingIds.has(composeWindow.id)) {
+      composeWindow.focus();
+      composeWindow.close();
+    }
+    return;
+  }
+
+  appIsQuitting = true;
   stopPackagedLocalServer();
 });
 

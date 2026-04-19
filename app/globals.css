@@ -7043,7 +7043,7 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   border-radius: 999px !important;
   background: rgba(15, 23, 42, 0.032) !important;
   border: 1px solid rgba(17, 24, 39, 0.08) !important;
-  font-size: 10px !important;
+  font-size: 9px !important;
   font-weight: 500 !important;
   letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
@@ -12607,8 +12607,8 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .settings-ai-description-primary {
-  font-size: 14px !important;
-  font-weight: 600 !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
 }
 
 .settings-ai-capability-row {

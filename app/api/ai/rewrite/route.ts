@@ -11,6 +11,9 @@ import type {
   AiRewriteOutputType
 } from "@/lib/ai-rewrite-modes";
 import type {
+  AiPolishCultureCountryId,
+  AiPolishCultureRecipientSeniority,
+  AiPolishCultureRelationshipStage,
   AiPolishCultureRegionId,
   AiPolishModeId,
   AiPolishModifierId
@@ -25,6 +28,9 @@ type RewritePayload = {
   mode?: AiRewriteModeId | AiPolishModeId;
   modifiers?: Array<AiRewriteModifierId | AiPolishModifierId>;
   region?: AiPolishCultureRegionId;
+  countryId?: AiPolishCultureCountryId;
+  seniority?: AiPolishCultureRecipientSeniority;
+  relationshipStage?: AiPolishCultureRelationshipStage;
   outputType?: AiRewriteOutputType;
 };
 
@@ -43,6 +49,9 @@ export async function POST(request: Request) {
       mode: payload.mode,
       modifiers: payload.modifiers ?? [],
       region: payload.region,
+      countryId: payload.countryId,
+      seniority: payload.seniority,
+      relationshipStage: payload.relationshipStage,
       outputType: payload.outputType ?? "rewrite"
     });
 

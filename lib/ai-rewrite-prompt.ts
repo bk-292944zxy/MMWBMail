@@ -309,6 +309,8 @@ export function buildAiRewriteMessages(input: AiRewritePromptInput): AiRewriteCh
     "",
     "Mode objective:",
     `- ${input.mode.objective}`,
+    "- Apply visible, concrete edits that clearly serve this mode objective.",
+    "- Do not return output that is identical to the source text.",
     "",
     "Preserve:",
     ...input.mode.preserveRules.map((rule) => `- ${rule}`),

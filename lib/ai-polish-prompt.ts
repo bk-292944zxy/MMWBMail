@@ -89,7 +89,6 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
   const modifierDefinitions = input.modifiers.map((modifierId) => AI_POLISH_MODIFIERS[modifierId]);
   const activeRegion = input.region ?? "global";
   const isCultureMode = input.mode.id === "culture";
-  const modeSpecificInstructions = "";
   const outputRules = isCultureMode
     ? [
         "Output rules:",
@@ -115,6 +114,7 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
     BASE_PROMPT,
     "",
     `Mode: ${input.mode.label}`,
+    `Mode objective: ${input.mode.objective}`,
     `Mode instructions: ${getModeInstructions(
       input.mode.id,
       activeRegion,
@@ -122,7 +122,8 @@ export function buildAiPolishMessages(input: AiPolishPromptInput): AiPolishChatM
       input.seniority,
       input.relationshipStage
     )}`,
-    modeSpecificInstructions ? `\nMode-specific guidance:\n${modeSpecificInstructions}` : "",
+    "Apply visible, concrete presentation changes that fit the selected mode.",
+    "Do not return text that is identical to the source draft.",
     "",
     modifierDefinitions.length > 0
       ? `Selected modifier instructions:\n${modifierDefinitions
