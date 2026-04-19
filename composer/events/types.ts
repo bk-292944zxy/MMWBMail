@@ -7,8 +7,14 @@ export type ComposeEventReminder =
   | "1h"
   | "1d";
 
+export type ComposeEventInvitee = {
+  email: string;
+  name?: string;
+};
+
 export type ComposeEventFormState = {
   title: string;
+  invitees: ComposeEventInvitee[];
   startDate: string;
   startTime: string;
   endDate: string;
@@ -22,6 +28,7 @@ export type ComposeEventFormState = {
 
 export type ComposeEvent = {
   title: string;
+  invitees: ComposeEventInvitee[];
   start: Date;
   end?: Date;
   isAllDay: boolean;
@@ -52,6 +59,7 @@ export type ComposeEventValidationErrors = Partial<
     | "endDate"
     | "endTime"
     | "timezone"
+    | "invitees"
     | "location"
     | "notes",
     string

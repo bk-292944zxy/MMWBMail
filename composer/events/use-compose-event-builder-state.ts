@@ -10,6 +10,26 @@ import type {
   ComposeEventValidationErrors
 } from "@/composer/events/types";
 
+function normalizeInitialFormState(initialEvent: ComposeEventFormState | null): ComposeEventFormState {
+  const fallback = createDefaultComposeEventFormState();
+  if (!initialEvent) {
+    return fallback;
+  }
+  return {
+    ...fallback,
+    ...initialEvent,
+    invitees: Array.isArray(initialEvent.invitees)
+      ? initialEvent.invitees
+          .filter((invitee) => typeof invitee?.email === "string")
+          .map((invitee) => ({
+            email: invitee.email.trim(),
+            name: typeof invitee.name === "string" ? invitee.name.trim() : undefined
+          }))
+          .filter((invitee) => invitee.email.length > 0)
+      : []
+  };
+}
+
 function addOneDayToDateInput(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
@@ -30,7 +50,7 @@ function addOneDayToDateInput(value: string) {
 
 export function useComposeEventBuilderState(initialEvent: ComposeEventFormState | null, open: boolean) {
   const [form, setForm] = useState<ComposeEventFormState>(() =>
-    initialEvent ?? createDefaultComposeEventFormState()
+    normalizeInitialFormState(initialEvent)
   );
   const [errors, setErrors] = useState<ComposeEventValidationErrors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +65,7 @@ export function useComposeEventBuilderState(initialEvent: ComposeEventFormState 
       return;
     }
 
-    const nextInitial = initialEvent ?? createDefaultComposeEventFormState();
+    const nextInitial = normalizeInitialFormState(initialEvent);
     setForm(nextInitial);
     setErrors({});
     setSubmitting(false);
@@ -134,7 +154,7 @@ export function useComposeEventBuilderState(initialEvent: ComposeEventFormState 
   };
 
   const resetToInitial = () => {
-    const nextInitial = initialEvent ?? createDefaultComposeEventFormState();
+    const nextInitial = normalizeInitialFormState(initialEvent);
     setForm(nextInitial);
     setErrors({});
     setSubmitting(false);

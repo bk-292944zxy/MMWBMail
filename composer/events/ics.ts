@@ -78,6 +78,14 @@ function formatDateTime(date: Date, timeZone: string) {
   return `${parts.year}${String(parts.month).padStart(2, "0")}${String(parts.day).padStart(2, "0")}T${String(parts.hour).padStart(2, "0")}${String(parts.minute).padStart(2, "0")}${String(parts.second).padStart(2, "0")}`;
 }
 
+function escapeICSParam(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/:/g, "\\:");
+}
+
 function getReminderTrigger(reminder: ReturnType<typeof normalizeComposeEventReminder>) {
   switch (reminder) {
     case "at_time":
@@ -105,6 +113,7 @@ export function generateICSFromComposeEvent(event: ComposeEvent): GeneratedEvent
   const location = event.location?.trim();
   const notes = event.notes?.trim();
   const reminder = normalizeComposeEventReminder(event.reminder);
+  const attendees = (event.invitees ?? []).filter((invitee) => invitee.email.trim().length > 0);
   const dtStart = event.isAllDay
     ? `DTSTART;VALUE=DATE:${formatDateOnly(event.start, event.timezone)}`
     : `DTSTART;TZID=${event.timezone}:${formatDateTime(event.start, event.timezone)}`;
@@ -129,6 +138,20 @@ export function generateICSFromComposeEvent(event: ComposeEvent): GeneratedEvent
     `SUMMARY:${summary}`,
     location ? `LOCATION:${escapeICSText(location)}` : null,
     notes ? `DESCRIPTION:${escapeICSText(notes)}` : null,
+    attendees.map((invitee) => {
+      const email = invitee.email.trim();
+      const displayName = invitee.name?.trim();
+      const commonFields = [
+        "ATTENDEE",
+        "ROLE=REQ-PARTICIPANT",
+        "PARTSTAT=NEEDS-ACTION",
+        "RSVP=TRUE"
+      ];
+      if (displayName) {
+        commonFields.push(`CN=${escapeICSParam(displayName)}`);
+      }
+      return `${commonFields.join(";")}:mailto:${email}`;
+    }),
     reminder !== "none"
       ? [
           "BEGIN:VALARM",

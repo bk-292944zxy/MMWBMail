@@ -1,13 +1,14 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { generateICSFromComposeEvent } from "@/composer/events/ics";
 import { getDefaultComposeEventTimeZone } from "@/composer/events/state";
 import { useComposeEventBuilderState } from "@/composer/events/use-compose-event-builder-state";
 import type {
   ComposeEvent,
+  ComposeEventInvitee,
   ComposeEventFormState,
   GeneratedEventAsset
 } from "@/composer/events/types";
@@ -15,6 +16,7 @@ import type {
 type ComposeEventBuilderProps = {
   open: boolean;
   initialEvent: ComposeEventFormState | null;
+  inviteeSuggestions?: string[];
   onClose: () => void;
   onCreate: (input: {
     event: ComposeEvent;
@@ -49,6 +51,7 @@ const REMINDER_OPTIONS: Array<{ value: ComposeEventFormState["reminder"]; label:
 ];
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const INVITEE_INVALID_MESSAGE = "Some addresses could not be added.";
 
 function parseDateInput(value: string) {
   const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
@@ -163,19 +166,98 @@ function normalizeNotesSentenceCase(value: string) {
   return result;
 }
 
+function isValidInviteeEmail(value: string) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value.trim());
+}
+
+function parseInviteeToken(token: string): ComposeEventInvitee | null {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const namedMatch = trimmed.match(/^(.+?)\s*<\s*([^<>]+)\s*>$/);
+  if (namedMatch) {
+    const name = namedMatch[1]?.trim().replace(/^"+|"+$/g, "");
+    const email = namedMatch[2]?.trim().toLowerCase();
+    if (!email || !isValidInviteeEmail(email)) {
+      return null;
+    }
+    return name ? { email, name } : { email };
+  }
+
+  const email = trimmed.toLowerCase();
+  if (!isValidInviteeEmail(email)) {
+    return null;
+  }
+  return { email };
+}
+
+function splitInviteeText(input: string) {
+  return input
+    .replace(/\r\n/g, "\n")
+    .split(/[\n,;]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function addInvitees(
+  existing: ComposeEventInvitee[],
+  rawInput: string
+): { invitees: ComposeEventInvitee[]; hadInvalid: boolean; addedCount: number } {
+  const tokens = splitInviteeText(rawInput);
+  if (tokens.length === 0) {
+    return { invitees: existing, hadInvalid: false, addedCount: 0 };
+  }
+
+  const byEmail = new Map(existing.map((invitee) => [invitee.email.toLowerCase(), invitee]));
+  let hadInvalid = false;
+  let addedCount = 0;
+
+  for (const token of tokens) {
+    const parsed = parseInviteeToken(token);
+    if (!parsed) {
+      hadInvalid = true;
+      continue;
+    }
+    const key = parsed.email.toLowerCase();
+    if (byEmail.has(key)) {
+      continue;
+    }
+    byEmail.set(key, parsed);
+    addedCount += 1;
+  }
+
+  return {
+    invitees: Array.from(byEmail.values()),
+    hadInvalid,
+    addedCount
+  };
+}
+
 export function ComposeEventBuilder({
   open,
   initialEvent,
+  inviteeSuggestions = [],
   onClose,
   onCreate
 }: ComposeEventBuilderProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [inviteeInput, setInviteeInput] = useState("");
+  const [inviteeError, setInviteeError] = useState<string | null>(null);
   const [openCalendarField, setOpenCalendarField] = useState<"startDate" | "endDate" | null>(null);
   const [visibleMonth, setVisibleMonth] = useState(() => parseDateInput(initialEvent?.startDate ?? ""));
   const [calendarPosition, setCalendarPosition] = useState({
     top: 0,
     left: 0
   });
+  const [surfaceFrame, setSurfaceFrame] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+  const inviteeSuggestionsListId = useId();
   const {
     form,
     errors,
@@ -196,9 +278,57 @@ export function ComposeEventBuilder({
     }
 
     setSubmitError(null);
+    setInviteeInput("");
+    setInviteeError(null);
     setOpenCalendarField(null);
     setVisibleMonth(parseDateInput(initialEvent?.startDate ?? ""));
   }, [initialEvent?.startDate, open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const computeSurfaceFrame = () => {
+      const composeWindow = document.querySelector(".compose-window:not(.compose-minimized)") as
+        | HTMLElement
+        | null;
+      const anchorRect = composeWindow?.getBoundingClientRect() ?? {
+        top: 24,
+        left: 24,
+        width: Math.max(window.innerWidth - 48, 520),
+        height: Math.max(window.innerHeight - 48, 520)
+      };
+
+      const viewportPadding = 14;
+      const minWidth = 520;
+      const maxWidth = Math.max(minWidth, Math.min(660, window.innerWidth - viewportPadding * 2));
+      const width = Math.max(
+        minWidth,
+        Math.min(maxWidth, Math.max(minWidth, Math.min(anchorRect.width - 24, 660)))
+      );
+
+      const preferredTop = Math.max(anchorRect.top + 24, viewportPadding);
+      const maxTop = Math.max(viewportPadding, window.innerHeight - 440);
+      const top = Math.min(preferredTop, maxTop);
+      const centeredLeft = anchorRect.left + (anchorRect.width - width) / 2;
+      const left = Math.min(
+        Math.max(viewportPadding, centeredLeft),
+        Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+      );
+      const maxHeight = Math.max(460, window.innerHeight - top - viewportPadding);
+
+      setSurfaceFrame({ top, left, width, maxHeight });
+    };
+
+    computeSurfaceFrame();
+    window.addEventListener("resize", computeSurfaceFrame);
+    window.addEventListener("scroll", computeSurfaceFrame, true);
+    return () => {
+      window.removeEventListener("resize", computeSurfaceFrame);
+      window.removeEventListener("scroll", computeSurfaceFrame, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -330,6 +460,47 @@ export function ComposeEventBuilder({
     },
     [updateField]
   );
+  const handleInviteeCommit = useCallback(
+    (rawValue: string) => {
+      const parsed = addInvitees(form.invitees, rawValue);
+      if (parsed.addedCount > 0) {
+        updateField("invitees", parsed.invitees);
+      }
+      setInviteeError(parsed.hadInvalid ? INVITEE_INVALID_MESSAGE : null);
+      return parsed;
+    },
+    [form.invitees, updateField]
+  );
+  const removeInvitee = useCallback(
+    (email: string) => {
+      updateField(
+        "invitees",
+        form.invitees.filter((invitee) => invitee.email.toLowerCase() !== email.toLowerCase())
+      );
+      setInviteeError(null);
+    },
+    [form.invitees, updateField]
+  );
+  const filteredInviteeSuggestions = useMemo(() => {
+    const input = inviteeInput.trim().toLowerCase();
+    const existing = new Set(form.invitees.map((invitee) => invitee.email.toLowerCase()));
+    return inviteeSuggestions
+      .filter((suggestion) => {
+        const suggestionText = suggestion.trim();
+        if (!suggestionText) {
+          return false;
+        }
+        const parsed = parseInviteeToken(suggestionText);
+        if (!parsed || existing.has(parsed.email.toLowerCase())) {
+          return false;
+        }
+        if (!input) {
+          return true;
+        }
+        return suggestionText.toLowerCase().includes(input);
+      })
+      .slice(0, 8);
+  }, [form.invitees, inviteeInput, inviteeSuggestions]);
 
   if (!open || typeof document === "undefined") {
     return null;
@@ -399,6 +570,16 @@ export function ComposeEventBuilder({
         aria-labelledby="compose-event-title"
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
+        style={
+          surfaceFrame
+            ? {
+                top: `${surfaceFrame.top}px`,
+                left: `${surfaceFrame.left}px`,
+                width: `${surfaceFrame.width}px`,
+                maxHeight: `${surfaceFrame.maxHeight}px`
+              }
+            : undefined
+        }
       >
         <div className="compose-event-header">
           <div className="compose-event-header-copy">
@@ -420,48 +601,104 @@ export function ComposeEventBuilder({
         </div>
 
         <div className="compose-event-modal-body" ref={modalBodyRef}>
-          <div className="compose-event-title-row">
-            <div className="compose-event-title-shell">
-              <div
-                className="compose-event-title-glyph"
-                aria-hidden="true"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="4" width="18" height="17" rx="2" />
-                  <path d="M8 2v4" />
-                  <path d="M16 2v4" />
-                  <path d="M3 10h18" />
-                </svg>
-              </div>
-              <div className="compose-event-title-field">
-                <input
-                  id="compose-event-title-input"
-                  aria-label="Event details"
-                  className={`compose-event-input compose-event-title-input ${
-                    errors.title ? "compose-event-input-error" : ""
-                  }`}
-                  type="text"
-                  value={form.title}
-                  onChange={(event) => handleTitleChange(event.target.value)}
-                  onBlur={() => normalizeFieldOnBlur("title", form.title, toSentenceCase)}
-                  placeholder="Event details"
-                  autoFocus
-                />
-                {errors.title ? (
-                  <span className="compose-event-error compose-event-title-error">{errors.title}</span>
-                ) : null}
-              </div>
+          <label className="compose-event-field compose-event-title-row">
+            <span className="compose-event-label">Title</span>
+            <input
+              id="compose-event-title-input"
+              aria-label="Title"
+              className={`compose-event-input compose-event-title-input ${
+                errors.title ? "compose-event-input-error" : ""
+              }`}
+              type="text"
+              value={form.title}
+              onChange={(event) => handleTitleChange(event.target.value)}
+              onBlur={() => normalizeFieldOnBlur("title", form.title, toSentenceCase)}
+              placeholder="Title"
+              autoFocus
+            />
+            {errors.title ? (
+              <span className="compose-event-error compose-event-title-error">{errors.title}</span>
+            ) : null}
+          </label>
+
+          <div className="compose-event-field compose-event-invitees-field">
+            <span className="compose-event-label">Invitees</span>
+            <div className="compose-event-invitees-shell">
+              {form.invitees.map((invitee) => (
+                <span key={invitee.email} className="compose-event-invitee-chip">
+                  <span className="compose-event-invitee-chip-text">
+                    {invitee.name ? `${invitee.name} <${invitee.email}>` : invitee.email}
+                  </span>
+                  <button
+                    type="button"
+                    className="compose-event-invitee-chip-remove"
+                    onClick={() => removeInvitee(invitee.email)}
+                    aria-label={`Remove ${invitee.email}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                className="compose-event-invitees-input"
+                type="text"
+                value={inviteeInput}
+                placeholder={form.invitees.length === 0 ? "Add invitees" : "Add more invitees"}
+                autoComplete="email"
+                list={filteredInviteeSuggestions.length > 0 ? inviteeSuggestionsListId : undefined}
+                onChange={(event) => setInviteeInput(event.target.value)}
+                onBlur={() => {
+                  if (inviteeInput.trim().length === 0) {
+                    return;
+                  }
+                  const parsed = handleInviteeCommit(inviteeInput);
+                  if (parsed.addedCount > 0 || parsed.hadInvalid) {
+                    setInviteeInput("");
+                  }
+                }}
+                onPaste={(event) => {
+                  const pastedText = event.clipboardData.getData("text");
+                  if (!pastedText || !/[\n,;]|@/.test(pastedText)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  const parsed = handleInviteeCommit(pastedText);
+                  if (parsed.addedCount > 0 || parsed.hadInvalid) {
+                    setInviteeInput("");
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Backspace" && inviteeInput.length === 0 && form.invitees.length > 0) {
+                    event.preventDefault();
+                    removeInvitee(form.invitees[form.invitees.length - 1].email);
+                    return;
+                  }
+
+                  if (event.key === "Enter" || event.key === "," || event.key === "Tab") {
+                    if (inviteeInput.trim().length === 0) {
+                      return;
+                    }
+                    event.preventDefault();
+                    const parsed = handleInviteeCommit(inviteeInput);
+                    if (parsed.addedCount > 0 || parsed.hadInvalid) {
+                      setInviteeInput("");
+                    }
+                  }
+                }}
+              />
+              {filteredInviteeSuggestions.length > 0 ? (
+                <datalist id={inviteeSuggestionsListId}>
+                  {filteredInviteeSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+              ) : null}
             </div>
+            {inviteeError ? (
+              <span className="compose-event-error">{inviteeError}</span>
+            ) : form.invitees.length === 0 ? (
+              <span className="compose-event-note">Leave blank to create a personal event.</span>
+            ) : null}
           </div>
 
           <div className="compose-event-schedule-grid">
@@ -514,7 +751,11 @@ export function ComposeEventBuilder({
             </div>
 
             <div className="compose-event-row compose-event-row-time">
-              <div className="compose-event-time-cluster">
+              <div
+                className={`compose-event-time-cluster ${
+                  form.isMultiDay ? "compose-event-time-cluster-flat" : ""
+                }`}
+              >
                 <label className="compose-event-field compose-event-time-field">
                   <span className="compose-event-label">Start time</span>
                   <input
@@ -547,7 +788,7 @@ export function ComposeEventBuilder({
 
             {form.isMultiDay ? (
               <>
-                <div className="compose-event-row compose-event-row-enddate">
+                <div className="compose-event-row compose-event-row-enddate compose-event-end-cluster">
                   <div className="compose-event-field compose-event-field-enddate">
                     <span className="compose-event-label">End date</span>
                     <button
@@ -739,7 +980,9 @@ export function ComposeEventBuilder({
         <div className="compose-event-modal-footer">
           <div className="compose-event-footer-meta">
             <div className="compose-event-copy compose-event-footer-copy">
-              Event data will be attached as an ICS file.
+              {form.invitees.length > 0
+                ? "An invite will be attached as an ICS file for recipients."
+                : "Event details will be attached as an ICS file."}
             </div>
             {submitError ? (
               <div className="compose-event-submit-error" role="alert">

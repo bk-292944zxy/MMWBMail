@@ -2,6 +2,7 @@ const path = require("node:path");
 const process = require("node:process");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 
@@ -48,15 +49,16 @@ const {
 const isDevelopment = !app.isPackaged;
 const allowDevTools =
   isDevelopment || process.env.ELECTRON_ALLOW_DEVTOOLS === "true";
-const startUrl = app.isPackaged
+let startUrl = app.isPackaged
   ? "http://127.0.0.1:3000"
   : (process.env.ELECTRON_START_URL || "http://localhost:3000");
 const PACKAGED_DB_FILENAME = "maximail.db";
 const PACKAGED_DB_SEED_RELATIVE_PATH = path.join("seed", "blank-seed.db");
-const BLANK_WINDOW_TITLE = " ";
+const BLANK_WINDOW_TITLE = "";
 app.setName("MaxiMail");
 
 let packagedServerProcess = null;
+let packagedServerPort = null;
 let mainWindow = null;
 let composeWindow = null;
 const composeCloseBypassIds = new Set();
@@ -138,11 +140,6 @@ function createMainWindow() {
     backgroundColor: "#f5f2ee",
     title: BLANK_WINDOW_TITLE,
     movable: true,
-    ...(process.platform === "darwin"
-      ? {
-          titleBarStyle: "hiddenInset"
-        }
-      : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -292,10 +289,10 @@ function createComposeWindow(options = {}) {
     minWidth: 500,
     minHeight: 620,
     show: false,
+    movable: true,
     autoHideMenuBar: true,
     ...(process.platform === "darwin"
       ? {
-          titleBarStyle: "hidden",
           title: BLANK_WINDOW_TITLE
         }
       : {}),
@@ -650,6 +647,44 @@ function checkHttpReady(url) {
   });
 }
 
+function reserveLocalPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", (error) => reject(error));
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string" || typeof address.port !== "number") {
+        server.close(() => reject(new Error("Unable to resolve local server port.")));
+        return;
+      }
+      const { port } = address;
+      server.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function ensurePackagedServerPort() {
+  if (!app.isPackaged) {
+    return null;
+  }
+  if (packagedServerPort) {
+    return packagedServerPort;
+  }
+
+  const port = await reserveLocalPort();
+  packagedServerPort = port;
+  startUrl = `http://127.0.0.1:${port}`;
+  logLine("packaged-server: reserved-port", { port, startUrl });
+  return port;
+}
+
 async function waitForLocalServer(url, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -674,7 +709,8 @@ function startPackagedLocalServer() {
 
   const appEntry = path.join(app.getAppPath(), "app.js");
   const cwd = app.getAppPath();
-  logLine("packaged-server: start", { appEntry, startUrl, cwd });
+  const port = packagedServerPort || 3000;
+  logLine("packaged-server: start", { appEntry, startUrl, cwd, port });
 
   packagedServerProcess = spawn(process.execPath, [appEntry], {
     cwd,
@@ -683,7 +719,7 @@ function startPackagedLocalServer() {
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       HOST: "127.0.0.1",
-      PORT: "3000"
+      PORT: String(port)
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -961,6 +997,43 @@ function registerIpcHandlers() {
     return { closed: false };
   });
 
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.openColorPicker, async (event, initialColor) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { opened: false };
+    }
+    const color =
+      typeof initialColor === "string" && initialColor.trim().length > 0
+        ? initialColor.trim()
+        : "#0a84ff";
+    senderWindow.webContents.send(ELECTRON_MAIL_CHANNELS.colorPickerOpenRequest, color);
+    return { opened: true };
+  });
+
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.publishColorPickerChange, async (event, color) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { delivered: false };
+    }
+    if (typeof color !== "string" || color.trim().length === 0) {
+      return { delivered: false };
+    }
+    senderWindow.webContents.send(ELECTRON_MAIL_CHANNELS.colorPickerChange, color.trim());
+    return { delivered: true };
+  });
+
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.publishColorPickerCommit, async (event, color) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { delivered: false };
+    }
+    if (typeof color !== "string" || color.trim().length === 0) {
+      return { delivered: false };
+    }
+    senderWindow.webContents.send(ELECTRON_MAIL_CHANNELS.colorPickerCommit, color.trim());
+    return { delivered: true };
+  });
+
   logLine("registerIpcHandlers: complete");
 }
 
@@ -1008,6 +1081,7 @@ app.whenReady().then(async () => {
   }
 
   if (app.isPackaged) {
+    await ensurePackagedServerPort();
     startPackagedLocalServer();
     const ready = await waitForLocalServer(startUrl);
     if (!ready) {

@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "predev": "rm -rf .next",
+    "clean": "rm -rf dist-electron",
     "native:rebuild:node": "node ./scripts/rebuild-node-native.cjs",
     "dev": "npm run native:rebuild:node && ./node_modules/node/bin/node ./node_modules/next/dist/bin/next dev",
     "electron": "env -u ELECTRON_RUN_AS_NODE electron ./electron/main.cjs",
@@ -65,9 +66,6 @@
     },
     "asar": false,
     "files": [
-      "app/**",
-      "components/**",
-      "composer/**",
       "electron/**",
       "lib/**",
       "prisma/**",
@@ -75,7 +73,6 @@
       ".next/**",
       "app.js",
       "package.json",
-      "tsconfig.json",
       "node_modules/esbuild/**",
       "node_modules/@esbuild/**",
       "node_modules/better-sqlite3/**",

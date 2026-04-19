@@ -1,9 +1,28 @@
-require("tsx/cjs");
-
 const { contextBridge, ipcRenderer } = require("electron");
-const {
-  ELECTRON_MAIL_CHANNELS
-} = require("../lib/electron/ipc-contract.ts");
+const ELECTRON_MAIL_CHANNELS = {
+  listAccounts: "mail:list-accounts",
+  verifyAccount: "mail:verify-account",
+  createAccount: "mail:create-account",
+  loadFolders: "mail:load-folders",
+  loadMessages: "mail:load-messages",
+  loadMessageDetail: "mail:load-message-detail",
+  sendMessage: "mail:send-message",
+  createDraft: "mail:create-draft",
+  saveDraft: "mail:save-draft",
+  loadDraft: "mail:load-draft",
+  listDrafts: "mail:list-drafts",
+  deleteDraft: "mail:delete-draft",
+  printToPdf: "mail:print-to-pdf",
+  openComposeWindow: "mail:open-compose-window",
+  composeCloseRequested: "mail:compose-close-requested",
+  respondComposeCloseRequest: "mail:respond-compose-close-request",
+  openColorPicker: "color-picker:open",
+  publishColorPickerChange: "color-picker:publish-change",
+  publishColorPickerCommit: "color-picker:publish-commit",
+  colorPickerOpenRequest: "color-picker:open-request",
+  colorPickerChange: "color-picker:change",
+  colorPickerCommit: "color-picker:commit"
+};
 const isComposeWindow = process.argv.some((arg) =>
   arg === "--maximail-compose-window=1" || arg.startsWith("--maximail-compose-window=1")
 );
@@ -40,7 +59,49 @@ const bridge = {
     };
   },
   respondComposeCloseRequest: (input) =>
-    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.respondComposeCloseRequest, input)
+    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.respondComposeCloseRequest, input),
+  openColorPicker: (initialColor) =>
+    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openColorPicker, initialColor),
+  publishColorPickerChange: (color) =>
+    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.publishColorPickerChange, color),
+  publishColorPickerCommit: (color) =>
+    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.publishColorPickerCommit, color),
+  onColorPickerOpenRequest: (listener) => {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    const handler = (_event, color) => {
+      listener(color);
+    };
+    ipcRenderer.on(ELECTRON_MAIL_CHANNELS.colorPickerOpenRequest, handler);
+    return () => {
+      ipcRenderer.removeListener(ELECTRON_MAIL_CHANNELS.colorPickerOpenRequest, handler);
+    };
+  },
+  onColorPickerChange: (listener) => {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    const handler = (_event, color) => {
+      listener(color);
+    };
+    ipcRenderer.on(ELECTRON_MAIL_CHANNELS.colorPickerChange, handler);
+    return () => {
+      ipcRenderer.removeListener(ELECTRON_MAIL_CHANNELS.colorPickerChange, handler);
+    };
+  },
+  onColorPickerCommit: (listener) => {
+    if (typeof listener !== "function") {
+      return () => {};
+    }
+    const handler = (_event, color) => {
+      listener(color);
+    };
+    ipcRenderer.on(ELECTRON_MAIL_CHANNELS.colorPickerCommit, handler);
+    return () => {
+      ipcRenderer.removeListener(ELECTRON_MAIL_CHANNELS.colorPickerCommit, handler);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld("maximailDesktop", bridge);

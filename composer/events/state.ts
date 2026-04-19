@@ -181,6 +181,19 @@ function sanitizeFileName(input: string) {
   return cleaned || "invite";
 }
 
+function normalizeComposeEventInvitees(invitees: ComposeEventFormState["invitees"]) {
+  const map = new Map<string, { email: string; name?: string }>();
+  for (const invitee of invitees) {
+    const email = invitee.email.trim().toLowerCase();
+    if (!email) {
+      continue;
+    }
+    const name = invitee.name?.trim();
+    map.set(email, name ? { email, name } : { email });
+  }
+  return Array.from(map.values());
+}
+
 function toTitleCaseFallback(value: string) {
   return value
     .split(/[-_]+|\s+/)
@@ -202,6 +215,7 @@ export function createDefaultComposeEventFormState(
 
   return {
     title: "",
+    invitees: [],
     startDate: formatDateInputValue(start, timezone),
     startTime: formatTimeInputValue(start, timezone),
     endDate: formatDateInputValue(end, timezone),
@@ -243,6 +257,7 @@ export function buildComposeEventFromForm(
 
   return {
     title,
+    invitees: normalizeComposeEventInvitees(form.invitees),
     start,
     end: normalizedEnd,
     isAllDay: false,
@@ -316,6 +331,7 @@ export function createComposeEventFormFromEvent(event: ComposeEvent): ComposeEve
 
   return {
     title: event.title,
+    invitees: event.invitees ?? [],
     startDate: formatDateInputValue(event.start, timezone),
     startTime: formatTimeInputValue(event.start, timezone),
     endDate: formatDateInputValue(end, timezone),

@@ -30,12 +30,27 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "composer/**/*.ts",
+    "composer/**/*.tsx",
+    "electron/**/*.ts",
+    "electron/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "prisma/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist-electron",
+    ".next",
+    "out",
+    "build"
   ]
 }

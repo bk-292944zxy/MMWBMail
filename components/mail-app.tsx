@@ -77,6 +77,7 @@ import type {
   ComposeEventFormState,
   GeneratedEventAsset
 } from "@/composer/events/types";
+import { createDefaultComposeEventFormState } from "@/composer/events/state";
 import {
   findComposeEventAttachmentIndex,
   resolveComposeEventAttachmentFromDraft,
@@ -2463,6 +2464,31 @@ function normalizeComposeColorValue(value: string) {
   }
 
   return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+}
+
+const COMPOSE_RECENT_COLORS_STORAGE_KEY = "mmwbmail-compose-recent-colors";
+const COMPOSE_RECENT_COLORS_LIMIT = 8;
+
+function loadComposeRecentColors() {
+  if (typeof window === "undefined") {
+    return [] as string[];
+  }
+  try {
+    const raw = window.localStorage.getItem(COMPOSE_RECENT_COLORS_STORAGE_KEY);
+    if (!raw) {
+      return [] as string[];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [] as string[];
+    }
+    return parsed
+      .map((value) => (typeof value === "string" ? normalizeComposeColorValue(value) : ""))
+      .filter((value): value is string => Boolean(value))
+      .slice(0, COMPOSE_RECENT_COLORS_LIMIT);
+  } catch {
+    return [] as string[];
+  }
 }
 
 function normalizeComposeFontSizeValue(value: string) {
@@ -5039,6 +5065,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const [linkUrl, setLinkUrl] = useState("");
   const [linkText, setLinkText] = useState("");
   const [composeSelectionColor, setComposeSelectionColor] = useState("#0a84ff");
+  const [composeRecentColors, setComposeRecentColors] = useState<string[]>(() =>
+    loadComposeRecentColors()
+  );
+  const composeColorInputRef = useRef<HTMLInputElement | null>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printTargetUid, setPrintTargetUid] = useState<number | null>(null);
   const [printScope, setPrintScope] = useState<PrintScope>("message");
@@ -6350,10 +6380,51 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setComposeEvent(null);
     setComposeEventAttachment(null);
   }, []);
+  const parseInviteeFromRecipient = useCallback((recipient: string) => {
+    const trimmed = recipient.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const namedMatch = trimmed.match(/^(.+?)\s*<\s*([^<>]+)\s*>$/);
+    if (namedMatch) {
+      const name = namedMatch[1]?.trim().replace(/^"+|"+$/g, "");
+      const email = namedMatch[2]?.trim().toLowerCase();
+      if (!email || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) {
+        return null;
+      }
+      return name ? { email, name } : { email };
+    }
+    const email = trimmed.toLowerCase();
+    if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) {
+      return null;
+    }
+    return { email };
+  }, []);
   const openComposeEventBuilder = useCallback(() => {
+    setComposeEvent((current) => {
+      if (current && current.invitees.length > 0) {
+        return current;
+      }
+      const defaultForm = current ?? createDefaultComposeEventFormState();
+      const inviteeMap = new Map<string, { email: string; name?: string }>();
+      for (const recipient of composeAllRecipients) {
+        const parsed = parseInviteeFromRecipient(recipient);
+        if (!parsed) {
+          continue;
+        }
+        inviteeMap.set(parsed.email.toLowerCase(), parsed);
+      }
+      if (inviteeMap.size === 0) {
+        return defaultForm;
+      }
+      return {
+        ...defaultForm,
+        invitees: Array.from(inviteeMap.values())
+      };
+    });
     setComposeMinimized(false);
     setComposeEventBuilderOpen(true);
-  }, []);
+  }, [composeAllRecipients, parseInviteeFromRecipient]);
   const closeComposeEventBuilder = useCallback(() => {
     setComposeEventBuilderOpen(false);
   }, []);
@@ -6421,6 +6492,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     return mergeRecipientSuggestionLists(recentRecipients, messageSuggestions);
   }, [messages, recentRecipients]);
+  const composeEventInviteeSuggestions = useMemo(
+    () => mergeRecipientSuggestionLists(senderSuggestions, composeAllRecipients),
+    [composeAllRecipients, senderSuggestions]
+  );
   const contactsPickerSupported = browserSupportsSystemContacts();
   const showToast = useCallback((message: string, type: Toast["type"] = "success") => {
     const id = Math.random().toString(36).slice(2);
@@ -11980,7 +12055,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }
 
   function applyComposeSelectionColor(color: string) {
-    setComposeSelectionColor(color);
+    const normalizedColor = normalizeComposeColorValue(color) || color;
+    setComposeSelectionColor(normalizedColor);
 
     if (composePlainText) {
       return;
@@ -11993,7 +12069,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     execOnEditable("styleWithCSS", "true", editor);
-    execOnEditable("foreColor", color, editor);
+    execOnEditable("foreColor", normalizedColor, editor);
 
     if (typeof window !== "undefined") {
       const selection = window.getSelection();
@@ -12003,6 +12079,42 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     updateComposeRichTextSnapshot();
+  }
+
+  function pushComposeRecentColor(color: string) {
+    const normalizedColor = normalizeComposeColorValue(color);
+    if (!normalizedColor) {
+      return;
+    }
+    setComposeRecentColors((current) => {
+      const next = [normalizedColor, ...current.filter((entry) => entry !== normalizedColor)].slice(
+        0,
+        COMPOSE_RECENT_COLORS_LIMIT
+      );
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(COMPOSE_RECENT_COLORS_STORAGE_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
+
+  function openComposeNativeColorPanel() {
+    const normalizedColor = normalizeComposeColorValue(composeSelectionColor) || "#0a84ff";
+    const bridge = window.maximailDesktop;
+    if (bridge?.openColorPicker) {
+      void bridge.openColorPicker(normalizedColor);
+      return;
+    }
+    const input = composeColorInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.value = normalizedColor;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.click();
   }
 
   function transformComposeSelectionCase(mode: "upper" | "lower" | "title") {
@@ -15027,6 +15139,43 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       clearComposeToolbarTooltipTimer();
     };
   }, [clearComposeToolbarTooltipTimer]);
+  useEffect(() => {
+    const bridge = window.maximailDesktop;
+    if (!bridge?.onColorPickerOpenRequest) {
+      return;
+    }
+    return bridge.onColorPickerOpenRequest((color) => {
+      const input = composeColorInputRef.current;
+      if (!input) {
+        return;
+      }
+      const normalized = normalizeComposeColorValue(color) || composeSelectionColor || "#0a84ff";
+      input.value = normalized;
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    });
+  }, [composeSelectionColor]);
+  useEffect(() => {
+    const bridge = window.maximailDesktop;
+    if (!bridge?.onColorPickerChange) {
+      return;
+    }
+    return bridge.onColorPickerChange((color) => {
+      applyComposeSelectionColor(color);
+    });
+  }, [composePlainText]);
+  useEffect(() => {
+    const bridge = window.maximailDesktop;
+    if (!bridge?.onColorPickerCommit) {
+      return;
+    }
+    return bridge.onColorPickerCommit((color) => {
+      pushComposeRecentColor(color);
+    });
+  }, []);
   function autoResizeComposeQuickFactInput() {
     const input = composeQuickFactInputRef.current;
     if (!input) {
@@ -15046,11 +15195,33 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
   }
   const composeAiSelectionLabel = composeSelectionState.hasSelection
-    ? "Using selected text"
-    : "Using full draft";
+    ? "Selection"
+    : "Full draft";
   const composeAiSelectionChipLabel = composeSelectionState.hasSelection
     ? "Selection"
     : "Full draft";
+  const composeAiElevateCategoryOrder = useMemo(
+    () => [
+      "Ease tension",
+      "Strengthen your position",
+      "Make it easier to act on",
+      "Translate how it lands"
+    ],
+    []
+  );
+  const composeAiOrderedModeGroups = useMemo(() => {
+    if (composeAiType !== "rewrite") {
+      return composeAiModeGroups;
+    }
+    const orderMap = new Map(
+      composeAiElevateCategoryOrder.map((category, index) => [category, index])
+    );
+    return [...composeAiModeGroups].sort((left, right) => {
+      const leftIndex = orderMap.get(left.category) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = orderMap.get(right.category) ?? Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex;
+    });
+  }, [composeAiElevateCategoryOrder, composeAiModeGroups, composeAiType]);
   const composeAiPreviewActive = Boolean(composeAiPreview);
   const isPolishModeChooserStage =
     composeAiType === "polish" &&
@@ -25094,6 +25265,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       <ComposeEventBuilder
         open={activeComposeSession.presentation.isOpen && composeEventBuilderOpen}
         initialEvent={composeEvent}
+        inviteeSuggestions={composeEventInviteeSuggestions}
         onClose={closeComposeEventBuilder}
         onCreate={({ form, asset }) => handleComposeEventCreate({ form, asset })}
       />
@@ -25485,29 +25657,22 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
             >
               <div className="compose-fmt-row compose-fmt-row-primary">
                 {!composePlainText ? (
-                  <label
+                  <button
+                    type="button"
                     className="fmt-btn fmt-btn-color"
                     title="Text color"
                     aria-label="Text color"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      openComposeNativeColorPanel();
+                    }}
                   >
                     <span
                       className="fmt-color-indicator"
                       style={{ backgroundColor: composeSelectionColor }}
                       aria-hidden="true"
                     />
-                    <input
-                      type="color"
-                      className="compose-color-input-overlay"
-                      value={composeSelectionColor}
-                      aria-label="Text color"
-                      onInput={(event) => {
-                        applyComposeSelectionColor(event.currentTarget.value);
-                      }}
-                      onChange={(event) => {
-                        applyComposeSelectionColor(event.currentTarget.value);
-                      }}
-                    />
-                  </label>
+                  </button>
                 ) : null}
                 {primaryFontToolbarCommands.map((command, index) =>
                   renderComposeToolbarCommand(command, index, primaryFontToolbarCommands)
@@ -25560,6 +25725,55 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                     renderComposeToolbarCommand(command, index, secondaryToolbarCommands)
                   )}
                 </div>
+              ) : null}
+              {!composePlainText ? (
+                <>
+                  <input
+                    ref={composeColorInputRef}
+                    type="color"
+                    className="compose-color-input-overlay"
+                    value={composeSelectionColor}
+                    aria-label="Text color"
+                    onInput={(event) => {
+                      const color = event.currentTarget.value;
+                      const bridge = window.maximailDesktop;
+                      if (bridge?.publishColorPickerChange) {
+                        void bridge.publishColorPickerChange(color);
+                        return;
+                      }
+                      applyComposeSelectionColor(color);
+                    }}
+                    onChange={(event) => {
+                      const color = event.currentTarget.value;
+                      const bridge = window.maximailDesktop;
+                      if (bridge?.publishColorPickerCommit) {
+                        void bridge.publishColorPickerCommit(color);
+                        return;
+                      }
+                      applyComposeSelectionColor(color);
+                      pushComposeRecentColor(color);
+                    }}
+                  />
+                  {composeRecentColors.length > 0 ? (
+                    <div className="compose-color-recents-row" aria-label="Recent colors">
+                      {composeRecentColors.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          className="compose-color-recent-swatch"
+                          style={{ backgroundColor: color }}
+                          aria-label={`Apply ${color}`}
+                          title={color}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            applyComposeSelectionColor(color);
+                            pushComposeRecentColor(color);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </>
               ) : null}
               <div className="compose-fmt-row compose-fmt-row-ai">
                 {primaryAiToolbarCommands.map((command, index) =>
@@ -26071,10 +26285,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         (composeAiCategory
                           ? composeAiType === "polish"
                             ? "Choose how to refine the message before generating your polished version."
-                            : "Choose a specific path in this category, then refine before generating."
+                            : composeAiSelectedMode
+                              ? "Adjust how this lands."
+                              : "Choose how to approach this."
                           : composeAiType === "polish"
                             ? "Shape how your message lands while keeping your intent."
-                            : "What do you want this message to accomplish?")}
+                            : "Pick the outcome you want.")}
                     </div>
                   </div>
 
@@ -26151,14 +26367,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
                       {!composeAiPreviewActive && !composeAiCategory && composeAiType === "rewrite" ? (
                         <div className="compose-ai-section compose-ai-section-category-intro">
-                          <div className="compose-ai-section-header">
-                            <div className="compose-ai-section-title">Choose a main category</div>
-                            <div className="compose-ai-section-copy">
-                              Start with the kind of outcome you want, then choose how to elevate the message.
-                            </div>
-                          </div>
                           <div className="compose-ai-category-grid">
-                            {composeAiModeGroups.map(({ category }) => (
+                            {composeAiOrderedModeGroups.map(({ category }) => (
                               <button
                                 key={category}
                                 type="button"
@@ -26194,11 +26404,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   : ""
                               }`}
                             >
-                              {composeAiType !== "polish" ? (
-                                <div className="compose-ai-section-header">
-                                  <div className="compose-ai-section-title">Choose a path</div>
-                                </div>
-                              ) : null}
                               {composeAiSelectedCategoryModes.map((mode) => (
                                 <button
                                   key={mode.id}
@@ -26253,15 +26458,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                             className="compose-ai-clarification-stage"
                           >
                             <div className="compose-ai-section compose-ai-refine-stage">
-                              <div className="compose-ai-refine-header">
-                                <div className="compose-ai-refine-label">Refine this</div>
-                                <div className="compose-ai-refine-meta">
-                                  {composeAiType === "polish" &&
-                                  composeAiSelectedMode?.id === "culture"
-                                    ? "Region"
-                                    : `${composeAiModifiers.length}/3 selected`}
-                                </div>
-                              </div>
                               {composeAiSelectedMode?.id === "culture" ? (
                                 <div className="compose-ai-culture-context">
                                   <div className="compose-ai-culture-field">
@@ -26362,39 +26558,42 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                                   </div>
                                 </div>
                               ) : (
-                                <div className="compose-ai-modifier-list">
-                                  {composeAiAvailableModifiers.map((modifier) => (
-                                    <button
-                                      key={modifier.id}
-                                      type="button"
-                                      className={`compose-ai-modifier-chip ${
-                                        composeAiModifiers.includes(modifier.id) ? "active" : ""
-                                      }`}
-                                      onClick={() => toggleComposeAiModifier(modifier.id)}
-                                      disabled={
-                                        !composeAiModifiers.includes(modifier.id) &&
-                                        composeAiModifiers.length >= 3
-                                      }
-                                    >
-                                      {modifier.label}
-                                    </button>
-                                  ))}
+                                <div className="compose-ai-refine-row">
+                                  <div className="compose-ai-modifier-list">
+                                    {composeAiAvailableModifiers.map((modifier) => (
+                                      <button
+                                        key={modifier.id}
+                                        type="button"
+                                        className={`compose-ai-modifier-chip ${
+                                          composeAiModifiers.includes(modifier.id) ? "active" : ""
+                                        }`}
+                                        onClick={() => toggleComposeAiModifier(modifier.id)}
+                                        disabled={
+                                          !composeAiModifiers.includes(modifier.id) &&
+                                          composeAiModifiers.length >= 3
+                                        }
+                                      >
+                                        {modifier.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {composeAiType === "rewrite" ? (
+                                    <div className="compose-ai-refine-meta-inline">
+                                      {composeAiModifiers.length}/3 selected
+                                    </div>
+                                  ) : null}
                                 </div>
                               )}
-                              <div
-                                className={`compose-ai-modifier-hint ${
-                                  composeAiType === "rewrite" ? "compose-ai-direction-summary" : ""
-                                }`}
-                              >
-                                {composeAiType === "rewrite"
-                                  ? composeAiDirectionSummary
-                                  : composeAiType === "polish" &&
-                                      composeAiSelectedMode?.id === "culture"
+                              {composeAiType !== "rewrite" ? (
+                                <div className="compose-ai-modifier-hint">
+                                  {composeAiType === "polish" &&
+                                  composeAiSelectedMode?.id === "culture"
                                     ? "Choose the regional business context you want this presentation tuned for."
                                     : composeAiModifiers.length >= 3
                                       ? "Remove one chip to choose a different refinement."
                                       : "Optional. Pick up to three refinements."}
-                              </div>
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="compose-ai-request-actions compose-ai-request-actions-deep">
@@ -26800,10 +26999,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         left: composeSelectionToolbarPos.left
                       }}
                     >
-                      <label
+                      <button
+                        type="button"
                         className="compose-selection-toolbar-btn compose-selection-toolbar-btn-color"
                         title="Text color"
                         aria-label="Text color"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          openComposeNativeColorPanel();
+                        }}
                       >
                         <svg
                           width="13"
@@ -26825,19 +27029,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           style={{ backgroundColor: composeSelectionColor }}
                           aria-hidden="true"
                         />
-                        <input
-                          type="color"
-                          className="compose-color-input-overlay"
-                          value={composeSelectionColor}
-                          aria-label="Text color"
-                          onInput={(event) => {
-                            applyComposeSelectionColor(event.currentTarget.value);
-                          }}
-                          onChange={(event) => {
-                            applyComposeSelectionColor(event.currentTarget.value);
-                          }}
-                        />
-                      </label>
+                      </button>
                       {selectionToolbarCommands.map((command) => {
                         const isEnabled = command.isEnabled
                           ? command.isEnabled(composeCommandContext)

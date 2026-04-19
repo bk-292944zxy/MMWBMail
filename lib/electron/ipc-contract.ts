@@ -24,7 +24,13 @@ export const ELECTRON_MAIL_CHANNELS = {
   printToPdf: "mail:print-to-pdf",
   openComposeWindow: "mail:open-compose-window",
   composeCloseRequested: "mail:compose-close-requested",
-  respondComposeCloseRequest: "mail:respond-compose-close-request"
+  respondComposeCloseRequest: "mail:respond-compose-close-request",
+  openColorPicker: "color-picker:open",
+  publishColorPickerChange: "color-picker:publish-change",
+  publishColorPickerCommit: "color-picker:publish-commit",
+  colorPickerOpenRequest: "color-picker:open-request",
+  colorPickerChange: "color-picker:change",
+  colorPickerCommit: "color-picker:commit"
 } as const;
 
 export type ElectronLoadFoldersInput = {
@@ -125,6 +131,12 @@ export type ElectronMailBridge = {
   respondComposeCloseRequest?(
     input: ElectronRespondComposeCloseRequestInput
   ): Promise<{ closed: boolean }>;
+  openColorPicker?(initialColor: string): Promise<{ opened: boolean }>;
+  publishColorPickerChange?(color: string): Promise<{ delivered: boolean }>;
+  publishColorPickerCommit?(color: string): Promise<{ delivered: boolean }>;
+  onColorPickerOpenRequest?(listener: (color: string) => void): () => void;
+  onColorPickerChange?(listener: (color: string) => void): () => void;
+  onColorPickerCommit?(listener: (color: string) => void): () => void;
 };
 
 export type AccountCreateRequestBody = CreateMailAccountPayload;
