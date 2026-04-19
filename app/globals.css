@@ -5519,6 +5519,46 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   animation-delay: 0.36s !important;
 }
 
+.qf-fallback {
+  margin: 0 8px 8px !important;
+  padding: 10px 12px !important;
+  border-radius: 10px !important;
+  background: rgba(0,0,0,0.03) !important;
+  border: 0.5px solid rgba(0,0,0,0.085) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+
+.qf-fallback-message {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  color: var(--text2) !important;
+}
+
+.qf-fallback-action {
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  background: transparent !important;
+  color: var(--accent) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+}
+
+.qf-fallback-action:hover {
+  border-color: var(--accent) !important;
+  background: rgba(0,0,0,0.02) !important;
+}
+
+.qf-fallback-error .qf-fallback-message,
+.qf-fallback-error {
+  color: #b42318 !important;
+}
+
 /* Specificity overrides for global input/textarea rules */
 .qf-bar input,
 .qf-bar textarea,
@@ -7074,7 +7114,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   align-content: start !important;
 }
 
+.compose-ai-panel-polish-chooser .compose-ai-mode-stage {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  align-content: start !important;
+}
+
 .compose-ai-panel-polish-chooser .compose-ai-mode-chip-chooser {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 62px !important;
+  padding: 9px 10px !important;
+  border-radius: 10px !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.compose-ai-panel-polish-chooser .compose-ai-mode-chip {
   width: 100% !important;
   max-width: 100% !important;
   min-height: 62px !important;
@@ -7103,11 +7160,24 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   -webkit-box-orient: vertical !important;
 }
 
+.compose-ai-panel-polish-chooser .compose-ai-mode-chip .compose-ai-mode-chip-desc {
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+}
+
 .compose-ai-panel-polish-chooser .compose-ai-mode-chip-chooser .compose-ai-category-card-chevron {
   opacity: 0.56 !important;
 }
 
 @container (max-width: 520px) {
+  .compose-ai-panel-polish-chooser .compose-ai-mode-stage {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
   .compose-ai-panel-polish-chooser .compose-ai-mode-stage-polish-chooser {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -7939,6 +8009,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   transition: border-color 150ms ease !important;
 }
 
+.compose-ai-panel-elevate .compose-ai-flow-intro {
+  border-bottom: none !important;
+}
+
 .compose-ai-panel .compose-ai-flow-title {
   font-size: 17px !important;
   font-weight: 650 !important;
@@ -7966,16 +8040,26 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   gap: 10px !important;
 }
 
+.compose-ai-panel .compose-ai-category-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
 .compose-ai-panel .compose-ai-mode-stage {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.compose-ai-panel .compose-ai-mode-stage .compose-ai-mode-chip {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .compose-ai-panel .compose-ai-mode-stage > .compose-ai-section-header {
   grid-column: 1 / -1 !important;
 }
 
-@media (max-width: 780px) {
+@media (max-width: 520px) {
   .compose-ai-panel .compose-ai-mode-stage {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -7988,6 +8072,11 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(255,255,255,0.91)) !important;
   transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease,
     box-shadow 150ms ease, color 150ms ease !important;
+}
+
+.compose-ai-panel .compose-ai-category-card {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .compose-ai-panel .compose-ai-category-card:hover,
@@ -8036,6 +8125,10 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   padding-top: 9px !important;
   align-items: center !important;
   gap: 10px 12px !important;
+}
+
+.compose-ai-panel-elevate .compose-ai-request-actions-deep {
+  border-top: none !important;
 }
 
 .compose-ai-panel .compose-ai-request-actions-deep .compose-ai-action-primary {
@@ -12573,6 +12666,13 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 .settings-ai-connection-key {
   margin-top: 2px !important;
   font-size: 12px !important;
+  color: var(--text3) !important;
+}
+
+.settings-ai-connection-note {
+  margin-top: 3px !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
   color: var(--text3) !important;
 }
 
@@ -18026,6 +18126,20 @@ textarea:focus,
   background: var(--surface3) !important;
 }
 
+:root[data-color-scheme="dark"] .qf-fallback {
+  background: var(--surface3) !important;
+  border-color: var(--border2) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-fallback-message {
+  color: var(--text2) !important;
+}
+
+:root[data-color-scheme="dark"] .qf-fallback-action {
+  border-color: var(--border2) !important;
+  background: var(--surface2) !important;
+}
+
 :root[data-color-scheme="dark"] .message-source-chip {
   border: 1px solid var(--border2) !important;
   background: var(--surface3) !important;
@@ -18245,6 +18359,7 @@ textarea:focus,
 :root[data-color-scheme="dark"] .settings-ai-description,
 :root[data-color-scheme="dark"] .settings-ai-safety-copy,
 :root[data-color-scheme="dark"] .settings-ai-connection-key,
+:root[data-color-scheme="dark"] .settings-ai-connection-note,
 :root[data-color-scheme="dark"] .settings-ai-action-status,
 :root[data-color-scheme="dark"] .settings-rule-email,
 :root[data-color-scheme="dark"] .settings-rule-meta,

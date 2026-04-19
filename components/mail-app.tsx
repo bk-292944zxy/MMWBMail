@@ -2651,6 +2651,7 @@ type AiSettingsSummary = {
   ownerLabel: string;
   provider: "openai";
   configured: boolean;
+  keyLastFour: string | null;
   status: "not_configured" | "connected" | "invalid";
   lastValidatedAt: string | null;
   lastError: string | null;
@@ -2675,6 +2676,7 @@ type TavilySettingsSummary = {
   ownerLabel: string;
   provider: "tavily";
   configured: boolean;
+  keyLastFour: string | null;
 };
 
 const AI_AVAILABILITY_FRESH_MS = 5 * 60 * 1000;
@@ -14405,6 +14407,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await getJson<AiSettingsSummary>("/api/ai/settings");
       setAiSettings(settings);
+      setAiSettingsLastFour(settings.keyLastFour ?? null);
       if (settings.configured) {
         void loadAiAvailability();
       } else {
@@ -14427,6 +14430,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await getJson<TavilySettingsSummary>("/api/quickfact/settings");
       setTavilySettings(settings);
+      setTavilySettingsLastFour(settings.keyLastFour ?? null);
     } catch (error) {
       setTavilySettingsError(
         error instanceof Error
@@ -14490,7 +14494,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         "Saving the OpenAI API key took too long. Try again."
       );
       setAiSettings(settings);
-      setAiSettingsLastFour(normalizedApiKey.slice(-4).padStart(4, "0"));
+      setAiSettingsLastFour(settings.keyLastFour ?? null);
       setAiApiKeyInput("");
       if (settings.configured) {
         void loadAiAvailability(true);
@@ -14524,6 +14528,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       );
       if (!aiApiKeyInput.trim()) {
         setAiSettings(settings);
+        setAiSettingsLastFour(settings.keyLastFour ?? null);
         if (settings.configured) {
           void loadAiAvailability(true);
         } else {
@@ -14559,7 +14564,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       const settings = await deleteJson<AiSettingsSummary>("/api/ai/settings");
       setAiSettings(settings);
       setAiAvailabilitySummary(null);
-      setAiSettingsLastFour(null);
+      setAiSettingsLastFour(settings.keyLastFour ?? null);
       setAiApiKeyInput("");
       setAiSettingsSuccess("Removed.");
     } catch (error) {
@@ -14595,7 +14600,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         "Saving the Tavily API key took too long. Try again."
       );
       setTavilySettings(settings);
-      setTavilySettingsLastFour(normalizedApiKey.slice(-4).padStart(4, "0"));
+      setTavilySettingsLastFour(settings.keyLastFour ?? null);
       setTavilyApiKeyInput("");
       setTavilySettingsSuccess("Saved.");
     } catch (error) {
@@ -14621,7 +14626,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     try {
       const settings = await deleteJson<TavilySettingsSummary>("/api/quickfact/settings");
       setTavilySettings(settings);
-      setTavilySettingsLastFour(null);
+      setTavilySettingsLastFour(settings.keyLastFour ?? null);
       setTavilyApiKeyInput("");
       setTavilySettingsSuccess("Removed.");
     } catch (error) {
@@ -24577,10 +24582,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                   const hasStoredTavilyKey = Boolean(tavilySettings?.configured);
                   const openAiShowExpanded = replacingOpenAI;
                   const tavilyShowExpanded = replacingTavily;
-                  const aiMaskedKey = `••••${(aiSettingsLastFour ?? "0000")
+                  const aiMaskedKey = `••••${(aiSettingsLastFour ?? aiSettings?.keyLastFour ?? "0000")
                     .slice(-4)
                     .padStart(4, "0")}`;
-                  const tavilyMaskedKey = `••••${(tavilySettingsLastFour ?? "0000")
+                  const tavilyMaskedKey = `••••${(tavilySettingsLastFour ?? tavilySettings?.keyLastFour ?? "0000")
                     .slice(-4)
                     .padStart(4, "0")}`;
 
@@ -24631,7 +24636,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           ) : null}
                           {!hasStoredAiKey && !openAiShowExpanded ? (
                             <div className="settings-ai-connection-row">
-                              <div className="settings-ai-connection-meta" />
+                              <div className="settings-ai-connection-meta">
+                                <div className="settings-ai-connection-label">Not configured</div>
+                                <div className="settings-ai-connection-note">
+                                  No OpenAI API key is saved yet. Add one to use Elevate and Polish.
+                                </div>
+                              </div>
                               <div className="settings-ai-connection-actions">
                                 <button
                                   type="button"
@@ -24728,7 +24738,12 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           ) : null}
                           {!hasStoredTavilyKey && !tavilyShowExpanded ? (
                             <div className="settings-ai-connection-row">
-                              <div className="settings-ai-connection-meta" />
+                              <div className="settings-ai-connection-meta">
+                                <div className="settings-ai-connection-label">Not configured</div>
+                                <div className="settings-ai-connection-note">
+                                  No Tavily API key is saved yet. Add one to use QuickFact.
+                                </div>
+                              </div>
                               <div className="settings-ai-connection-actions">
                                 <button
                                   type="button"
@@ -26174,6 +26189,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       <span className="qf-loading-dot"></span>
                       <span className="qf-loading-dot"></span>
                       <span className="qf-loading-dot"></span>
+                    </div>
+                  ) : null}
+                  {!composeQuickFact.loading && composeQuickFact.error ? (
+                    <div className="qf-fallback qf-fallback-error">{composeQuickFact.error}</div>
+                  ) : null}
+                  {!composeQuickFact.loading &&
+                  !composeQuickFact.error &&
+                  composeQuickFact.results.length === 0 &&
+                  composeQuickFact.fallback ? (
+                    <div className="qf-fallback">
+                      <div className="qf-fallback-message">{composeQuickFact.fallback.message}</div>
+                      {composeQuickFact.fallback.actionLabel ? (
+                        <button
+                          type="button"
+                          className="qf-fallback-action"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handoffComposeQuickFactToBroaderSearch();
+                          }}
+                        >
+                          {composeQuickFact.fallback.actionLabel}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

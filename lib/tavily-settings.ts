@@ -9,6 +9,7 @@ export type TavilySettingsSummary = {
   ownerLabel: string;
   provider: "tavily";
   configured: boolean;
+  keyLastFour: string | null;
 };
 
 function normalizeTavilyApiKey(input: string) {
@@ -67,18 +68,32 @@ async function findTavilyCredentialRecordForOwner(owner: {
   }
 }
 
-function toSummary(ownerLabel: string, configured: boolean): TavilySettingsSummary {
+function readStoredTavilyKey(encryptedApiKey: string | null | undefined) {
+  if (!encryptedApiKey?.trim()) {
+    return null;
+  }
+
+  try {
+    const decrypted = decryptStoredSecret(encryptedApiKey).trim();
+    return decrypted.length > 0 ? decrypted : null;
+  } catch {
+    return null;
+  }
+}
+
+function toSummary(ownerLabel: string, key: string | null): TavilySettingsSummary {
   return {
     ownerLabel,
     provider: "tavily",
-    configured
+    configured: Boolean(key),
+    keyLastFour: key ? key.slice(-4).padStart(4, "0") : null
   };
 }
 
 export async function getTavilySettingsSummary() {
   const owner = await resolveCurrentAiOwner();
   const record = await findTavilyCredentialRecordForOwner(owner);
-  return toSummary(owner.label, Boolean(record));
+  return toSummary(owner.label, readStoredTavilyKey(record?.encryptedApiKey));
 }
 
 export async function saveTavilyCredential(input: { apiKey: string }) {
@@ -115,7 +130,7 @@ export async function saveTavilyCredential(input: { apiKey: string }) {
     });
   }
 
-  return toSummary(owner.label, true);
+  return toSummary(owner.label, apiKey);
 }
 
 export async function removeTavilyCredential() {
@@ -127,7 +142,7 @@ export async function removeTavilyCredential() {
     }
   });
 
-  return toSummary(owner.label, false);
+  return toSummary(owner.label, null);
 }
 
 export async function getCurrentOwnerTavilyApiKey() {
@@ -135,7 +150,10 @@ export async function getCurrentOwnerTavilyApiKey() {
   const record = await findTavilyCredentialRecordForOwner(owner);
 
   if (record) {
-    return decryptStoredSecret(record.encryptedApiKey);
+    const storedKey = readStoredTavilyKey(record.encryptedApiKey);
+    if (storedKey) {
+      return storedKey;
+    }
   }
 
   const envFallback = process.env.TAVILY_API_KEY?.trim() ?? "";

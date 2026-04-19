@@ -20,6 +20,7 @@ export type AiSettingsSummary = {
   ownerLabel: string;
   provider: "openai";
   configured: boolean;
+  keyLastFour: string | null;
   status: AiCredentialStatus;
   lastValidatedAt: string | null;
   lastError: string | null;
@@ -104,18 +105,39 @@ function mapStatus(value: string | null | undefined): AiCredentialStatus {
   return "not_configured";
 }
 
+function readStoredOpenAiKey(encryptedApiKey: string | null | undefined) {
+  if (!encryptedApiKey?.trim()) {
+    return null;
+  }
+
+  try {
+    const decrypted = decryptStoredSecret(encryptedApiKey).trim();
+    if (!decrypted || !decrypted.startsWith("sk-")) {
+      return null;
+    }
+    return decrypted;
+  } catch {
+    return null;
+  }
+}
+
 function toSummary(ownerLabel: string, record: {
+  encryptedApiKey: string;
   status: string;
   lastValidatedAt: Date | null;
   lastError: string | null;
 } | null): AiSettingsSummary {
+  const storedKey = record ? readStoredOpenAiKey(record.encryptedApiKey) : null;
+  const configured = Boolean(storedKey);
+
   return {
     ownerLabel,
     provider: "openai",
-    configured: Boolean(record),
-    status: record ? mapStatus(record.status) : "not_configured",
-    lastValidatedAt: record?.lastValidatedAt?.toISOString() ?? null,
-    lastError: record?.lastError ?? null
+    configured,
+    keyLastFour: storedKey ? storedKey.slice(-4).padStart(4, "0") : null,
+    status: configured && record ? mapStatus(record.status) : "not_configured",
+    lastValidatedAt: configured ? record?.lastValidatedAt?.toISOString() ?? null : null,
+    lastError: configured ? record?.lastError ?? null : null
   };
 }
 
@@ -279,6 +301,7 @@ export async function getAiSettingsSummary() {
     owner.label,
     record
       ? {
+          encryptedApiKey: record.encryptedApiKey,
           status: record.status,
           lastValidatedAt: record.lastValidatedAt,
           lastError: record.lastError
@@ -295,6 +318,13 @@ export async function getCurrentOwnerOpenAiCredential() {
     throw new Error("AI Writing Assistant isn't configured yet. Add your OpenAI API key in Settings to use rewrite modes.");
   }
 
+  const storedKey = readStoredOpenAiKey(record.encryptedApiKey);
+  if (!storedKey) {
+    throw new Error(
+      "AI Writing Assistant isn't configured yet. Add your OpenAI API key in Settings to use rewrite modes."
+    );
+  }
+
   if (record.status === "invalid") {
     throw new Error(
       record.lastError?.trim() ||
@@ -304,7 +334,7 @@ export async function getCurrentOwnerOpenAiCredential() {
 
   return {
     owner,
-    apiKey: decryptStoredSecret(record.encryptedApiKey),
+    apiKey: storedKey,
     status: mapStatus(record.status)
   };
 }
@@ -480,6 +510,7 @@ export async function testAiCredentialInput(apiKeyInput?: string | null) {
 
   return {
     ...toSummary(owner.label, {
+      encryptedApiKey: encryptStoredSecret(apiKey),
       status: validation.status,
       lastValidatedAt: validation.lastValidatedAt,
       lastError: validation.lastError
@@ -512,6 +543,17 @@ export async function getAiAvailabilitySummary(input?: {
     });
   }
 
+  const storedKey = readStoredOpenAiKey(record.encryptedApiKey);
+  if (!storedKey) {
+    return toAvailabilitySummary({
+      ownerLabel: owner.label,
+      configured: false,
+      status: "unknown",
+      checkedAt: null,
+      message: null
+    });
+  }
+
   if (record.status === "invalid") {
     const result = toAvailabilitySummary({
       ownerLabel: owner.label,
@@ -527,7 +569,7 @@ export async function getAiAvailabilitySummary(input?: {
     return result;
   }
 
-  const availability = await callOpenAiAvailability(decryptStoredSecret(record.encryptedApiKey));
+  const availability = await callOpenAiAvailability(storedKey);
   const result = toAvailabilitySummary({
     ownerLabel: owner.label,
     configured: true,
