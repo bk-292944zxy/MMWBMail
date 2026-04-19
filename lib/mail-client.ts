@@ -1378,6 +1378,180 @@ async function appendToFolder(
   }
 }
 
+type SaveDraftMessageOptions = {
+  previousProviderDraftId?: string | null;
+};
+
+function findPreferredDraftFolder(folders: MailFolder[]) {
+  const exactNamePriority = ["drafts", "draft messages", "draft items", "draft mail"];
+
+  for (const candidate of exactNamePriority) {
+    const byName = folders.find((folder) => normalizeMailboxValue(folder.name) === candidate);
+    if (byName) {
+      return byName.path;
+    }
+
+    const byPath = folders.find((folder) => normalizeMailboxValue(folder.path) === candidate);
+    if (byPath) {
+      return byPath.path;
+    }
+  }
+
+  const fuzzyPriority = ["drafts", "draft"];
+
+  for (const candidate of fuzzyPriority) {
+    const byPath = folders.find((folder) => normalizeMailboxValue(folder.path).includes(candidate));
+    if (byPath) {
+      return byPath.path;
+    }
+
+    const byName = folders.find((folder) => normalizeMailboxValue(folder.name).includes(candidate));
+    if (byName) {
+      return byName.path;
+    }
+  }
+
+  return null;
+}
+
+async function resolveDraftFolder(connection: MailConnectionPayload): Promise<string | null> {
+  try {
+    const folders = await listFolders(connection);
+
+    const bySpecialUse = folders.find(
+      (folder) => folder.specialUse === "\\Drafts" || folder.specialUse === "\\\\Drafts"
+    );
+    if (bySpecialUse) {
+      return bySpecialUse.path;
+    }
+
+    const preferredFolder = findPreferredDraftFolder(folders);
+    if (preferredFolder) {
+      return preferredFolder;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseProviderDraftLocator(value?: string | null) {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+  const [encodedFolderPath, uidValue] = value.split("::");
+  const uid = Number(uidValue);
+  if (!encodedFolderPath || !Number.isFinite(uid)) {
+    return null;
+  }
+  return {
+    folderPath: decodeURIComponent(encodedFolderPath),
+    uid
+  };
+}
+
+function buildProviderDraftLocator(folderPath: string, uid: number) {
+  return `${encodeURIComponent(folderPath)}::${uid}`;
+}
+
+export async function saveDraftMessage(
+  payload: MailComposePayload,
+  options: SaveDraftMessageOptions = {}
+): Promise<{ success: true; folderPath: string; providerDraftId: string | null }> {
+  const draftFolder = await resolveDraftFolder(payload);
+  if (!draftFolder) {
+    throw new Error("Drafts mailbox not found on the mail server.");
+  }
+
+  const normalizedFromAddress = payload.fromAddress?.trim() || payload.email;
+  const normalizedFromName = payload.fromName?.trim() || "";
+  const formattedFrom = normalizedFromName
+    ? `"${normalizedFromName.replace(/"/g, '\\"')}" <${normalizedFromAddress}>`
+    : normalizedFromAddress;
+
+  const mailOptions = {
+    from: formattedFrom,
+    to: payload.to || undefined,
+    cc: payload.cc || undefined,
+    bcc: payload.bcc || undefined,
+    replyTo: payload.replyTo || undefined,
+    subject: payload.subject,
+    text: payload.text,
+    html: payload.html || payload.text.replace(/\n/g, "<br/>"),
+    attachments: payload.attachments,
+    headers: {
+      "X-Draft-Save": "Yes"
+    }
+  };
+
+  const compileTransport = nodemailer.createTransport({
+    streamTransport: true,
+    newline: "unix"
+  });
+  const info = await compileTransport.sendMail(mailOptions);
+  const rawMessage = await new Promise<string>((resolve, reject) => {
+    const message = info.message as NodeJS.ReadableStream | Buffer | string;
+
+    if (typeof message === "string") {
+      resolve(message);
+      return;
+    }
+
+    if (Buffer.isBuffer(message)) {
+      resolve(message.toString("utf-8"));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+
+    message.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    message.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    message.on("error", reject);
+  });
+
+  const previousProviderDraft = parseProviderDraftLocator(options.previousProviderDraftId);
+  const client = createImapClient(payload);
+
+  try {
+    await client.connect();
+    await client.mailboxOpen(draftFolder);
+
+    if (
+      previousProviderDraft &&
+      previousProviderDraft.folderPath === draftFolder
+    ) {
+      try {
+        await client.messageDelete(previousProviderDraft.uid, { uid: true });
+      } catch {
+        // Ignore missing previous draft ids and continue append.
+      }
+    }
+
+    const appendResult = await client.append(draftFolder, rawMessage, ["\\Seen", "\\Draft"]);
+    const appendedUid =
+      appendResult &&
+      typeof appendResult === "object" &&
+      typeof (appendResult as { uid?: unknown }).uid === "number"
+        ? (appendResult as { uid: number }).uid
+        : null;
+    const providerDraftId =
+      appendedUid && Number.isFinite(appendedUid)
+        ? buildProviderDraftLocator(draftFolder, appendedUid)
+        : null;
+
+    return {
+      success: true,
+      folderPath: draftFolder,
+      providerDraftId
+    };
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
 export async function sendMessage(payload: MailComposePayload): Promise<{ success: true }> {
   const transporter = nodemailer.createTransport({
     host: payload.smtpHost,

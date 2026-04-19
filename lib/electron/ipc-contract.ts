@@ -24,6 +24,7 @@ export const ELECTRON_MAIL_CHANNELS = {
   printToPdf: "mail:print-to-pdf",
   openComposeWindow: "mail:open-compose-window",
   openSettingsWindow: "mail:open-settings-window",
+  saveDraftToServer: "mail:save-draft-to-server",
   composeCloseRequested: "mail:compose-close-requested",
   respondComposeCloseRequest: "mail:respond-compose-close-request",
   openColorPicker: "color-picker:open",
@@ -101,33 +102,19 @@ export type ElectronOpenComposeWindowInput = {
   draftId?: string | null;
 };
 
-export type ElectronOpenSettingsWindowInput = {
-  tab?: "ui" | "account" | "ai" | "sorting" | "blocked" | "rules";
-};
-
-export type ElectronComposeCloseRequestMode = "probe" | "save";
-
-export type ElectronComposeCloseRequestedPayload = {
-  requestId?: string;
-  mode?: ElectronComposeCloseRequestMode;
-};
-
-export type ElectronComposeCloseDecision =
-  | "save"
-  | "discard"
-  | "cancel"
-  | "clean"
-  | "dirty";
-
 export type ElectronRespondComposeCloseRequestInput = {
-  decision: ElectronComposeCloseDecision;
-  requestId?: string;
+  decision: "save" | "discard" | "cancel";
+};
+
+export type ElectronSaveDraftToServerInput = {
+  draftId: string;
 };
 
 export type ElectronMailBridge = {
   version: 2;
   isElectron: true;
   isComposeWindow?: boolean;
+  isSettingsWindow?: boolean;
   listAccounts(): Promise<{ accounts: MailAccountSummary[] }>;
   verifyAccount(payload: CreateMailAccountPayload): Promise<{
     folders: MailFolder[];
@@ -147,8 +134,11 @@ export type ElectronMailBridge = {
   deleteDraft(input: ElectronDeleteDraftInput): Promise<{ deleted: boolean }>;
   printToPdf(input: ElectronPrintToPdfInput): Promise<ElectronPrintToPdfResult>;
   openComposeWindow(input?: ElectronOpenComposeWindowInput): Promise<{ opened: boolean }>;
-  openSettingsWindow(input?: ElectronOpenSettingsWindowInput): Promise<{ opened: boolean }>;
-  onComposeCloseRequested?(listener: (payload?: ElectronComposeCloseRequestedPayload) => void): () => void;
+  openSettingsWindow?(): Promise<{ opened: boolean }>;
+  saveDraftToServer?(
+    input: ElectronSaveDraftToServerInput
+  ): Promise<{ saved: boolean; providerDraftId: string | null; folderPath: string }>;
+  onComposeCloseRequested?(listener: () => void): () => void;
   respondComposeCloseRequest?(
     input: ElectronRespondComposeCloseRequestInput
   ): Promise<{ closed: boolean }>;

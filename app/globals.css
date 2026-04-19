@@ -4020,36 +4020,32 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
 }
 
 .shell.settings-only-mode {
-  background: transparent !important;
+  background: #f5f2ee !important;
+  padding: 0 !important;
 }
 
 .shell.settings-only-mode > * {
   display: none !important;
 }
 
-.shell.settings-only-mode > .settings-window-standalone {
+.shell.settings-only-mode > .modal-overlay.settings-window-standalone {
   display: flex !important;
-}
-
-.shell.settings-only-mode > .settings-window-standalone {
   position: fixed !important;
   inset: 0 !important;
-  margin: 0 !important;
   padding: 0 !important;
-  background: transparent !important;
+  background: #f5f2ee !important;
   align-items: stretch !important;
   justify-content: stretch !important;
 }
 
-.shell.settings-only-mode > .settings-window-standalone .settings-modal {
+.shell.settings-only-mode > .modal-overlay.settings-window-standalone .settings-modal {
   width: 100% !important;
   max-width: none !important;
   height: 100% !important;
   max-height: none !important;
-  margin: 0 !important;
   border-radius: 0 !important;
-  box-shadow: none !important;
   border: none !important;
+  box-shadow: none !important;
 }
 
 .compose-window.compose-window-compose-only {
@@ -18471,4 +18467,196 @@ textarea:focus,
 .compose-header-actions,
 .compose-header-btn {
   display: none !important;
+}
+
+/* ========================================================================== */
+/* Foundation surface lock: full-bleed + 3-surface model + clean separators   */
+/* ========================================================================== */
+:root {
+  --app-surface-base: #eceff3;
+  --app-surface-sidebar: #f2f5f8;
+  --app-surface-list: #f8fafc;
+  --app-surface-reader: #ffffff;
+  --app-separator: rgba(17, 24, 39, 0.12);
+  --app-separator-soft: rgba(17, 24, 39, 0.09);
+  --app-row-hover: rgba(15, 23, 42, 0.045);
+  --app-row-selected: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-color-scheme="dark"] {
+  --app-surface-base: #12161c;
+  --app-surface-sidebar: #171d26;
+  --app-surface-list: #1a212c;
+  --app-surface-reader: #1d2632;
+  --app-separator: rgba(226, 232, 240, 0.16);
+  --app-separator-soft: rgba(226, 232, 240, 0.11);
+  --app-row-hover: rgba(255, 255, 255, 0.05);
+  --app-row-selected: rgba(255, 255, 255, 0.09);
+}
+
+html,
+body,
+.shell,
+.app-shell,
+.mail-app {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: var(--app-surface-base) !important;
+}
+
+.workspace,
+.workspace-resizable {
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: var(--app-surface-base) !important;
+}
+
+.workspace > .rail.sidebar,
+.workspace-resizable > .rail.sidebar {
+  background: var(--app-surface-sidebar) !important;
+  border-right: 1px solid var(--app-separator-soft) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.workspace > .inbox,
+.workspace-resizable > .inbox {
+  background: var(--app-surface-list) !important;
+  border-right: 1px solid var(--app-separator-soft) !important;
+}
+
+.workspace > .viewer,
+.workspace-resizable > .viewer,
+.workspace > .viewer > .messageDetail,
+.workspace-resizable > .viewer > .messageDetail {
+  background: var(--app-surface-reader) !important;
+}
+
+.pane-divider {
+  background: transparent !important;
+}
+
+.pane-divider::before {
+  background: var(--app-separator-soft) !important;
+  width: 1px !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  opacity: 0.9 !important;
+  box-shadow: none !important;
+}
+
+.pane-divider::after,
+.pane-divider:hover::after,
+.pane-divider.hovered::after,
+.pane-divider.active::after {
+  background: transparent !important;
+}
+
+.pane-divider:hover::before,
+.pane-divider.hovered::before,
+.pane-divider.active::before,
+.workspace-resize-settling .pane-divider::before {
+  background: var(--app-separator) !important;
+  width: 1px !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  box-shadow: none !important;
+}
+
+/* No over-carding for mailbox/message rows */
+.sidebar-account,
+.folder-row,
+.message-row,
+.thread-row,
+.swipe-row,
+.swipe-foreground {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.folder-row,
+.message-row,
+.thread-row {
+  background: transparent !important;
+}
+
+/* Clean selected state (no muddy fill), keep readable + structured */
+.message-row.selected,
+.thread-row.selected {
+  background: var(--app-row-selected) !important;
+  border-left: 2px solid rgba(var(--accent-rgb), 0.72) !important;
+  padding-left: 10px !important;
+}
+
+.message-row:hover,
+.thread-row:hover {
+  background: var(--app-row-hover) !important;
+}
+
+/* Typography foundation (message list global hierarchy) */
+.message-row .row-sender,
+.thread-row .row-sender {
+  font-weight: 560 !important;
+}
+
+.message-row .row-subject,
+.thread-row .row-subject {
+  font-weight: 640 !important;
+  margin-bottom: 2px !important;
+  line-height: 1.25 !important;
+}
+
+.thread-row .thread-snippet,
+.message-row .row-preview,
+.thread-row .row-preview {
+  font-weight: 400 !important;
+  opacity: 0.72 !important;
+  line-height: 1.2 !important;
+}
+
+.message-row .row-date,
+.thread-row .row-date,
+.message-row .row-meta,
+.thread-row .row-meta {
+  font-weight: 450 !important;
+  opacity: 0.82 !important;
+}
+
+.message-row.unread .row-subject,
+.thread-row.unread .row-subject {
+  font-weight: 690 !important;
+  opacity: 1 !important;
+}
+
+.message-row.unread .row-sender,
+.thread-row.unread .row-sender {
+  font-weight: 600 !important;
+  opacity: 0.98 !important;
+}
+
+.message-row:not(.unread) .row-subject,
+.thread-row:not(.unread) .row-subject {
+  font-weight: 560 !important;
+  opacity: 0.9 !important;
+}
+
+.message-row:not(.unread) .row-sender,
+.thread-row:not(.unread) .row-sender {
+  font-weight: 520 !important;
+  opacity: 0.86 !important;
+}
+
+.message-row:not(.unread) .thread-snippet,
+.thread-row:not(.unread) .thread-snippet,
+.message-row:not(.unread) .row-preview,
+.thread-row:not(.unread) .row-preview {
+  opacity: 0.62 !important;
+}
+
+.message-row:not(.unread) .row-date,
+.thread-row:not(.unread) .row-date,
+.message-row:not(.unread) .row-meta,
+.thread-row:not(.unread) .row-meta {
+  opacity: 0.72 !important;
 }

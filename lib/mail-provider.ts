@@ -5,6 +5,7 @@ import {
   getMessageDetail,
   listFolders,
   listMessages,
+  saveDraftMessage,
   sendMessage,
   updateMessage,
   updateMessageFlags
@@ -59,6 +60,11 @@ type MailProviderMutationAdapter = MailProviderAdapter & {
     accountId: string,
     payload: MailComposePayload
   ) => Promise<{ success: true }>;
+  saveComposedDraft?: (
+    accountId: string,
+    payload: MailComposePayload,
+    options?: { previousProviderDraftId?: string | null }
+  ) => Promise<{ success: true; folderPath: string; providerDraftId: string | null }>;
   updateProviderMessage?: (
     accountId: string,
     payload: MailUpdatePayload,
@@ -212,6 +218,21 @@ class ImapSmtpProviderAdapter implements MailProviderMutationAdapter {
       ...connection,
       ...payload
     });
+  }
+
+  async saveComposedDraft(
+    accountId: string,
+    payload: MailComposePayload,
+    options: { previousProviderDraftId?: string | null } = {}
+  ) {
+    const { connection } = await requireMailAccountConnection(accountId, payload.folder);
+    return saveDraftMessage(
+      {
+        ...connection,
+        ...payload
+      },
+      options
+    );
   }
 
   async updateProviderMessage(accountId: string, payload: MailUpdatePayload, uid: number) {
@@ -407,6 +428,20 @@ export async function sendAccountMessageViaProvider(
   }
 
   return adapter.sendComposedMessage(accountId, payload);
+}
+
+export async function saveAccountDraftViaProvider(
+  accountId: string,
+  payload: MailComposePayload,
+  options: { previousProviderDraftId?: string | null } = {}
+) {
+  const adapter = await getMailProviderAdapterForAccount(accountId);
+
+  if (!adapter.saveComposedDraft) {
+    throw new Error("Mail provider does not support draft save through the current route.");
+  }
+
+  return adapter.saveComposedDraft(accountId, payload, options);
 }
 
 export async function updateAccountMessageViaProvider(

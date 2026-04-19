@@ -15,6 +15,7 @@ const ELECTRON_MAIL_CHANNELS = {
   printToPdf: "mail:print-to-pdf",
   openComposeWindow: "mail:open-compose-window",
   openSettingsWindow: "mail:open-settings-window",
+  saveDraftToServer: "mail:save-draft-to-server",
   composeCloseRequested: "mail:compose-close-requested",
   respondComposeCloseRequest: "mail:respond-compose-close-request",
   openColorPicker: "color-picker:open",
@@ -51,14 +52,14 @@ const bridge = {
   deleteDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.deleteDraft, input),
   printToPdf: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.printToPdf, input),
   openComposeWindow: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openComposeWindow, input),
-  openSettingsWindow: (input) =>
-    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openSettingsWindow, input),
+  openSettingsWindow: () => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openSettingsWindow),
+  saveDraftToServer: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.saveDraftToServer, input),
   onComposeCloseRequested: (listener) => {
     if (typeof listener !== "function") {
       return () => {};
     }
-    const handler = (_event, payload) => {
-      listener(payload);
+    const handler = () => {
+      listener();
     };
     ipcRenderer.on(ELECTRON_MAIL_CHANNELS.composeCloseRequested, handler);
     return () => {

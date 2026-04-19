@@ -5,6 +5,7 @@ import {
   emptyAccountTrashViaProvider,
   deleteSenderMessagesViaProvider,
   sendAccountMessageViaProvider,
+  saveAccountDraftViaProvider,
   updateAccountFlagsViaProvider,
   updateAccountMessageViaProvider
 } from "@/lib/mail-provider";
@@ -120,6 +121,22 @@ export async function sendAccountMessage(accountId: string, payload: AccountComp
     ...connection,
     ...payload
   });
+}
+
+export async function saveAccountDraft(
+  accountId: string,
+  payload: AccountComposePayload,
+  options: { previousProviderDraftId?: string | null } = {}
+) {
+  const { connection } = await requireMailAccountConnection(accountId, payload.folder);
+  return saveAccountDraftViaProvider(
+    accountId,
+    {
+      ...connection,
+      ...payload
+    },
+    options
+  );
 }
 
 export async function recordAccountEvent(

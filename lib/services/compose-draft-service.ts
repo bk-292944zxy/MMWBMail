@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getLocalOwnerId } from "@/lib/local-owner";
 import { ServiceError } from "@/lib/services/service-error";
+import { saveAccountDraft } from "@/lib/mail-account-actions";
 import type {
   DraftSnapshotInput,
   SaveDraftResult,
@@ -24,6 +25,10 @@ export type ComposeDraftListPayload = {
 };
 
 export type ComposeDraftDeletePayload = {
+  draftId: string;
+};
+
+export type ComposeDraftServerSavePayload = {
   draftId: string;
 };
 
@@ -219,4 +224,98 @@ export async function deleteComposeDraftService(payload: ComposeDraftDeletePaylo
   });
 
   return { deleted: result.count > 0 };
+}
+
+function toCsv(values: string[] | undefined) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return "";
+  }
+  return values
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean)
+    .join(", ");
+}
+
+export async function saveComposeDraftToServerService(
+  payload: ComposeDraftServerSavePayload
+) {
+  const userId = await getLocalOwnerId();
+  const draftId = payload.draftId?.trim();
+
+  if (!draftId) {
+    throw new ServiceError("Draft id is required.", 400);
+  }
+
+  const record = await prisma.composeDraft.findFirst({
+    where: {
+      userId,
+      draftId
+    }
+  });
+
+  if (!record) {
+    throw new ServiceError("Draft not found.", 404);
+  }
+
+  const draft = parseStoredDraftRecord(record.dataJson);
+  const accountId = resolveDraftAccountId(draft);
+  if (!accountId) {
+    throw new ServiceError("Draft account is required.", 400);
+  }
+
+  await assertOwnedAccount(userId, accountId);
+
+  const fromAddress =
+    draft.composeIdentity?.sender?.address?.trim() ||
+    "";
+  const fromName = draft.composeIdentity?.sender?.displayName?.trim() || "";
+
+  const saveResult = await saveAccountDraft(
+    accountId,
+    {
+      folder: "INBOX",
+      fromAddress: fromAddress || undefined,
+      fromName: fromName || undefined,
+      to: toCsv(draft.to),
+      cc: toCsv(draft.cc),
+      bcc: toCsv(draft.bcc),
+      replyTo: draft.replyTo?.trim() || draft.composeIdentity?.replyTo?.trim() || undefined,
+      subject: draft.subject ?? "",
+      text: draft.textBody ?? "",
+      html: draft.htmlBody ?? undefined,
+      attachments: []
+    },
+    {
+      previousProviderDraftId: draft.providerDraftId ?? null
+    }
+  );
+
+  const savedAt = new Date();
+  const savedAtIso = savedAt.toISOString();
+  const nextDraft: StoredComposerDraft = {
+    ...draft,
+    providerDraftId: saveResult.providerDraftId,
+    updatedAt: savedAtIso,
+    savedAt: savedAtIso
+  };
+
+  await prisma.composeDraft.update({
+    where: {
+      userId_draftId: {
+        userId,
+        draftId
+      }
+    },
+    data: {
+      dataJson: JSON.stringify(nextDraft),
+      lastSavedRevision: nextDraft.lastSavedRevision,
+      savedAt
+    }
+  });
+
+  return {
+    saved: true,
+    providerDraftId: saveResult.providerDraftId,
+    folderPath: saveResult.folderPath
+  };
 }
