@@ -23,6 +23,7 @@ export const ELECTRON_MAIL_CHANNELS = {
   deleteDraft: "mail:delete-draft",
   printToPdf: "mail:print-to-pdf",
   openComposeWindow: "mail:open-compose-window",
+  openSettingsWindow: "mail:open-settings-window",
   composeCloseRequested: "mail:compose-close-requested",
   respondComposeCloseRequest: "mail:respond-compose-close-request",
   openColorPicker: "color-picker:open",
@@ -100,8 +101,27 @@ export type ElectronOpenComposeWindowInput = {
   draftId?: string | null;
 };
 
+export type ElectronOpenSettingsWindowInput = {
+  tab?: "ui" | "account" | "ai" | "sorting" | "blocked" | "rules";
+};
+
+export type ElectronComposeCloseRequestMode = "probe" | "save";
+
+export type ElectronComposeCloseRequestedPayload = {
+  requestId?: string;
+  mode?: ElectronComposeCloseRequestMode;
+};
+
+export type ElectronComposeCloseDecision =
+  | "save"
+  | "discard"
+  | "cancel"
+  | "clean"
+  | "dirty";
+
 export type ElectronRespondComposeCloseRequestInput = {
-  decision: "save" | "discard" | "cancel";
+  decision: ElectronComposeCloseDecision;
+  requestId?: string;
 };
 
 export type ElectronMailBridge = {
@@ -127,7 +147,8 @@ export type ElectronMailBridge = {
   deleteDraft(input: ElectronDeleteDraftInput): Promise<{ deleted: boolean }>;
   printToPdf(input: ElectronPrintToPdfInput): Promise<ElectronPrintToPdfResult>;
   openComposeWindow(input?: ElectronOpenComposeWindowInput): Promise<{ opened: boolean }>;
-  onComposeCloseRequested?(listener: () => void): () => void;
+  openSettingsWindow(input?: ElectronOpenSettingsWindowInput): Promise<{ opened: boolean }>;
+  onComposeCloseRequested?(listener: (payload?: ElectronComposeCloseRequestedPayload) => void): () => void;
   respondComposeCloseRequest?(
     input: ElectronRespondComposeCloseRequestInput
   ): Promise<{ closed: boolean }>;

@@ -4920,6 +4920,10 @@ function resolveInitialActiveAccountId(accounts: MailAccountSummary[]) {
 
 export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccountSummary[] }) {
   const initialActiveAccountId = resolveInitialActiveAccountId(initialAccounts);
+  const settingsTabFromSearchParam =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("settingsTab")
+      : null;
   const composeOnlyWindowDetected =
     typeof window !== "undefined" &&
     (() => {
@@ -4927,6 +4931,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         window as typeof window & {
           maximailDesktop?: {
             isComposeWindow?: boolean;
+            isSettingsWindow?: boolean;
           };
         }
       ).maximailDesktop;
@@ -4936,11 +4941,28 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       return desktopBridge?.isComposeWindow === true || hasComposeRoute;
     })();
+  const settingsOnlyWindowDetected =
+    typeof window !== "undefined" &&
+    (() => {
+      const desktopBridge = (
+        window as typeof window & {
+          maximailDesktop?: {
+            isSettingsWindow?: boolean;
+          };
+        }
+      ).maximailDesktop;
+
+      const hasSettingsRoute =
+        new URLSearchParams(window.location.search).get("settings") === "1";
+
+      return desktopBridge?.isSettingsWindow === true || hasSettingsRoute;
+    })();
   const composeRouteDraftId =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("draftId")
       : null;
   const [composeOnlyWindow, setComposeOnlyWindow] = useState(false);
+  const [settingsOnlyWindow, setSettingsOnlyWindow] = useState(false);
   const isElectronDesktop =
     typeof window !== "undefined" &&
     (
@@ -5138,7 +5160,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   const sidebarShellRef = useRef<HTMLDivElement | null>(null);
   const [composeContentState, setComposeContentState] = useState<ComposeContentState | null>(null);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
-  const [composeCloseConfirmOpen, setComposeCloseConfirmOpen] = useState(false);
   const [composeAiOpen, setComposeAiOpen] = useState(false);
   const [composeAiType, setComposeAiType] = useState<AiTransformType>("rewrite");
   const [composeAiCategory, setComposeAiCategory] = useState<string | null>(null);
@@ -5629,6 +5650,26 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setComposeOnlyWindow(true);
     }
   }, [composeOnlyWindowDetected]);
+  useEffect(() => {
+    if (settingsOnlyWindowDetected) {
+      setSettingsOnlyWindow(true);
+    }
+  }, [settingsOnlyWindowDetected]);
+  useEffect(() => {
+    if (!settingsOnlyWindow || !hasHydrated) {
+      return;
+    }
+
+    const validTabs = new Set(["ui", "account", "ai", "sorting", "blocked", "rules"]);
+    const requestedTab =
+      settingsTabFromSearchParam && validTabs.has(settingsTabFromSearchParam)
+        ? (settingsTabFromSearchParam as "ui" | "account" | "ai" | "sorting" | "blocked" | "rules")
+        : "ui";
+
+    setSettingsTab(requestedTab);
+    setSettingsSearch("");
+    setSettingsOpen(true);
+  }, [hasHydrated, settingsOnlyWindow, settingsTabFromSearchParam]);
   const [workspaceActiveDivider, setWorkspaceActiveDivider] = useState<"sidebar" | "list" | null>(
     null
   );
@@ -11079,7 +11120,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       setShowBcc(false);
       setShowReplyTo(false);
       setDiscardConfirmOpen(false);
-      setComposeCloseConfirmOpen(false);
       savedRangeRef.current = null;
       void clearPersistedComposeDraft();
       if (composeEditorRef.current) {
@@ -11170,7 +11210,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     }
 
     setDiscardConfirmOpen(false);
-    setComposeCloseConfirmOpen(false);
     lastEditableRef.current = null;
       setComposeOpen(false);
       setComposeSessionContext(null);
@@ -11210,7 +11249,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setShowBcc(false);
     setShowReplyTo(false);
     savedRangeRef.current = null;
-    setComposeCloseConfirmOpen(false);
     void clearPersistedComposeDraft();
 
     if (composeEditorRef.current) {
@@ -11337,7 +11375,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         requestId: Date.now()
       });
 
-      if (result.savedRevision < composeLocalRevisionRef.current) {
+      if (!showFeedback && result.savedRevision < composeLocalRevisionRef.current) {
         return false;
       }
 
@@ -11359,6 +11397,25 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return false;
     }
   }
+
+  const hasComposeUnsavedChanges = useCallback(() => {
+    if (!composeOpen) {
+      return false;
+    }
+
+    if (composeDraftStatus === "failed") {
+      return true;
+    }
+
+    if (
+      composeDraftStatus === "saving" ||
+      composeDraftStatus === "unsaved"
+    ) {
+      return true;
+    }
+
+    return composeLocalRevisionRef.current > composeLastSavedRevisionRef.current;
+  }, [composeDraftStatus, composeOpen]);
 
   async function saveDraftAndCloseComposeWindow() {
     const saved = await persistComposeDraftNow(true);
@@ -13288,21 +13345,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   }, [composeOnlyWindow, composeOpen, hasHydrated, composeRouteDraftId]);
 
   useEffect(() => {
-    if (!composeOnlyWindow || !hasHydrated || typeof window === "undefined") {
-      return;
-    }
-
-    const bridge = (window.maximailDesktop as ElectronMailBridge | undefined);
-    if (!bridge?.onComposeCloseRequested) {
-      return;
-    }
-
-    return bridge.onComposeCloseRequested(() => {
-      setComposeCloseConfirmOpen(true);
-    });
-  }, [composeOnlyWindow, hasHydrated]);
-
-  useEffect(() => {
     if (!composeOnlyWindow || !hasHydrated) {
       return;
     }
@@ -13318,6 +13360,50 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
     window.close();
   }, [composeOnlyWindow, composeOpen, hasHydrated]);
+
+  useEffect(() => {
+    if (!composeOnlyWindow || typeof window === "undefined") {
+      return;
+    }
+
+    const bridge = (
+      window as typeof window & {
+        maximailDesktop?: ElectronMailBridge;
+      }
+    ).maximailDesktop;
+
+    if (!bridge?.onComposeCloseRequested || !bridge.respondComposeCloseRequest) {
+      return;
+    }
+    const respondComposeCloseRequest = bridge.respondComposeCloseRequest;
+
+    return bridge.onComposeCloseRequested((payload) => {
+      void (async () => {
+        const requestId =
+          payload && typeof payload === "object" && typeof payload.requestId === "string"
+            ? payload.requestId
+            : undefined;
+        const mode =
+          payload && typeof payload === "object" && payload.mode === "probe"
+            ? "probe"
+            : "save";
+
+        if (mode === "probe") {
+          await respondComposeCloseRequest({
+            requestId,
+            decision: hasComposeUnsavedChanges() ? "dirty" : "clean"
+          });
+          return;
+        }
+
+        const saved = await persistComposeDraftNow(false);
+        await respondComposeCloseRequest({
+          requestId,
+          decision: saved ? "save" : "cancel"
+        });
+      })();
+    });
+  }, [composeOnlyWindow, hasComposeUnsavedChanges, persistComposeDraftNow]);
 
   function startMessageCompose(intentKind: MessageComposeIntentKind, message: MailDetail) {
     const draftId = createComposeDraftId();
@@ -14179,10 +14265,53 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     setAccountFormMode("add");
   }
 
-  function openAddAccountRecovery() {
-    setSettingsTab("account");
+  function requestDesktopSettingsWindow(tab?: "ui" | "account" | "ai" | "sorting" | "blocked" | "rules") {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    const bridge = (
+      window as typeof window & {
+        maximailDesktop?: {
+          openSettingsWindow?: (input?: {
+            tab?: "ui" | "account" | "ai" | "sorting" | "blocked" | "rules";
+          }) => Promise<{ opened: boolean }>;
+        };
+      }
+    ).maximailDesktop;
+    if (!bridge?.openSettingsWindow) {
+      return false;
+    }
+    void bridge.openSettingsWindow(tab ? { tab } : undefined);
+    return true;
+  }
+
+  function openSettingsSurface(tab?: "ui" | "account" | "ai" | "sorting" | "blocked" | "rules") {
+    if (
+      isElectronRuntime &&
+      !composeOnlyWindow &&
+      !settingsOnlyWindow &&
+      requestDesktopSettingsWindow(tab)
+    ) {
+      return;
+    }
+
+    if (tab) {
+      setSettingsTab(tab);
+    }
     setSettingsSearch("");
     setSettingsOpen(true);
+  }
+
+  function closeSettingsSurface() {
+    setSettingsOpen(false);
+    setSettingsSearch("");
+    if (settingsOnlyWindow && typeof window !== "undefined") {
+      window.close();
+    }
+  }
+
+  function openAddAccountRecovery() {
+    openSettingsSurface("account");
     openAddAccount();
   }
 
@@ -18506,7 +18635,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       if (meta && event.key === ",") {
         event.preventDefault();
-        setSettingsOpen(true);
+        openSettingsSurface();
         return;
       }
 
@@ -18626,7 +18755,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
   ]);
 
   return (
-    <main className={`shell ${composeOnlyWindow ? "compose-only-mode" : ""}`}>
+    <main
+      className={`shell ${composeOnlyWindow ? "compose-only-mode" : ""} ${
+        settingsOnlyWindow ? "settings-only-mode" : ""
+      }`}
+    >
       {hasHydrated && !isElectronRuntime ? (
         <div className="menubar" onMouseDown={(event) => event.stopPropagation()}>
         <div className="menubar-item-wrap">
@@ -18643,7 +18776,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div
                 className="menu-item"
                 onMouseDown={() => {
-                  setSettingsOpen(true);
+                  openSettingsSurface();
                   setOpenMenu(null);
                 }}
               >
@@ -23842,21 +23975,15 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
       {settingsOpen ? (
         <div
-          className="modal-overlay"
-          onClick={() => {
-            setSettingsOpen(false);
-            setSettingsSearch("");
-          }}
+          className={`modal-overlay ${settingsOnlyWindow ? "settings-window-standalone" : ""}`}
+          onClick={closeSettingsSurface}
         >
           <div className="modal settings-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Settings</div>
               <button
                 className="modal-close"
-                onClick={() => {
-                  setSettingsOpen(false);
-                  setSettingsSearch("");
-                }}
+                onClick={closeSettingsSurface}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m6 6 12 12" />
@@ -26348,8 +26475,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         className="ghostButton"
                         onClick={() => {
                           setSettingsTab("ai");
-                          setSettingsSearch("");
-                          setSettingsOpen(true);
+                          openSettingsSurface("ai");
                         }}
                       >
                         Open Settings
@@ -26379,8 +26505,7 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                           className="ghostButton compose-ai-action-secondary"
                           onClick={() => {
                             setSettingsTab("ai");
-                            setSettingsSearch("");
-                            setSettingsOpen(true);
+                            openSettingsSurface("ai");
                           }}
                         >
                           Open Settings
@@ -27264,58 +27389,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               </button>
               <button className="modal-btn-confirm" onClick={() => void handlePrintAction()}>
                 {printFormat === "pdf" ? "Save as PDF" : "Print"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {composeCloseConfirmOpen ? (
-        <div className="modal-overlay" onClick={() => setComposeCloseConfirmOpen(false)}>
-          <div className="modal discard-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Save Draft?</div>
-            </div>
-            <div className="modal-body">
-              <p style={{ fontSize: "13px", color: "var(--text2)", margin: 0, lineHeight: 1.6 }}>
-                Save this draft before closing the compose window?
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button
-                className="modal-btn-cancel"
-                onClick={async () => {
-                  setComposeCloseConfirmOpen(false);
-                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
-                  await bridge?.respondComposeCloseRequest?.({ decision: "cancel" });
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="modal-btn-delete"
-                onClick={async () => {
-                  setComposeCloseConfirmOpen(false);
-                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
-                  await bridge?.respondComposeCloseRequest?.({ decision: "discard" });
-                }}
-              >
-                Don&apos;t Save
-              </button>
-              <button
-                className="modal-btn-confirm"
-                onClick={async () => {
-                  const saved = await persistComposeDraftNow(true);
-                  if (!saved) {
-                    setStatus("Unable to save draft.");
-                    return;
-                  }
-                  const bridge = window.maximailDesktop as ElectronMailBridge | undefined;
-                  await bridge?.respondComposeCloseRequest?.({ decision: "save" });
-                  setComposeCloseConfirmOpen(false);
-                }}
-              >
-                Save Draft
               </button>
             </div>
           </div>

@@ -61,10 +61,13 @@ let packagedServerProcess = null;
 let packagedServerPort = null;
 let mainWindow = null;
 let composeWindow = null;
+let settingsWindow = null;
 let appIsQuitting = false;
-let appQuitPendingFromCompose = false;
+let appQuitFlowInProgress = false;
 const composeCloseBypassIds = new Set();
-const composeClosePromptPendingIds = new Set();
+const composeCloseResolutionInFlightIds = new Set();
+const composeCloseResponseResolvers = new Map();
+const composeWindowIds = new Set();
 const fallbackLogPath = path.join(process.env.TMPDIR || "/tmp", "maximail-packaged-startup.log");
 let aliasResolutionConfigured = false;
 
@@ -242,20 +245,7 @@ function getActiveWindow() {
 }
 
 function openRendererSettings(window = getActiveWindow()) {
-  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
-    return;
-  }
-
-  window.webContents.sendInputEvent({
-    type: "keyDown",
-    keyCode: ",",
-    modifiers: ["meta"]
-  });
-  window.webContents.sendInputEvent({
-    type: "keyUp",
-    keyCode: ",",
-    modifiers: ["meta"]
-  });
+  createSettingsWindow();
 }
 
 function buildComposeWindowUrl(options = {}) {
@@ -265,6 +255,184 @@ function buildComposeWindowUrl(options = {}) {
     composeUrl.searchParams.set("draftId", options.draftId.trim());
   }
   return composeUrl.toString();
+}
+
+function buildSettingsWindowUrl(options = {}) {
+  const settingsUrl = new URL(startUrl);
+  settingsUrl.searchParams.set("settings", "1");
+  if (typeof options.tab === "string" && options.tab.trim().length > 0) {
+    settingsUrl.searchParams.set("settingsTab", options.tab.trim());
+  }
+  return settingsUrl.toString();
+}
+
+function getOpenComposeWindows() {
+  return BrowserWindow.getAllWindows().filter((window) => {
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+    return composeWindowIds.has(window.id);
+  });
+}
+
+function makeComposeCloseResponseKey(windowId, requestId) {
+  return `${windowId}:${requestId}`;
+}
+
+function clearComposeCloseResolversForWindow(windowId) {
+  const prefix = `${windowId}:`;
+  for (const [responseKey, resolver] of composeCloseResponseResolvers.entries()) {
+    if (!responseKey.startsWith(prefix)) {
+      continue;
+    }
+    composeCloseResponseResolvers.delete(responseKey);
+    resolver("cancel");
+  }
+}
+
+function awaitComposeRendererDecision(window, mode, timeoutMs = 15000) {
+  const fallbackDecision = mode === "probe" ? "dirty" : "cancel";
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+    return Promise.resolve(fallbackDecision);
+  }
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const responseKey = makeComposeCloseResponseKey(window.id, requestId);
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      composeCloseResponseResolvers.delete(responseKey);
+      logLine("composeClose: renderer-response-timeout", {
+        windowId: window.id,
+        mode,
+        requestId
+      });
+      resolve(fallbackDecision);
+    }, timeoutMs);
+
+    composeCloseResponseResolvers.set(responseKey, (decision) => {
+      clearTimeout(timer);
+      resolve(decision);
+    });
+
+    window.webContents.send(ELECTRON_MAIL_CHANNELS.composeCloseRequested, {
+      requestId,
+      mode
+    });
+  });
+}
+
+async function resolveComposeWindowClose(window, source = "window-close") {
+  if (!window || window.isDestroyed()) {
+    return true;
+  }
+
+  if (composeCloseBypassIds.has(window.id)) {
+    composeCloseBypassIds.delete(window.id);
+    return true;
+  }
+
+  if (composeCloseResolutionInFlightIds.has(window.id)) {
+    return false;
+  }
+
+  composeCloseResolutionInFlightIds.add(window.id);
+  try {
+    const probeDecision = await awaitComposeRendererDecision(window, "probe");
+    const hasUnsavedChanges = probeDecision !== "clean";
+
+    if (!hasUnsavedChanges) {
+      logLine("composeClose: clean-close", { windowId: window.id, source });
+      return true;
+    }
+
+    const result = await dialog.showMessageBox(window, {
+      type: "question",
+      buttons: ["Save Draft", "Don't Save", "Cancel"],
+      defaultId: 0,
+      cancelId: 2,
+      message: "Save draft before closing?",
+      detail: "You can keep this draft and come back later."
+    });
+
+    if (window.isDestroyed()) {
+      return false;
+    }
+
+    if (result.response === 2) {
+      logLine("composeClose: cancelled", { windowId: window.id, source });
+      return false;
+    }
+
+    if (result.response === 1) {
+      logLine("composeClose: discard", { windowId: window.id, source });
+      return true;
+    }
+
+    const saveDecision = await awaitComposeRendererDecision(window, "save");
+    const allowClose = saveDecision === "save";
+    logLine("composeClose: save-result", {
+      windowId: window.id,
+      source,
+      saveDecision,
+      allowClose
+    });
+    return allowClose;
+  } finally {
+    composeCloseResolutionInFlightIds.delete(window.id);
+  }
+}
+
+function closeWindowAndWait(window, timeoutMs = 6000) {
+  if (!window || window.isDestroyed()) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve(window.isDestroyed());
+    }, timeoutMs);
+
+    window.once("closed", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+
+    window.close();
+  });
+}
+
+async function orchestrateAppQuit() {
+  const openComposeWindows = getOpenComposeWindows();
+  for (const composeCandidate of openComposeWindows) {
+    const allowClose = await resolveComposeWindowClose(composeCandidate, "app-quit");
+    if (!allowClose) {
+      logLine("appQuit: cancelled-by-compose", { windowId: composeCandidate.id });
+      return false;
+    }
+  }
+
+  for (const composeCandidate of openComposeWindows) {
+    if (!composeCandidate || composeCandidate.isDestroyed()) {
+      continue;
+    }
+    composeCloseBypassIds.add(composeCandidate.id);
+    const closed = await closeWindowAndWait(composeCandidate);
+    if (!closed) {
+      composeCloseBypassIds.delete(composeCandidate.id);
+      logLine("appQuit: compose-close-timeout", { windowId: composeCandidate.id });
+      return false;
+    }
+  }
+
+  appIsQuitting = true;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window && !window.isDestroyed()) {
+      window.close();
+    }
+  }
+  app.quit();
+  return true;
 }
 
 function createComposeWindow(options = {}) {
@@ -335,67 +503,112 @@ function createComposeWindow(options = {}) {
     window.focus();
   });
 
-  window.on("close", async (event) => {
+  composeWindowIds.add(window.id);
+
+  window.on("close", (event) => {
     if (composeCloseBypassIds.has(window.id)) {
       composeCloseBypassIds.delete(window.id);
       return;
     }
 
     event.preventDefault();
-
-    if (composeClosePromptPendingIds.has(window.id)) {
+    if (composeCloseResolutionInFlightIds.has(window.id)) {
       return;
     }
 
-    const result = await dialog.showMessageBox(window, {
-      type: "question",
-      buttons: ["Save Draft", "Don't Save", "Cancel"],
-      defaultId: 0,
-      cancelId: 2,
-      message: "Save draft before closing?",
-      detail: "You can keep this draft and come back later."
-    });
-
-    if (window.isDestroyed()) {
-      return;
-    }
-
-    if (result.response === 2) {
-      if (appQuitPendingFromCompose) {
-        appQuitPendingFromCompose = false;
-        appIsQuitting = false;
+    void (async () => {
+      const allowClose = await resolveComposeWindowClose(window, "window-close");
+      if (!allowClose || window.isDestroyed()) {
+        return;
       }
-      return;
-    }
-
-    if (result.response === 1) {
       composeCloseBypassIds.add(window.id);
-      window.close();
-      return;
-    }
-
-    composeClosePromptPendingIds.add(window.id);
-    logLine("composeWindow close requested", { id: window.id });
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send(ELECTRON_MAIL_CHANNELS.composeCloseRequested);
-      return;
-    }
-
-    composeClosePromptPendingIds.delete(window.id);
+      await closeWindowAndWait(window);
+    })();
   });
 
   window.on("closed", () => {
     logLine("composeWindow closed");
     composeCloseBypassIds.delete(window.id);
-    composeClosePromptPendingIds.delete(window.id);
+    composeCloseResolutionInFlightIds.delete(window.id);
+    clearComposeCloseResolversForWindow(window.id);
+    composeWindowIds.delete(window.id);
     composeWindow = null;
-    if (appQuitPendingFromCompose) {
-      appQuitPendingFromCompose = false;
-      app.quit();
-    }
   });
 
   composeWindow = window;
+  return window;
+}
+
+function createSettingsWindow(options = {}) {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    const nextUrl = buildSettingsWindowUrl(options);
+    if (settingsWindow.webContents.getURL() !== nextUrl) {
+      logLine("createSettingsWindow: reload-existing", { url: nextUrl });
+      settingsWindow.loadURL(nextUrl);
+    }
+    if (settingsWindow.isMinimized()) {
+      settingsWindow.restore();
+    }
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+
+  const window = new BrowserWindow({
+    width: 920,
+    height: 780,
+    minWidth: 760,
+    minHeight: 620,
+    show: false,
+    movable: true,
+    autoHideMenuBar: true,
+    ...(process.platform === "darwin"
+      ? {
+          title: BLANK_WINDOW_TITLE
+        }
+      : {}),
+    modal: false,
+    backgroundColor: "#f5f2ee",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      devTools: allowDevTools,
+      additionalArguments: ["--maximail-settings-window=1"]
+    }
+  });
+
+  const settingsUrl = buildSettingsWindowUrl(options);
+  if (typeof window.setParentWindow === "function") {
+    window.setParentWindow(null);
+  }
+  logLine("createSettingsWindow: created", {
+    id: window.id,
+    parentId: window.getParentWindow()?.id ?? null,
+    isModal: typeof window.isModal === "function" ? window.isModal() : false
+  });
+  logLine("createSettingsWindow: loadURL", { settingsUrl });
+  window.loadURL(settingsUrl);
+  window.setTitle(BLANK_WINDOW_TITLE);
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (!window.isDestroyed()) {
+      window.setTitle(BLANK_WINDOW_TITLE);
+    }
+  });
+
+  window.once("ready-to-show", () => {
+    logLine("settingsWindow ready-to-show");
+    window.show();
+    window.focus();
+  });
+
+  window.on("closed", () => {
+    logLine("settingsWindow closed");
+    settingsWindow = null;
+  });
+
+  settingsWindow = window;
   return window;
 }
 
@@ -990,6 +1203,20 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle(ELECTRON_MAIL_CHANNELS.openSettingsWindow, async (_event, input) => {
+    try {
+      createSettingsWindow({
+        tab:
+          input && typeof input === "object" && typeof input.tab === "string"
+            ? input.tab
+            : null
+      });
+      return { opened: true };
+    } catch (error) {
+      throw toIpcError(error, "Unable to open settings window.");
+    }
+  });
+
   ipcMain.handle(ELECTRON_MAIL_CHANNELS.respondComposeCloseRequest, async (event, input) => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
     if (!senderWindow || senderWindow.isDestroyed()) {
@@ -997,7 +1224,21 @@ function registerIpcHandlers() {
     }
 
     const decision = input?.decision;
-    composeClosePromptPendingIds.delete(senderWindow.id);
+    const requestId =
+      input && typeof input === "object" && typeof input.requestId === "string"
+        ? input.requestId.trim()
+        : "";
+
+    if (requestId.length > 0) {
+      const responseKey = makeComposeCloseResponseKey(senderWindow.id, requestId);
+      const resolver = composeCloseResponseResolvers.get(responseKey);
+      if (resolver) {
+        composeCloseResponseResolvers.delete(responseKey);
+        resolver(decision);
+        return { closed: false };
+      }
+    }
+
     if (decision === "save" || decision === "discard") {
       composeCloseBypassIds.add(senderWindow.id);
       senderWindow.close();
@@ -1125,22 +1366,24 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  if (
-    composeWindow &&
-    !composeWindow.isDestroyed() &&
-    !composeCloseBypassIds.has(composeWindow.id)
-  ) {
-    event.preventDefault();
-    appQuitPendingFromCompose = true;
-    if (!composeClosePromptPendingIds.has(composeWindow.id)) {
-      composeWindow.focus();
-      composeWindow.close();
-    }
+  if (appIsQuitting) {
+    stopPackagedLocalServer();
     return;
   }
 
-  appIsQuitting = true;
-  stopPackagedLocalServer();
+  event.preventDefault();
+  if (appQuitFlowInProgress) {
+    return;
+  }
+
+  appQuitFlowInProgress = true;
+  void (async () => {
+    const didStartQuit = await orchestrateAppQuit();
+    if (!didStartQuit) {
+      appIsQuitting = false;
+    }
+    appQuitFlowInProgress = false;
+  })();
 });
 
 app.on("window-all-closed", () => {

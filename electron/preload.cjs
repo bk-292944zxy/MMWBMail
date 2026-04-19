@@ -14,6 +14,7 @@ const ELECTRON_MAIL_CHANNELS = {
   deleteDraft: "mail:delete-draft",
   printToPdf: "mail:print-to-pdf",
   openComposeWindow: "mail:open-compose-window",
+  openSettingsWindow: "mail:open-settings-window",
   composeCloseRequested: "mail:compose-close-requested",
   respondComposeCloseRequest: "mail:respond-compose-close-request",
   openColorPicker: "color-picker:open",
@@ -26,11 +27,15 @@ const ELECTRON_MAIL_CHANNELS = {
 const isComposeWindow = process.argv.some((arg) =>
   arg === "--maximail-compose-window=1" || arg.startsWith("--maximail-compose-window=1")
 );
+const isSettingsWindow = process.argv.some((arg) =>
+  arg === "--maximail-settings-window=1" || arg.startsWith("--maximail-settings-window=1")
+);
 
 const bridge = {
   version: 2,
   isElectron: true,
   isComposeWindow,
+  isSettingsWindow,
   listAccounts: () => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.listAccounts),
   verifyAccount: (payload) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.verifyAccount, payload),
   createAccount: (payload) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.createAccount, payload),
@@ -46,12 +51,14 @@ const bridge = {
   deleteDraft: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.deleteDraft, input),
   printToPdf: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.printToPdf, input),
   openComposeWindow: (input) => ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openComposeWindow, input),
+  openSettingsWindow: (input) =>
+    ipcRenderer.invoke(ELECTRON_MAIL_CHANNELS.openSettingsWindow, input),
   onComposeCloseRequested: (listener) => {
     if (typeof listener !== "function") {
       return () => {};
     }
-    const handler = () => {
-      listener();
+    const handler = (_event, payload) => {
+      listener(payload);
     };
     ipcRenderer.on(ELECTRON_MAIL_CHANNELS.composeCloseRequested, handler);
     return () => {

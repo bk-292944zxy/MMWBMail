@@ -4019,6 +4019,39 @@ button[class*="Compose"]:not(.compose-header-btn):not(.compose-attach-remove):no
   display: none !important;
 }
 
+.shell.settings-only-mode {
+  background: transparent !important;
+}
+
+.shell.settings-only-mode > * {
+  display: none !important;
+}
+
+.shell.settings-only-mode > .settings-window-standalone {
+  display: flex !important;
+}
+
+.shell.settings-only-mode > .settings-window-standalone {
+  position: fixed !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+.shell.settings-only-mode > .settings-window-standalone .settings-modal {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
 .compose-window.compose-window-compose-only {
   left: 0 !important;
   top: 0 !important;
