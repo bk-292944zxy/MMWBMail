@@ -2468,6 +2468,26 @@ function normalizeComposeColorValue(value: string) {
 
 const COMPOSE_RECENT_COLORS_STORAGE_KEY = "mmwbmail-compose-recent-colors";
 const COMPOSE_RECENT_COLORS_LIMIT = 8;
+const COMPOSE_COLOR_SWATCHES = [
+  "#111827",
+  "#374151",
+  "#6b7280",
+  "#9ca3af",
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#84cc16",
+  "#22c55e",
+  "#10b981",
+  "#14b8a6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#3b82f6",
+  "#6366f1",
+  "#8b5cf6",
+  "#d946ef",
+  "#ec4899"
+];
 
 function loadComposeRecentColors() {
   if (typeof window === "undefined") {
@@ -5087,6 +5107,13 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     loadComposeRecentColors()
   );
   const composeColorInputRef = useRef<HTMLInputElement | null>(null);
+  const composeColorPaletteAnchorRef = useRef<HTMLElement | null>(null);
+  const composeColorPaletteRef = useRef<HTMLDivElement | null>(null);
+  const [composeColorPaletteOpen, setComposeColorPaletteOpen] = useState(false);
+  const [composeColorPalettePosition, setComposeColorPalettePosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printTargetUid, setPrintTargetUid] = useState<number | null>(null);
   const [printScope, setPrintScope] = useState<PrintScope>("message");
@@ -8959,7 +8986,8 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     if (
       !composeToolbarMenuOpen &&
       !composeToolbarOverflowOpen &&
-      !composeQuickInsertOpen
+      !composeQuickInsertOpen &&
+      !composeColorPaletteOpen
     ) {
       return;
     }
@@ -8973,6 +9001,10 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         composeToolbarOverflowPopoverRef.current?.contains(target);
       const insideQuickInsert = composeQuickInsertRef.current?.contains(target);
       const insideQuickInsertPopover = composeQuickInsertPopoverRef.current?.contains(target);
+      const insideColorPalette = composeColorPaletteRef.current?.contains(target);
+      const insideColorPaletteAnchor = composeColorPaletteAnchorRef.current?.contains(
+        target as Node
+      );
 
       if (
         !insideCustomize &&
@@ -8980,13 +9012,16 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         !insideOverflow &&
         !insideOverflowPopover &&
         !insideQuickInsert &&
-        !insideQuickInsertPopover
+        !insideQuickInsertPopover &&
+        !insideColorPalette &&
+        !insideColorPaletteAnchor
       ) {
         setComposeToolbarMenuOpen(false);
         setComposeToolbarMenuPosition(null);
         setComposeToolbarOverflowOpen(false);
         setComposeToolbarOverflowPosition(null);
         closeComposeQuickFact();
+        setComposeColorPaletteOpen(false);
       }
     };
 
@@ -8994,7 +9029,29 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
     };
-  }, [composeQuickInsertOpen, composeToolbarMenuOpen, composeToolbarOverflowOpen]);
+  }, [
+    composeColorPaletteOpen,
+    composeQuickInsertOpen,
+    composeToolbarMenuOpen,
+    composeToolbarOverflowOpen
+  ]);
+
+  useEffect(() => {
+    if (!composeColorPaletteOpen) {
+      setComposeColorPalettePosition(null);
+      return;
+    }
+    const syncColorPalettePosition = () => {
+      updateComposeColorPalettePosition();
+    };
+    syncColorPalettePosition();
+    window.addEventListener("resize", syncColorPalettePosition);
+    window.addEventListener("scroll", syncColorPalettePosition, true);
+    return () => {
+      window.removeEventListener("resize", syncColorPalettePosition);
+      window.removeEventListener("scroll", syncColorPalettePosition, true);
+    };
+  }, [composeColorPaletteOpen]);
 
   useEffect(() => {
     if (!composeToolbarMenuOpen) {
@@ -10391,36 +10448,53 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         ? { ...resolvedMessage, seen: true }
         : resolvedMessage;
       let finalSelectedMessage = nextSelectedMessage;
+      let recoveredOnRetry = false;
 
       if (messageDetailLooksUnresolved(nextSelectedMessage)) {
-        try {
-          const retryResponse = await withTimeout(
-            loadMessageDetailClient({
-              accountId: resolvedAccountId,
-              uid: message.uid,
-              folderPath: resolvedFolderPath
-            }),
-            MESSAGE_DETAIL_RETRY_TIMEOUT_MS,
-            "Timed out while retrying this message body."
-          );
+        const retryDelaysMs = [900, 2200];
 
+        for (const delayMs of retryDelaysMs) {
           if (openMessageSeqRef.current !== requestSeq) {
             return;
           }
 
-          const retriedMessage = stampMessageAccount(
-            retryResponse.message,
-            resolvedAccountId
-          );
-
-          if (!messageDetailLooksUnresolved(retriedMessage)) {
-            finalSelectedMessage =
-              shouldMarkSeen && !retriedMessage.seen
-                ? { ...retriedMessage, seen: true }
-                : retriedMessage;
+          if (delayMs > 0) {
+            await new Promise<void>((resolve) => {
+              globalThis.setTimeout(resolve, delayMs);
+            });
           }
-        } catch {
-          // Keep the current candidate if retry fails.
+
+          try {
+            const retryResponse = await withTimeout(
+              loadMessageDetailClient({
+                accountId: resolvedAccountId,
+                uid: message.uid,
+                folderPath: resolvedFolderPath
+              }),
+              MESSAGE_DETAIL_RETRY_TIMEOUT_MS,
+              "Timed out while retrying this message body."
+            );
+
+            if (openMessageSeqRef.current !== requestSeq) {
+              return;
+            }
+
+            const retriedMessage = stampMessageAccount(
+              retryResponse.message,
+              resolvedAccountId
+            );
+
+            if (!messageDetailLooksUnresolved(retriedMessage)) {
+              finalSelectedMessage =
+                shouldMarkSeen && !retriedMessage.seen
+                  ? { ...retriedMessage, seen: true }
+                  : retriedMessage;
+              recoveredOnRetry = true;
+              break;
+            }
+          } catch {
+            // Try the next retry window before falling back.
+          }
         }
       }
 
@@ -10455,7 +10529,11 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
         };
         setStatus(fallbackText);
       } else {
-        setStatus(`Viewing "${resolvedMessage.subject}".`);
+        setStatus(
+          recoveredOnRetry
+            ? `Loaded "${resolvedMessage.subject}" after retry.`
+            : `Viewing "${resolvedMessage.subject}".`
+        );
       }
 
       setSelectedMessage(finalSelectedMessage);
@@ -12141,11 +12219,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
 
   function openComposeNativeColorPanel() {
     const normalizedColor = normalizeComposeColorValue(composeSelectionColor) || "#0a84ff";
-    const bridge = window.maximailDesktop;
-    if (bridge?.openColorPicker) {
-      void bridge.openColorPicker(normalizedColor);
-      return;
-    }
     const input = composeColorInputRef.current;
     if (!input) {
       return;
@@ -12156,6 +12229,31 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
       return;
     }
     input.click();
+  }
+
+  function updateComposeColorPalettePosition(anchorElement?: HTMLElement | null) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const anchor = anchorElement ?? composeColorPaletteAnchorRef.current;
+    if (!anchor) {
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const paletteWidth = 208;
+    const viewportPadding = 10;
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      window.innerWidth - paletteWidth - viewportPadding
+    );
+    const top = Math.min(rect.bottom + 8, window.innerHeight - 240);
+    setComposeColorPalettePosition({ top, left });
+  }
+
+  function openComposeColorPalette(anchorElement: HTMLElement) {
+    composeColorPaletteAnchorRef.current = anchorElement;
+    updateComposeColorPalettePosition(anchorElement);
+    setComposeColorPaletteOpen(true);
   }
 
   function transformComposeSelectionCase(mode: "upper" | "lower" | "title") {
@@ -25750,13 +25848,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
               <div className="compose-fmt-row compose-fmt-row-primary">
                 {!composePlainText ? (
                   <button
+                    ref={(node) => {
+                      if (node) {
+                        composeColorPaletteAnchorRef.current = node;
+                      }
+                    }}
                     type="button"
                     className="fmt-btn fmt-btn-color"
                     title="Text color"
                     aria-label="Text color"
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      openComposeNativeColorPanel();
+                      openComposeColorPalette(event.currentTarget);
                     }}
                   >
                     <span
@@ -25846,25 +25949,6 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       pushComposeRecentColor(color);
                     }}
                   />
-                  {composeRecentColors.length > 0 ? (
-                    <div className="compose-color-recents-row" aria-label="Recent colors">
-                      {composeRecentColors.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className="compose-color-recent-swatch"
-                          style={{ backgroundColor: color }}
-                          aria-label={`Apply ${color}`}
-                          title={color}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            applyComposeSelectionColor(color);
-                            pushComposeRecentColor(color);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
                 </>
               ) : null}
               <div className="compose-fmt-row compose-fmt-row-ai">
@@ -27115,13 +27199,18 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                       }}
                     >
                       <button
+                        ref={(node) => {
+                          if (node) {
+                            composeColorPaletteAnchorRef.current = node;
+                          }
+                        }}
                         type="button"
                         className="compose-selection-toolbar-btn compose-selection-toolbar-btn-color"
                         title="Text color"
                         aria-label="Text color"
                         onMouseDown={(event) => {
                           event.preventDefault();
-                          openComposeNativeColorPanel();
+                          openComposeColorPalette(event.currentTarget);
                         }}
                       >
                         <svg
@@ -27186,6 +27275,79 @@ export function MailApp({ initialAccounts = [] }: { initialAccounts?: MailAccoun
                         );
                       })}
                     </div>
+                  </div>,
+                  document.body
+                )
+              : null}
+            {composeOpen &&
+            !composePlainText &&
+            composeColorPaletteOpen &&
+            composeColorPalettePosition &&
+            typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    ref={composeColorPaletteRef}
+                    className="compose-color-palette-popover"
+                    style={{
+                      top: composeColorPalettePosition.top,
+                      left: composeColorPalettePosition.left
+                    }}
+                    role="dialog"
+                    aria-label="Text color palette"
+                  >
+                    <div className="compose-color-palette-grid">
+                      {COMPOSE_COLOR_SWATCHES.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          className={`compose-color-palette-swatch ${
+                            normalizeComposeColorValue(composeSelectionColor) === color
+                              ? "is-active"
+                              : ""
+                          }`}
+                          style={{ backgroundColor: color }}
+                          title={color}
+                          aria-label={`Apply ${color}`}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            applyComposeSelectionColor(color);
+                            pushComposeRecentColor(color);
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {composeRecentColors.length > 0 ? (
+                      <div className="compose-color-palette-recents">
+                        <span className="compose-color-palette-recents-label">Recent</span>
+                        <div className="compose-color-recents-row" aria-label="Recent colors">
+                          {composeRecentColors.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              className="compose-color-recent-swatch"
+                              style={{ backgroundColor: color }}
+                              aria-label={`Apply ${color}`}
+                              title={color}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                applyComposeSelectionColor(color);
+                                pushComposeRecentColor(color);
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="compose-color-palette-more"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        openComposeNativeColorPanel();
+                      }}
+                    >
+                      Show Colors…
+                    </button>
                   </div>,
                   document.body
                 )
